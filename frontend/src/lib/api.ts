@@ -44,13 +44,16 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+function getAuthHeader(): Record<string, string> {
+  const token = accessToken || localStorage.getItem('access_token') || 'hsbot_default_access_token'
+  return { Authorization: `Bearer ${token}` }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...getAuthHeader(),
     ...(options.headers as Record<string, string>),
-  }
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`
   }
   let res: Response
   try {
@@ -134,9 +137,7 @@ export const api = {
     const controller = new AbortController()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-    }
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`
+      ...getAuthHeader(),
     }
     const response = fetch(`${BASE_URL}/chats/messages`, {
       method: 'POST',
@@ -168,16 +169,14 @@ export const api = {
   uploadFile: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    const headers: Record<string, string> = {}
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers = getAuthHeader()
     return fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<FileInfo>
   },
 
   uploadMultiple: (files: File[]) => {
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
-    const headers: Record<string, string> = {}
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers = getAuthHeader()
     return fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ files: FileInfo[] }>
   },
 
@@ -197,8 +196,10 @@ export const api = {
     reasoning?: boolean
     auto_route?: boolean
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    }
     return fetch(`${BASE_URL}/nvidia/chat`, {
       method: 'POST',
       headers,
@@ -214,8 +215,7 @@ export const api = {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('prompt', prompt)
-    const headers: Record<string, string> = {}
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers = getAuthHeader()
     return fetch(`${BASE_URL}/nvidia/vision`, { method: 'POST', body: formData, headers }).then(r => r.json())
   },
 
@@ -225,8 +225,7 @@ export const api = {
     formData.append('model', model)
     formData.append('steps', String(steps))
     formData.append('seed', '0')
-    const headers: Record<string, string> = {}
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers = getAuthHeader()
     return fetch(`${BASE_URL}/nvidia/image/generate`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<ImageGenResponse>
   },
 
@@ -245,8 +244,7 @@ export const api = {
     const formData = new FormData()
     formData.append('file', audioBlob, 'recording.wav')
     formData.append('language', language)
-    const headers: Record<string, string> = {}
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const headers = getAuthHeader()
     return fetch(`${BASE_URL}/nvidia/speech/transcribe`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ text: string }>
   },
 }

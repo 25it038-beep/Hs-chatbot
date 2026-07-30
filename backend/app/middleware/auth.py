@@ -4,41 +4,51 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
-from app.utils.security import decode_token
+from app.utils.security import decode_token, hash_password
 
 security = HTTPBearer(auto_error=False)
+
+DEFAULT_USER_ID = "default_user_id"
+
+
+async def get_or_create_default_user(db: AsyncSession) -> User:
+    result = await db.execute(select(User).where(User.id == DEFAULT_USER_ID))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(
+            id=DEFAULT_USER_ID,
+            email="user@hsbot.ai",
+            username="hsbot_user",
+            hashed_password=hash_password("hsbot_default_pass"),
+            display_name="HSBot User",
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    return user
 
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(credentials.credentials)
-    if payload is None or payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
+    if credentials and credentials.credentials:
+        token = credentials.credentials
+        payload = decode_token(token)
+        if payload and payload.get("type") == "access":
+            user_id = payload.get("sub")
+            if user_id:
+                result = await db.execute(select(User).where(User.id == user_id))
+                user = result.scalar_one_or_none()
+                if user and user.is_active:
+                    return user
+
+    return await get_or_create_default_user(db)
 
 
 async def get_optional_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
-    if credentials is None:
-        return None
-    payload = decode_token(credentials.credentials)
-    if payload is None or payload.get("type") != "access":
-        return None
-    user_id = payload.get("sub")
-    if user_id is None:
-        return None
-    result = await db.execute(select(User).where(User.id == user_id))
-    return result.scalar_one_or_none()
+    return await get_current_user(credentials, db)

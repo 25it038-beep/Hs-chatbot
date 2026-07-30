@@ -15,17 +15,22 @@ async def get_or_create_default_user(db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.id == DEFAULT_USER_ID))
     user = result.scalar_one_or_none()
     if not user:
-        user = User(
-            id=DEFAULT_USER_ID,
-            email="user@hsbot.ai",
-            username="hsbot_user",
-            hashed_password=hash_password("hsbot_default_pass"),
-            display_name="HSBot User",
-            is_active=True,
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            user = User(
+                id=DEFAULT_USER_ID,
+                email="user@hsbot.ai",
+                username="hsbot_user",
+                hashed_password=hash_password("hsbot_default_pass"),
+                display_name="HSBot User",
+                is_active=True,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        except Exception:
+            await db.rollback()
+            result = await db.execute(select(User).limit(1))
+            user = result.scalar_one_or_none()
     return user
 
 

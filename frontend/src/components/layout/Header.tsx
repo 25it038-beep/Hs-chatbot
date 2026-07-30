@@ -8,10 +8,19 @@ import {
 
 const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 
+function ClerkUserAvatar() {
+  const { isSignedIn } = useUser()
+  if (!isSignedIn) return null
+  return (
+    <div className="flex items-center">
+      <UserButton afterSignOutUrl="/" />
+    </div>
+  )
+}
+
 export function Header() {
   const { toggleSettings } = useSettings()
   const { theme, setTheme } = useTheme()
-  const { isSignedIn } = useUser()
 
   return (
     <header className="flex items-center justify-between px-4 h-12 border-b border-border/50 bg-background/30 backdrop-blur-md relative z-10">
@@ -27,11 +36,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
-        {HAS_CLERK && isSignedIn && (
-          <div className="flex items-center">
-            <UserButton afterSignOutUrl="/" />
-          </div>
-        )}
+        {HAS_CLERK && <ClerkUserAvatar />}
         <Button
           variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-muted-foreground/60 hover:text-foreground"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}

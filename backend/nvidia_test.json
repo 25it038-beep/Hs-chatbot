@@ -1,0 +1,1 @@
+{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"say hi in one word"}],"max_tokens":10,"stream":false}

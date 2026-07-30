@@ -1,0 +1,269 @@
+import { create } from 'zustand'
+import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
+import { api } from '@/lib/api'
+
+interface ChatState {
+  chats: Chat[]
+  currentChat: Chat | null
+  messages: Message[]
+  folders: ChatFolder[]
+  models: ModelInfo[]
+  streaming: boolean
+  streamingContent: string
+  generatingImage: boolean
+  loading: boolean
+
+  chatMessages: Record<string, Message[]>
+  chatStreamingContent: Record<string, string>
+  streamingChatIds: string[]
+
+  loadChats: () => Promise<void>
+  loadFolders: () => Promise<void>
+  loadModels: () => Promise<void>
+  selectChat: (id: string) => Promise<void>
+  createChat: () => Promise<Chat>
+  deleteChat: (id: string) => Promise<void>
+  sendMessage: (content: string, chatId?: string) => Promise<void>
+  cancelStream: (chatId?: string) => void
+}
+
+export const useChat = create<ChatState>((set, get) => {
+  const streamControllers: Record<string, AbortController> = {}
+
+  const syncDisplay = () => {
+    const { currentChat, chatMessages, chatStreamingContent, streamingChatIds, generatingImage } = get()
+    if (!currentChat) {
+      set({ messages: [], streaming: false, streamingContent: '', generatingImage: false })
+      return
+    }
+    set({
+      messages: chatMessages[currentChat.id] || [],
+      streaming: streamingChatIds.includes(currentChat.id),
+      streamingContent: chatStreamingContent[currentChat.id] || '',
+      generatingImage: generatingImage,
+    })
+  }
+
+  return {
+    chats: [],
+    currentChat: null,
+    messages: [],
+    folders: [],
+    models: [],
+    streaming: false,
+    streamingContent: '',
+    generatingImage: false,
+    loading: false,
+
+    chatMessages: {},
+    chatStreamingContent: {},
+    streamingChatIds: [],
+
+    loadChats: async () => {
+      try {
+        const chats = await api.listChats()
+        set({ chats })
+      } catch { /* ignore */ }
+    },
+
+    loadFolders: async () => {
+      try {
+        const folders = await api.listFolders()
+        set({ folders })
+      } catch { /* ignore */ }
+    },
+
+    loadModels: async () => {
+      try {
+        const models = await api.listModels()
+        set({ models })
+      } catch { /* ignore */ }
+    },
+
+    selectChat: async (id: string) => {
+      const { chats, chatMessages } = get()
+      const chat = chats.find(c => c.id === id) || await api.getChat(id)
+      if (!chatMessages[id]) {
+        const messages = await api.getMessages(id)
+        set(state => ({ chatMessages: { ...state.chatMessages, [id]: messages } }))
+      }
+      set({ currentChat: chat })
+      syncDisplay()
+    },
+
+    createChat: async () => {
+      const chat = await api.createChat({ model: 'deepseek-v4-flash', provider: 'nvidia' })
+      set(state => ({
+        chats: [chat, ...state.chats],
+        currentChat: chat,
+        chatMessages: { ...state.chatMessages, [chat.id]: [] },
+      }))
+      syncDisplay()
+      return chat
+    },
+
+    deleteChat: async (id: string) => {
+      streamControllers[id]?.abort()
+      delete streamControllers[id]
+      await api.deleteChat(id)
+      set(state => {
+        const { [id]: _, ...restMessages } = state.chatMessages
+        const { [id]: __, ...restStreaming } = state.chatStreamingContent
+        return {
+          chats: state.chats.filter(c => c.id !== id),
+          currentChat: state.currentChat?.id === id ? null : state.currentChat,
+          chatMessages: restMessages,
+          chatStreamingContent: restStreaming,
+          streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
+        }
+      })
+      syncDisplay()
+    },
+
+    sendMessage: async (content: string, chatId?: string) => {
+      const { currentChat, chatMessages } = get()
+      const chat = chatId ? get().chats.find(c => c.id === chatId) : currentChat
+
+      if (!chat) {
+        const newChat = await get().createChat()
+        await get().sendMessage(content, newChat.id)
+        return
+      }
+
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        chat_id: chat.id,
+        role: 'user',
+        content,
+        token_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date().toISOString(),
+      }
+
+      const updatedMessages = [...(chatMessages[chat.id] || []), userMsg]
+
+      set(state => ({
+        chatMessages: { ...state.chatMessages, [chat.id]: updatedMessages },
+        streamingChatIds: [...state.streamingChatIds, chat.id],
+        chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: '' },
+      }))
+      if (get().currentChat?.id === chat.id) syncDisplay()
+
+      try {
+        const abortController = new AbortController()
+        streamControllers[chat.id] = abortController
+
+        const reader = await api.nvidiaChatStream({
+          message: content,
+          chat_id: chat.id,
+          model: chat.model || 'deepseek-v4-flash',
+          stream: true,
+          auto_route: true,
+        }, abortController.signal)
+
+        const decoder = new TextDecoder()
+        let fullContent = ''
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim()
+              if (data === '[DONE]') continue
+              try {
+                const chunk = JSON.parse(data)
+                if (chunk.type === 'content' && chunk.content) {
+                  fullContent += chunk.content
+                  set(state => ({
+                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ streamingContent: fullContent })
+                  }
+                } else if (chunk.type === 'generating') {
+                  fullContent = 'Generating image...'
+                  set(state => ({
+                    generatingImage: true,
+                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ generatingImage: true, streamingContent: fullContent })
+                  }
+                } else if (chunk.type === 'image') {
+                  fullContent = `<img src="data:image/png;base64,${chunk.content}" alt="Generated image" style="max-width:100%;border-radius:8px;" />`
+                  set(state => ({
+                    generatingImage: false,
+                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ generatingImage: false, streamingContent: fullContent })
+                  }
+                } else if (chunk.type === 'meta') {
+                  if (chunk.chat_id && chunk.chat_id !== chat.id) {
+                    set(state => ({
+                      currentChat: state.currentChat ? { ...state.currentChat, id: chunk.chat_id } : null,
+                    }))
+                  }
+                } else if (chunk.type === 'error') {
+                  console.error('Stream error:', chunk.content)
+                }
+              } catch { /* ignore */ }
+            }
+          }
+        }
+
+        const assistantMsg: Message = {
+          id: crypto.randomUUID(),
+          chat_id: chat.id,
+          role: 'assistant',
+          content: fullContent,
+          token_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          created_at: new Date().toISOString(),
+        }
+
+        const finalMessages = [...(get().chatMessages[chat.id] || []), assistantMsg]
+        set(state => {
+          const { [chat.id]: _, ...rest } = state.chatStreamingContent
+          return {
+            chatMessages: { ...state.chatMessages, [chat.id]: finalMessages },
+            streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+            chatStreamingContent: rest,
+          }
+        })
+        if (get().currentChat?.id === chat.id) syncDisplay()
+
+        await get().loadChats()
+      } catch (error) {
+        console.error('Send error:', error)
+        set(state => ({
+          streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+        }))
+        if (get().currentChat?.id === chat.id) syncDisplay()
+      } finally {
+        delete streamControllers[chat.id]
+      }
+    },
+
+    cancelStream: (chatId?: string) => {
+      const id = chatId || get().currentChat?.id
+      if (id) {
+        streamControllers[id]?.abort()
+        delete streamControllers[id]
+        set(state => ({
+          streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
+        }))
+        syncDisplay()
+      }
+    },
+  }
+})

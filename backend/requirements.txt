@@ -1,0 +1,52 @@
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.3
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+alembic==1.14.0
+aiosqlite==0.20.0
+asyncpg==0.30.0
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.18
+
+# AI Providers
+openai==1.57.0
+anthropic==0.47.0
+google-genai==0.3.0
+httpx==0.28.1
+
+# File Processing
+pypdf2==3.0.1
+python-docx==1.1.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+pandas==2.2.3
+pytesseract==0.3.13
+pillow==11.1.0
+markdown==3.7.0
+python-magic==0.4.27
+
+# Data Science / Code
+black==24.10.0
+autopep8==2.3.1
+
+# RAG
+qdrant-client==1.13.0
+sentence-transformers==3.3.1
+
+# Background Tasks
+celery==5.4.0
+redis==5.2.1
+
+# Utils
+typer==0.13.1
+rich==13.9.4
+loguru==0.7.3
+aiofiles==24.1.0

@@ -1,0 +1,69 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
+import os
+from pathlib import Path
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).parent.parent / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    app_name: str = "HSBot"
+    app_version: str = "1.0.0"
+    app_env: str = "development"
+    secret_key: str = "change-this-to-a-random-secret-key"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
+    database_url: str = "sqlite+aiosqlite:///./data/hsbot.db"
+
+    redis_url: str = "redis://localhost:6379/0"
+
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "hsbot_docs"
+
+    nvidia_api_keys: str = ""
+    nvidia_default_chat_model: str = "deepseek-v4-pro"
+    nvidia_default_code_model: str = "deepseek-coder"
+    nvidia_default_vision_model: str = "nemotron-vl"
+    nvidia_default_image_model: str = "nemotron-vl"
+    nvidia_default_embed_model: str = "nv-embed-v1"
+
+    openai_api_key: Optional[str] = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_default_model: str = "gpt-4o"
+
+    anthropic_api_key: Optional[str] = None
+    anthropic_default_model: str = "claude-sonnet-4-20250514"
+
+    google_api_key: Optional[str] = None
+    google_default_model: str = "gemini-2.5-flash"
+
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_default_model: str = "llama3.1"
+
+    azure_openai_api_key: Optional[str] = None
+    azure_openai_endpoint: Optional[str] = None
+    azure_openai_deployment: Optional[str] = None
+
+    openrouter_api_key: Optional[str] = None
+    openrouter_default_model: Optional[str] = None
+
+    lm_studio_base_url: str = "http://localhost:1234"
+
+    upload_dir: str = "./data/uploads"
+    max_file_size_mb: int = 50
+
+    cors_origins: str = "http://localhost:5173,http://localhost:1420,tauri://localhost"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",")]
+
+
+settings = Settings()
+os.makedirs(settings.upload_dir, exist_ok=True)
+os.makedirs("./data", exist_ok=True)

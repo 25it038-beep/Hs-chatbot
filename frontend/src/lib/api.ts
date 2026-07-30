@@ -1,0 +1,217 @@
+import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
+
+const BASE_URL = '/api'
+
+let accessToken: string | null = localStorage.getItem('access_token')
+let refreshToken: string | null = localStorage.getItem('refresh_token')
+
+export function setTokens(access: string, refresh: string) {
+  accessToken = access
+  refreshToken = refresh
+  localStorage.setItem('access_token', access)
+  localStorage.setItem('refresh_token', refresh)
+}
+
+export function clearTokens() {
+  accessToken = null
+  refreshToken = null
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshToken) return false
+  try {
+    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) return false
+    const data: TokenResponse = await res.json()
+    setTokens(data.access_token, data.refresh_token)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  }
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`
+  }
+  let res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  if (res.status === 401 && refreshToken) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+      res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+    }
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Request failed')
+  }
+  return res.json()
+}
+
+export const api = {
+  // Auth
+  login: (username: string, password: string) =>
+    request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+
+  register: (email: string, username: string, password: string) =>
+    request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) }),
+
+  getMe: () => request<User>('/auth/me'),
+
+  // Chats
+  listChats: (folderId?: string) =>
+    request<Chat[]>(`/chats${folderId ? `?folder_id=${folderId}` : ''}`),
+
+  getChat: (id: string) => request<Chat>(`/chats/${id}`),
+
+  createChat: (data: Partial<Chat>) =>
+    request<Chat>('/chats', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateChat: (id: string, data: Partial<Chat>) =>
+    request<Chat>(`/chats/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  deleteChat: (id: string) =>
+    request<void>(`/chats/${id}`, { method: 'DELETE' }),
+
+  getMessages: (chatId: string) =>
+    request<Message[]>(`/chats/${chatId}/messages`),
+
+  sendMessageStream: (data: {
+    message: string
+    chat_id?: string
+    model?: string
+    provider?: string
+    system_prompt?: string
+    temperature?: number
+    max_tokens?: number
+  }): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+    const controller = new AbortController()
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+    }
+    const response = fetch(`${BASE_URL}/chats/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...data, stream: true }),
+      signal: controller.signal,
+    })
+    return response.then((res) => {
+      if (!res.ok) throw new Error('Stream request failed')
+      return res.body!.getReader()
+    })
+  },
+
+  // Folders
+  listFolders: () => request<ChatFolder[]>('/chats/folders'),
+
+  createFolder: (data: { name: string; icon?: string; color?: string }) =>
+    request<ChatFolder>('/chats/folders', { method: 'POST', body: JSON.stringify(data) }),
+
+  deleteFolder: (id: string) =>
+    request<void>(`/chats/folders/${id}`, { method: 'DELETE' }),
+
+  // Models
+  listModels: () => request<ModelInfo[]>('/models'),
+
+  listProviders: () => request<ProviderInfo[]>('/models/providers'),
+
+  // Files
+  uploadFile: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<FileInfo>
+  },
+
+  uploadMultiple: (files: File[]) => {
+    const formData = new FormData()
+    files.forEach(f => formData.append('files', f))
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ files: FileInfo[] }>
+  },
+
+  health: () => request<{ status: string }>('/health'),
+
+  // NVIDIA
+  nvidiaChatStream: (data: {
+    message: string
+    chat_id?: string
+    model?: string
+    system_prompt?: string
+    temperature?: number
+    max_tokens?: number
+    top_p?: number
+    stream?: boolean
+    json_mode?: boolean
+    reasoning?: boolean
+    auto_route?: boolean
+  }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/nvidia/chat`, {
+      method: 'POST',
+      headers,
+      signal,
+      body: JSON.stringify({ ...data, stream: true }),
+    }).then(res => {
+      if (!res.ok) throw new Error('NVIDIA stream failed')
+      return res.body!.getReader()
+    })
+  },
+
+  nvidiaVision: (file: File, prompt: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('prompt', prompt)
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/nvidia/vision`, { method: 'POST', body: formData, headers }).then(r => r.json())
+  },
+
+  nvidiaGenerateImage: (prompt: string, model = 'flux-1-dev', steps = 20) => {
+    const formData = new FormData()
+    formData.append('prompt', prompt)
+    formData.append('model', model)
+    formData.append('steps', String(steps))
+    formData.append('seed', '0')
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/nvidia/image/generate`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<ImageGenResponse>
+  },
+
+  nvidiaEmbed: (texts: string[], model = 'nv-embed-v1') =>
+    request<{ embeddings: number[][]; model: string; dimensions: number }>('/nvidia/embeddings', {
+      method: 'POST',
+      body: JSON.stringify({ texts, model }),
+    }),
+
+  nvidiaRoute: (message: string) =>
+    request<{ task: string; model: string; available_fallbacks: string[] }>(`/nvidia/route?message=${encodeURIComponent(message)}`),
+
+  nvidiaUsage: () => request<any>('/nvidia/usage'),
+
+  speechTranscribe: (audioBlob: Blob, language = 'en') => {
+    const formData = new FormData()
+    formData.append('file', audioBlob, 'recording.wav')
+    formData.append('language', language)
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return fetch(`${BASE_URL}/nvidia/speech/transcribe`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ text: string }>
+  },
+}

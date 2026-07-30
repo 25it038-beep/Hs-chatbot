@@ -57,11 +57,11 @@ class Settings(BaseSettings):
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50
 
-    cors_origins: str = "http://localhost:5173,http://localhost:1420,tauri://localhost,http://localhost:80,http://localhost,http://127.0.0.1:5173,http://127.0.0.1:80,http://127.0.0.1"
+    cors_origins: str = "*"
 
     @property
     def cors_origin_list(self) -> list[str]:
-        if not self.cors_origins or self.cors_origins.strip() == "*":
+        if not self.cors_origins or "*" in [o.strip() for o in self.cors_origins.split(",")]:
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 

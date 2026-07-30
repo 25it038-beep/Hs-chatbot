@@ -1,6 +1,6 @@
 import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
 
-const BASE_URL = '/api'
+const BASE_URL = (import.meta.env.VITE_API_URL as string) || '/api'
 
 let accessToken: string | null = localStorage.getItem('access_token')
 let refreshToken: string | null = localStorage.getItem('refresh_token')
@@ -44,17 +44,44 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`
   }
-  let res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
-  if (res.status === 401 && refreshToken) {
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  } catch {
+    throw new Error('Unable to connect to server. Please verify backend is running.')
+  }
+
+  if (res.status === 401 && refreshToken && path !== '/auth/login' && path !== '/auth/register') {
     const refreshed = await refreshAccessToken()
     if (refreshed) {
       headers['Authorization'] = `Bearer ${accessToken}`
-      res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+      try {
+        res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+      } catch {
+        throw new Error('Unable to connect to server. Please verify backend is running.')
+      }
     }
   }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Request failed')
+    let errorMessage = `Request failed with status ${res.status}`
+    try {
+      const err = await res.json()
+      if (typeof err.detail === 'string' && err.detail.trim()) {
+        errorMessage = err.detail
+      } else if (Array.isArray(err.detail) && err.detail.length > 0) {
+        errorMessage = err.detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+      } else if (err.detail && typeof err.detail === 'object') {
+        errorMessage = JSON.stringify(err.detail)
+      } else if (err.message) {
+        errorMessage = err.message
+      } else if (res.statusText) {
+        errorMessage = `HTTP ${res.status}: ${res.statusText}`
+      }
+    } catch {
+      errorMessage = res.statusText ? `HTTP ${res.status}: ${res.statusText}` : `Request failed with status ${res.status}`
+    }
+    throw new Error(errorMessage)
   }
   return res.json()
 }

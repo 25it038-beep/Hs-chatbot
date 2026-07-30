@@ -1,6 +1,14 @@
 import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
 
-const BASE_URL = (import.meta.env.VITE_API_URL as string) || '/api'
+function getBaseUrl(): string {
+  const envUrl = (import.meta.env.VITE_API_URL as string)?.trim()
+  if (!envUrl) return '/api'
+  const cleanUrl = envUrl.replace(/\/+$/, '')
+  if (cleanUrl.endsWith('/api')) return cleanUrl
+  return `${cleanUrl}/api`
+}
+
+const BASE_URL = getBaseUrl()
 
 let accessToken: string | null = localStorage.getItem('access_token')
 let refreshToken: string | null = localStorage.getItem('refresh_token')

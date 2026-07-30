@@ -97,10 +97,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   // Auth
   login: (username: string, password: string) =>
-    request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+    request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password: password.slice(0, 72) }) }),
 
   register: (email: string, username: string, password: string) =>
-    request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) }),
+    request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password: password.slice(0, 72) }) }),
 
   getMe: () => request<User>('/auth/me'),
 

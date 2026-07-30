@@ -14,16 +14,22 @@ router = APIRouter(prefix="/api/chats", tags=["chats"])
 
 @router.post("", response_model=ChatResponse)
 async def create_chat(data: ChatCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    svc = ChatService(db)
-    chat = await svc.create_chat(current_user.id, data)
-    return ChatResponse.model_validate(chat)
+    try:
+        svc = ChatService(db)
+        chat = await svc.create_chat(current_user.id, data)
+        return ChatResponse.model_validate(chat)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Create chat error: {type(e).__name__}: {str(e)}")
 
 
 @router.get("", response_model=list[ChatResponse])
 async def list_chats(folder_id: str | None = Query(None), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    svc = ChatService(db)
-    chats = await svc.get_chats(current_user.id, folder_id)
-    return [ChatResponse.model_validate(c) for c in chats]
+    try:
+        svc = ChatService(db)
+        chats = await svc.get_chats(current_user.id, folder_id)
+        return [ChatResponse.model_validate(c) for c in chats]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"List chats error: {type(e).__name__}: {str(e)}")
 
 
 @router.get("/{chat_id}", response_model=ChatResponse)

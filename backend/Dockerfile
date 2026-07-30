@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ENV PIP_ROOT_USER_ACTION=ignore
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

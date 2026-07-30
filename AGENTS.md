@@ -7,9 +7,8 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - **Backend**: Python FastAPI, SQLAlchemy 2.0, SQLite/PostgreSQL, Celery, Redis
 - **Vector Store**: Qdrant
 - **AI Providers**: NVIDIA NIM, OpenAI, Anthropic, Google Gemini, Ollama, OpenRouter, LM Studio, Azure OpenAI
-- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS 4, Zustand, Radix UI
-- **Desktop**: Tauri 2 (Rust)
-- **Infra**: Docker Compose (backend, frontend, redis, qdrant)
+- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS 4, Zustand, Radix UI, Clerk Auth (`@clerk/clerk-react`)
+- **Authentication**: Clerk Authentication (`VITE_CLERK_PUBLISHABLE_KEY`) as primary default, with fallback JWT auth
 
 ## Key Structure
 - `backend/app/` - FastAPI server (main.py, config.py, database.py, models/, schemas/, api/, services/, middleware/)

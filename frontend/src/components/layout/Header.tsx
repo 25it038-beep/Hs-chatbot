@@ -1,13 +1,17 @@
 import { useSettings } from '@/stores/settings'
 import { useTheme } from 'next-themes'
+import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Settings, Sparkles, Cpu,
+  Sun, Moon, Settings, Sparkles,
 } from 'lucide-react'
+
+const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 
 export function Header() {
   const { toggleSettings } = useSettings()
   const { theme, setTheme } = useTheme()
+  const { isSignedIn } = useUser()
 
   return (
     <header className="flex items-center justify-between px-4 h-12 border-b border-border/50 bg-background/30 backdrop-blur-md relative z-10">
@@ -22,7 +26,12 @@ export function Header() {
         </span>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        {HAS_CLERK && isSignedIn && (
+          <div className="flex items-center">
+            <UserButton afterSignOutUrl="/" />
+          </div>
+        )}
         <Button
           variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-muted-foreground/60 hover:text-foreground"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { useUser } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'
 import { AnimatedBackground } from '@/components/animations/AnimatedBackground'
@@ -6,19 +7,31 @@ import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
+const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+
 export default function App() {
-  const { user, initialized, loadUser } = useAuth()
+  const { user: customUser, initialized, loadUser } = useAuth()
+  const { isLoaded: clerkLoaded, isSignedIn: clerkSignedIn } = useUser()
   const { loadChats, loadFolders, loadModels } = useChat()
 
-  useEffect(() => { loadUser() }, [loadUser])
+  const isAuthenticated = HAS_CLERK ? clerkSignedIn : Boolean(customUser)
+  const isReady = HAS_CLERK ? clerkLoaded : initialized
 
   useEffect(() => {
-    if (user) { loadChats(); loadFolders(); loadModels() }
-  }, [user, loadChats, loadFolders, loadModels])
+    if (!HAS_CLERK) loadUser()
+  }, [loadUser])
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadChats()
+      loadFolders()
+      loadModels()
+    }
+  }, [isAuthenticated, loadChats, loadFolders, loadModels])
 
   return (
     <AnimatedBackground>
-      {!initialized ? (
+      {!isReady ? (
         <div className="min-h-screen flex items-center justify-center relative z-10">
           <div className="flex flex-col items-center gap-4">
             <div className="relative w-10 h-10">
@@ -27,7 +40,7 @@ export default function App() {
             <p className="text-sm text-muted-foreground animate-pulse">Loading HSBot...</p>
           </div>
         </div>
-      ) : !user ? (
+      ) : !isAuthenticated ? (
         <AuthPage />
       ) : (
         <React.Fragment>

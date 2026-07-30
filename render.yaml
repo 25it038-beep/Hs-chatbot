@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: hs-chatbot-backend
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./data/hsbot.db
+      - key: CORS_ORIGINS
+        value: "*"

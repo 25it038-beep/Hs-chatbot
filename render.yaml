@@ -11,6 +11,6 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./data/hsbot.db
+        value: sqlite+aiosqlite:////tmp/hsbot.db
       - key: CORS_ORIGINS
         value: "*"

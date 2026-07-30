@@ -2,7 +2,7 @@ services:
   - type: web
     name: hs-chatbot-backend
     env: docker
-    dockerContext: ./backend
+    dockerContext: .
     dockerfilePath: ./backend/Dockerfile
     envVars:
       - key: APP_ENV

@@ -8,13 +8,13 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
-    truncated = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.hash(truncated)
+    safe_pass = str(password)[:72]
+    return pwd_context.hash(safe_pass)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    truncated = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.verify(truncated, hashed_password)
+    safe_pass = str(plain_password)[:72]
+    return pwd_context.verify(safe_pass, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

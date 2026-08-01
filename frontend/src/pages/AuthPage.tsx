@@ -32,14 +32,14 @@ export function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-      <div className="w-full max-w-sm animate-fade-in-up">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto mb-4 shadow-sm border border-primary/10">
+    <div className="min-h-screen flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative z-10 overflow-y-auto pt-safe pb-safe">
+      <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up my-auto">
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden mx-auto mb-3 sm:mb-4 shadow-sm border border-primary/10">
             <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Welcome to HSBot</h1>
-          <p className="text-sm text-muted-foreground/60 mt-1">Your AI-powered assistant</p>
+          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Welcome to HSBot</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground/60 mt-1">Your AI-powered assistant</p>
         </div>
 
         {HAS_CLERK ? (

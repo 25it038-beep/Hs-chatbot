@@ -40,6 +40,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 | `deepseek-v4-flash` | `deepseek-ai/deepseek-v4-flash` | 9-30s |
 | `deepseek-coder` | `deepseek-ai/deepseek-coder-6.7b-instruct` | 10-20s |
 | `codestral` | `mistralai/codestral-22b-instruct-v0.1` | 10-20s |
+| `flux-1-dev` | `black-forest-labs/flux.1-dev` | ~7-13s |
 | `nv-embed-v1` | `nvidia/nv-embed-v1` | <5s |
 | `nv-embedcode-7b` | `nvidia/nv-embedcode-7b-v1` | <5s |
 
@@ -48,12 +49,11 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - `qwen-2.5-72b` - Not on NVIDIA
 - `deepseek-r1` - Not on NVIDIA
 - `llama-code` - Not on NVIDIA
-- `flux-kontext-dev` - Not on NVIDIA (image gen endpoint still exists but likely fails)
 
 ### Known Issues
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.
 - `llama-3.3-70b` takes ~265s for first token; may timeout (backend timeout currently 300s). Not recommended for default fallback.
-- `flux-kontext-dev` (image gen) not available on NVIDIA API. Image endpoint returns error.
+
 
 ## Status
 Backend + Frontend both running. All 16 API tests pass. Frontend has "Thinking" pulse indicator while waiting for first streaming token from NVIDIA. Auth-protected CRUD works end-to-end via JWT tokens.

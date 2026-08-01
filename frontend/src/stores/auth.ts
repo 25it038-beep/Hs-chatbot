@@ -49,7 +49,7 @@ export const useAuth = create<AuthState>((set) => ({
   loadUser: async () => {
     const token = localStorage.getItem('access_token')
     if (!token) {
-      set({ initialized: true })
+      set({ user: null, initialized: true })
       return
     }
     try {
@@ -57,7 +57,7 @@ export const useAuth = create<AuthState>((set) => ({
       set({ user, initialized: true })
     } catch {
       clearTokens()
-      set({ initialized: true })
+      set({ user: null, initialized: true })
     }
   },
 }))

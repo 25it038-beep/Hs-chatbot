@@ -148,6 +148,7 @@ TASK_PATTERNS = {
         "what do you see", "extract text from image", "ocr",
     ],
     "image_generation": [
+        "/image", "/img", "/draw", "/generate-image",
         "generate", "create", "draw", "render", "illustrate",
         "make an image", "make a picture", "make a photo",
         "generate an image", "generate a picture", "generate a photo",
@@ -161,6 +162,7 @@ TASK_PATTERNS = {
         "render a", "render an", "render me",
         "illustrate a", "illustrate an",
     ],
+
 }
 
 CHAT_TASK_KEYWORDS = {

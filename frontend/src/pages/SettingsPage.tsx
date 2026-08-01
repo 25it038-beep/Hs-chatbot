@@ -31,20 +31,20 @@ export function SettingsPage() {
             onClick={() => setSettingsOpen(false)}
           />
           <motion.div
-            className="relative ml-auto w-full max-w-md glass-panel-strong shadow-2xl border-l border-glass-border"
+            className="relative ml-auto w-full sm:max-w-md h-full glass-panel-strong shadow-2xl border-l border-glass-border flex flex-col pt-safe pb-safe"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           >
-            <div className="flex items-center justify-between p-4 border-b border-border/50">
+            <div className="flex items-center justify-between p-4 border-b border-border/50 flex-shrink-0">
               <h2 className="font-semibold text-sm tracking-tight">Settings</h2>
               <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-muted-foreground/60 hover:text-foreground" onClick={() => setSettingsOpen(false)}>
                 <X size={15} />
               </Button>
             </div>
 
-            <ScrollArea className="h-[calc(100vh-60px)]">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="p-4 space-y-6">
                 {user && (
                   <section>

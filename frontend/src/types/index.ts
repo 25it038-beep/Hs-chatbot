@@ -115,3 +115,6 @@ export interface ChatRequest {
   files?: string[]
   tools?: Record<string, unknown>[]
 }
+
+export * from './command'
+

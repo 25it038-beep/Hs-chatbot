@@ -77,12 +77,15 @@
 
 * { border-color: var(--color-border); }
 
-body {
+html, body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+  touch-action: manipulation;
 }
 
 code, pre { font-family: 'JetBrains Mono', monospace; }
@@ -493,3 +496,18 @@ code, pre { font-family: 'JetBrains Mono', monospace; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================
+   MOBILE & TOUCH ACCESSIBILITY
+   ============================================ */
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+

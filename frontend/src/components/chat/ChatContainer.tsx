@@ -76,16 +76,16 @@ export function ChatContainer() {
   if (messages.length === 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex-1 flex items-center justify-center px-4">
-          <div className="text-center max-w-lg mx-auto animate-fade-in-up">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto mb-6 shadow-sm border border-primary/10">
+        <div className="flex-1 flex items-center justify-center px-3 sm:px-4 py-4 overflow-y-auto">
+          <div className="text-center max-w-lg mx-auto animate-fade-in-up my-auto">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden mx-auto mb-4 sm:mb-6 shadow-sm border border-primary/10">
               <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight mb-2">How can I help you?</h1>
-            <p className="text-sm text-muted-foreground/70 mb-8 max-w-sm mx-auto">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-2">How can I help you?</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground/70 mb-6 sm:mb-8 max-w-xs sm:max-w-sm mx-auto">
               I'm your AI assistant. Ask me anything — I can help with coding, analysis, research, and more.
             </p>
-            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 max-w-md mx-auto">
               {[
                 { icon: Code, label: 'Write code', prompt: 'Write a Python function to sort a list of dictionaries by a key', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/20 hover:border-blue-500/40' },
                 { icon: MessageSquare, label: 'Explain code', prompt: 'Explain how React hooks work with examples', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40' },
@@ -97,11 +97,11 @@ export function ChatContainer() {
                   <button
                     key={item.label}
                     onClick={() => handleSend(item.prompt)}
-                    className={`text-left p-3.5 rounded-xl border bg-gradient-to-br ${item.color} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0`}
+                    className={`text-left p-3 sm:p-3.5 rounded-xl border bg-gradient-to-br ${item.color} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0`}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 mb-1">
                       <Icon size={14} className="text-primary" />
-                      <span className="font-medium text-sm">{item.label}</span>
+                      <span className="font-medium text-xs sm:text-sm">{item.label}</span>
                     </div>
                     <p className="text-xs text-muted-foreground/60 line-clamp-1">{item.prompt}</p>
                   </button>

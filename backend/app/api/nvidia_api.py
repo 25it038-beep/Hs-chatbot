@@ -184,9 +184,12 @@ async def nvidia_chat(
                         if chat.title == "New Chat":
                             chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
                         await db.commit()
-                except (asyncio.CancelledError, GeneratorExit, Exception):
+                except (asyncio.CancelledError, GeneratorExit):
                     await db.rollback()
                     raise
+                except Exception as e:
+                    await db.rollback()
+                    yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
 
                 yield "data: [DONE]\n\n"
 
@@ -229,22 +232,28 @@ async def nvidia_chat(
     if request.stream:
         async def generate():
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
-            async for chunk in chat_provider.generate_stream(
-                messages=messages,
-                model=model,
-                system_prompt=system_prompt,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                top_p=request.top_p,
-                json_mode=request.json_mode,
-                reasoning=request.reasoning,
-            ):
-                yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+            try:
+                async for chunk in chat_provider.generate_stream(
+                    messages=messages,
+                    model=model,
+                    system_prompt=system_prompt,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    top_p=request.top_p,
+                    json_mode=request.json_mode,
+                    reasoning=request.reasoning,
+                ):
+                    yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+            except (asyncio.CancelledError, GeneratorExit):
+                raise
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
         })
+
     else:
         response = await chat_provider.generate(
             messages=messages,
@@ -274,16 +283,32 @@ async def nvidia_vision(
     return response
 
 
+class ImageGenRequest(BaseModel):
+    prompt: str
+    model: str = "flux-1-dev"
+    steps: int = 30
+    seed: int = 0
+
+
 @router.post("/image/generate")
 async def nvidia_image_generate(
-    prompt: str = Form(...),
-    model: str = Form("flux-1-dev"),
-    steps: int = Form(20),
-    seed: int = Form(0),
+    req: Optional[ImageGenRequest] = None,
+    prompt: Optional[str] = Form(None),
+    model: Optional[str] = Form(None),
+    steps: Optional[int] = Form(None),
+    seed: Optional[int] = Form(None),
 ):
+    actual_prompt = req.prompt if req else (prompt or "")
+    actual_model = (req.model if req else model) or "flux-1-dev"
+    actual_steps = (req.steps if req else steps) or 30
+    actual_seed = (req.seed if req else seed) or 0
+
+    if not actual_prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
     try:
         response = await image_provider.generate(
-            prompt=prompt, model=model, steps=steps, seed=seed,
+            prompt=actual_prompt, model=actual_model, steps=actual_steps, seed=actual_seed,
         )
         return response
     except httpx.TimeoutException:
@@ -292,6 +317,7 @@ async def nvidia_image_generate(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+
 
 
 @router.post("/image/edit")

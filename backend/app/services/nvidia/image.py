@@ -41,9 +41,11 @@ class NvidiaImageProvider:
 
         payload = {
             "prompt": prompt,
-            "steps": steps,
+            "mode": "base",
+            "steps": steps if model == "flux-1-dev" else min(steps, 4),
             "seed": seed,
         }
+
 
         if image:
             encoded = base64.b64encode(image).decode("utf-8")

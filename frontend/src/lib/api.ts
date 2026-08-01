@@ -205,10 +205,18 @@ export const api = {
       headers,
       signal,
       body: JSON.stringify({ ...data, stream: true }),
-    }).then(res => {
-      if (!res.ok) throw new Error('NVIDIA stream failed')
+    }).then(async res => {
+      if (!res.ok) {
+        let msg = `NVIDIA stream failed with status ${res.status}`
+        try {
+          const err = await res.json()
+          msg = err.detail || err.message || msg
+        } catch {}
+        throw new Error(msg)
+      }
       return res.body!.getReader()
     })
+
   },
 
   nvidiaVision: (file: File, prompt: string) => {

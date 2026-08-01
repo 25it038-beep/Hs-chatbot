@@ -13,20 +13,43 @@ import { formatDate } from '@/lib/utils'
 
 export function Sidebar() {
   const { chats, folders, currentChat, selectChat, createChat, deleteChat } = useChat()
-  const { sidebarOpen, toggleSidebar, toggleSettings } = useSettings()
+  const { sidebarOpen, setSidebarOpen, toggleSidebar, toggleSettings } = useSettings()
   const [search, setSearch] = React.useState('')
 
   const filteredChats = chats.filter(c =>
     !search || c.title?.toLowerCase().includes(search.toLowerCase())
   )
 
+  const handleSelectChat = (id: string) => {
+    selectChat(id)
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false)
+    }
+  }
+
+  const handleCreateChat = async () => {
+    await createChat()
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false)
+    }
+  }
+
   return (
     <>
+      {/* Mobile Backdrop Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-30 md:hidden animate-fade-in"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <div
         className={cn(
-          'flex flex-col h-full relative z-20 transition-all duration-300 ease-out',
+          'flex flex-col h-full z-40 md:z-20 transition-all duration-300 ease-out',
           'border-r border-border/30 bg-sidebar backdrop-blur-2xl shadow-glass',
-          sidebarOpen ? 'w-72' : 'w-0 overflow-hidden'
+          'fixed md:relative inset-y-0 left-0',
+          sidebarOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 overflow-hidden border-none'
         )}
       >
         <div className="flex items-center justify-between p-3 pb-2">
@@ -49,7 +72,7 @@ export function Sidebar() {
 
         <div className="px-3 pb-3">
           <Button
-            onClick={createChat}
+            onClick={handleCreateChat}
             className="w-full justify-start gap-2 rounded-xl bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/15 hover:to-primary/10 border border-primary/10 text-foreground shadow-sm"
             variant="ghost"
           >
@@ -94,7 +117,7 @@ export function Sidebar() {
                   ? 'bg-muted/60 text-foreground shadow-sm border border-border/20'
                   : 'text-muted-foreground/70 hover:bg-muted/30 hover:text-foreground border border-transparent'
               )}
-              onClick={() => selectChat(chat.id)}
+              onClick={() => handleSelectChat(chat.id)}
             >
               <MessageSquare size={13} className="flex-shrink-0 opacity-50" />
               <span className="flex-1 truncate">{chat.title || 'New Chat'}</span>
@@ -125,7 +148,10 @@ export function Sidebar() {
             variant="ghost"
             size="sm"
             className="w-full justify-start gap-2.5 rounded-xl text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 h-9"
-            onClick={toggleSettings}
+            onClick={() => {
+              toggleSettings()
+              if (window.innerWidth < 768) setSidebarOpen(false)
+            }}
           >
             <SettingsIcon size={14} />
             Settings
@@ -136,7 +162,7 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="absolute top-3 left-3 z-30 h-8 w-8 rounded-xl glass-panel shadow-soft flex items-center justify-center hover:bg-muted/70 transition-all animate-fade-in"
+          className="fixed top-3 left-3 z-30 h-8 w-8 rounded-xl glass-panel shadow-soft flex items-center justify-center hover:bg-muted/70 transition-all animate-fade-in md:hidden"
         >
           <PanelLeft size={15} />
         </button>

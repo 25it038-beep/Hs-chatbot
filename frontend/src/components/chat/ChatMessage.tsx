@@ -23,25 +23,25 @@ export function ChatMessage({ message, isStreaming, index = 0 }: ChatMessageProp
 
   return (
     <MessageEntrance index={index}>
-      <div className={cn('flex gap-3 md:gap-4 py-4 md:py-6 group', isUser ? 'flex-row-reverse' : '')}>
+      <div className={cn('flex gap-2.5 sm:gap-3 md:gap-4 py-3 sm:py-4 md:py-6 group min-w-0', isUser ? 'flex-row-reverse' : '')}>
         <div className={cn(
-          'flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center shadow-sm relative overflow-hidden glass-reflection',
+          'flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shadow-sm relative overflow-hidden glass-reflection',
           isUser
             ? 'bg-gradient-to-br from-primary to-primary/80 text-primary-foreground'
             : 'bg-gradient-to-br from-primary/10 to-primary/5 text-primary border border-primary/10'
         )}>
-          {isUser ? <User size={15} /> : <Bot size={15} />}
+          {isUser ? <User size={14} /> : <Bot size={14} />}
         </div>
 
-        <div className={cn('flex flex-col max-w-[85%] md:max-w-[75%]', isUser ? 'items-end' : 'items-start')}>
+        <div className={cn('flex flex-col min-w-0 max-w-[92%] sm:max-w-[85%] md:max-w-[75%]', isUser ? 'items-end' : 'items-start')}>
           <div className={cn(
-            'rounded-2xl px-4 py-3 transition-all duration-200',
+            'rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 transition-all duration-200 min-w-0 overflow-hidden',
             isUser
               ? 'bg-gradient-to-br from-primary to-primary/90 text-primary-foreground shadow-sm'
               : 'bg-muted/30 backdrop-blur-sm border border-border/30 hover:border-border/50 shadow-soft'
           )}>
             {isUser ? (
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+              <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
             ) : message.content.startsWith('<img ') ? (
               <div className="min-w-0">
                 <img
@@ -67,22 +67,22 @@ export function ChatMessage({ message, isStreaming, index = 0 }: ChatMessageProp
           </div>
 
           {!isUser && !isStreaming && message.content && (
-            <div className="flex items-center gap-0.5 mt-1.5 px-1.5 opacity-0 group-hover:opacity-100 transition-all duration-200">
+            <div className="flex items-center gap-0.5 mt-1 px-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200">
               <button
                 onClick={handleCopy}
-                className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
+                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
                 title="Copy response"
               >
                 {copied ? <Check size={12} /> : <Copy size={12} />}
               </button>
               <button
-                className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
+                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
                 title="Good response"
               >
                 <ThumbsUp size={12} />
               </button>
               <button
-                className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
+                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
                 title="Bad response"
               >
                 <ThumbsDown size={12} />

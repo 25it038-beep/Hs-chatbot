@@ -4,8 +4,8 @@
   "private": true,
   "description": "HSBot Multi-provider AI Assistant Workspace",
   "scripts": {
-    "build": "npm run build --prefix frontend",
-    "dev": "npm run dev --prefix frontend",
-    "preview": "npm run preview --prefix frontend"
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev",
+    "preview": "cd frontend && npm run preview"
   }
 }

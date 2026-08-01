@@ -3,6 +3,8 @@
   "name": "hs-chatbot",
   "compatibility_date": "2026-08-01",
   "assets": {
-    "directory": "./frontend/dist"
+    "directory": "./frontend/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application"
   }
 }

@@ -1,9 +1,22 @@
-# Exclude backend - it runs on Render/Railway/Docker, not Vercel serverless
+# Backend — runs on Render/Railway/Docker, NOT on Vercel
 backend/
+
+# Other non-frontend dirs
 desktop/
 scripts/
 data/
+
+# Python files anywhere in repo — prevent ALL serverless function detection
+*.py
+requirements*.txt
+Pipfile
+Pipfile.lock
+pyproject.toml
+setup.py
+setup.cfg
+
+# Docker / infra files
 docker-compose*.yml
-Dockerfile
+Dockerfile*
 render.yaml
 wrangler.jsonc

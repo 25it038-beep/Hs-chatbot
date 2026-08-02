@@ -8,6 +8,7 @@ import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
 const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true'
 
 function LoadingScreen() {
   return (
@@ -63,7 +64,12 @@ export default function App() {
 
   return (
     <AnimatedBackground>
-      {HAS_CLERK ? (
+      {BYPASS_AUTH ? (
+        <React.Fragment>
+          <ChatPage />
+          <SettingsPage />
+        </React.Fragment>
+      ) : HAS_CLERK ? (
         <ClerkAppInner />
       ) : !initialized ? (
         <LoadingScreen />

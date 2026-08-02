@@ -32,6 +32,28 @@ async def list_chats(folder_id: str | None = Query(None), current_user: User = D
         raise HTTPException(status_code=500, detail=f"List chats error: {type(e).__name__}: {str(e)}")
 
 
+@router.post("/folders", response_model=ChatFolderResponse)
+async def create_folder(data: ChatFolderCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    svc = ChatService(db)
+    folder = await svc.create_folder(current_user.id, data.name, data.icon, data.color)
+    return ChatFolderResponse.model_validate(folder)
+
+
+@router.get("/folders", response_model=list[ChatFolderResponse])
+async def list_folders(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    svc = ChatService(db)
+    folders = await svc.get_folders(current_user.id)
+    return [ChatFolderResponse.model_validate(f) for f in folders]
+
+
+@router.delete("/folders/{folder_id}")
+async def delete_folder(folder_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    svc = ChatService(db)
+    if not await svc.delete_folder(folder_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return {"message": "Folder deleted"}
+
+
 @router.get("/{chat_id}", response_model=ChatResponse)
 async def get_chat(chat_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     svc = ChatService(db)
@@ -79,25 +101,3 @@ async def send_message(request: ChatRequest, current_user: User = Depends(get_cu
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     })
-
-
-@router.post("/folders", response_model=ChatFolderResponse)
-async def create_folder(data: ChatFolderCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    svc = ChatService(db)
-    folder = await svc.create_folder(current_user.id, data.name, data.icon, data.color)
-    return ChatFolderResponse.model_validate(folder)
-
-
-@router.get("/folders", response_model=list[ChatFolderResponse])
-async def list_folders(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    svc = ChatService(db)
-    folders = await svc.get_folders(current_user.id)
-    return [ChatFolderResponse.model_validate(f) for f in folders]
-
-
-@router.delete("/folders/{folder_id}")
-async def delete_folder(folder_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    svc = ChatService(db)
-    if not await svc.delete_folder(folder_id, current_user.id):
-        raise HTTPException(status_code=404, detail="Folder not found")
-    return {"message": "Folder deleted"}

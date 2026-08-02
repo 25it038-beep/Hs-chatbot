@@ -1,7 +1,7 @@
 import os
 import uuid
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -47,6 +47,7 @@ async def analyze_file_text(text: str, filename: str) -> Optional[str]:
 @router.post("/upload", response_model=FileResponse)
 async def upload_file(
     file: UploadFile = File(...),
+    analyze: bool = Form(False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,7 +69,7 @@ async def upload_file(
 
     RAGService.cache_file(current_user.id, file.filename or "unknown", file_path, result["text"], file_id)
 
-    analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+    analysis = await analyze_file_text(result["text"], file.filename or "unknown") if analyze else None
 
     return FileResponse(
         id=file_id,
@@ -84,6 +85,7 @@ async def upload_file(
 @router.post("/upload-multiple")
 async def upload_multiple_files(
     files: list[UploadFile] = File(...),
+    analyze: bool = Form(False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -101,7 +103,7 @@ async def upload_multiple_files(
             await f.write(content)
         rag = RAGService(db, current_user.id)
         result = await rag.process_file(file_path, file.filename or "unknown", file_id)
-        analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+        analysis = await analyze_file_text(result["text"], file.filename or "unknown") if analyze else None
         results.append(FileResponse(
             id=file_id,
             filename=file.filename or "unknown",

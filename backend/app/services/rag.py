@@ -39,6 +39,14 @@ class RAGService:
         return None
 
     @staticmethod
+    def get_cached_file_path(user_id: str, filename_hint: str) -> Optional[str]:
+        files = _file_cache.get(user_id, [])
+        for f in files:
+            if filename_hint.lower() in f["filename"].lower():
+                return f["file_path"]
+        return None
+
+    @staticmethod
     def get_all_cached_texts(user_id: str) -> Optional[str]:
         files = _file_cache.get(user_id, [])
         if not files:

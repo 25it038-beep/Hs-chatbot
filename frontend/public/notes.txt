@@ -1,0 +1,4 @@
+﻿Project budget summary:
+Marketing: 12000
+Engineering: 45000
+Sales: 8000

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, Loader2 } from 'lucide-react'
+import { Send, Paperclip, Square, Mic, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
@@ -10,8 +10,8 @@ import type { SlashCommand, CommandExecutionContext } from '@/types/command'
 
 interface ChatInputProps {
   onSend: (message: string) => void
+  onSendWithFile?: (file: File, prompt: string) => Promise<void>
   onStop: () => void
-  onUploadFile?: (file: File) => Promise<void>
   onOpenSettings?: () => void
   streaming: boolean
   disabled?: boolean
@@ -19,14 +19,15 @@ interface ChatInputProps {
 
 export function ChatInput({
   onSend,
+  onSendWithFile,
   onStop,
-  onUploadFile,
   onOpenSettings,
   streaming,
   disabled,
 }: ChatInputProps) {
   const [input, setInput] = useState('')
-  const [uploading, setUploading] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
   const [speechSupported, setSpeechSupported] = useState(true)
   const [isFocused, setIsFocused] = useState(false)
@@ -86,7 +87,22 @@ export function ChatInput({
 
   const handleSubmit = () => {
     const trimmed = input.trim()
-    if (!trimmed || streaming) return
+    if (streaming || sending) return
+    if (!trimmed && !pendingFile) return
+    if (pendingFile && onSendWithFile) {
+      const file = pendingFile
+      setSending(true)
+      onSendWithFile(file, trimmed)
+        .finally(() => {
+          setSending(false)
+          setPendingFile(null)
+        })
+        .catch(() => {})
+      setInput('')
+      setShowPalette(false)
+      return
+    }
+    if (!trimmed) return
     onSend(trimmed)
     setInput('')
     setShowPalette(false)
@@ -156,22 +172,11 @@ export function ChatInput({
     }
   }
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setUploading(true)
-    try {
-      if (onUploadFile) {
-        await onUploadFile(file)
-      } else {
-        const api = await import('@/lib/api').then(m => m.api)
-        const uploadRes: any = await api.uploadFile(file)
-        onSend(`[File: ${uploadRes.filename || file.name}]`)
-      }
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+    setPendingFile(file)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   useEffect(() => {
@@ -239,6 +244,31 @@ export function ChatInput({
             isFocused ? 'border-ring/30 shadow-soft' : 'border-border/40 hover:border-border/60'
           )}
         >
+          {pendingFile && (
+            <div className="absolute left-2.5 right-2.5 -top-8 flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/80 px-2.5 py-1.5 backdrop-blur-sm">
+              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+                {pendingFile.type.startsWith('image/') ? (
+                  <img
+                    src={URL.createObjectURL(pendingFile)}
+                    alt=""
+                    className="h-6 w-6 rounded object-cover border border-border/50"
+                  />
+                ) : (
+                  <Paperclip size={12} className="flex-shrink-0" />
+                )}
+                <span className="truncate">{pendingFile.name}</span>
+              </span>
+              <button
+                onClick={() => setPendingFile(null)}
+                disabled={sending}
+                className="flex-shrink-0 p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-all rounded-md disabled:opacity-50"
+                title="Remove attachment"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -249,11 +279,11 @@ export function ChatInput({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || streaming}
+            disabled={sending || streaming}
             className="flex-shrink-0 p-2 sm:p-1.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-all rounded-xl disabled:opacity-50 touch-target sm:touch-auto flex items-center justify-center"
             title="Attach files"
           >
-            {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+            {sending ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
           </button>
 
           <textarea
@@ -319,11 +349,11 @@ export function ChatInput({
                 size="icon"
                 className={cn(
                   'h-9 w-9 rounded-xl transition-all flex-shrink-0',
-                  input.trim()
+                  input.trim() || pendingFile
                     ? 'bg-gradient-to-br from-primary to-primary/80 shadow-sm hover:shadow-md'
                     : ''
                 )}
-                disabled={!input.trim() || disabled}
+                disabled={(!input.trim() && !pendingFile) || disabled || sending}
                 title="Send message"
               >
                 <Send size={14} />

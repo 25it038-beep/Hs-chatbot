@@ -1,6 +1,8 @@
 import json
 import time
 import asyncio
+import os
+import aiofiles
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -28,6 +30,88 @@ vision_provider = NvidiaVisionProvider()
 image_provider = NvidiaImageProvider()
 embed_provider = NvidiaEmbeddingsProvider()
 speech_provider = NvidiaSpeechProvider()
+
+_STREAM_HEADERS = {
+    "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+}
+
+
+def _mime_from_path(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    return {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    }.get(ext, "image/png")
+
+
+async def _vision_response(request, user, db, file_path: str):
+    """Analyze an uploaded image via the vision provider and persist the exchange."""
+    async with aiofiles.open(file_path, "rb") as f:
+        image_bytes = await f.read()
+    mime = _mime_from_path(file_path)
+    prompt = "Analyze this image in detail. Describe the scene, then list detected objects, any visible text, and notable elements."
+
+    async def _save(assistant_content, model_used, input_tokens=0, output_tokens=0):
+        db.add(Message(chat_id=request.chat_id, role="user", content=request.message))
+        db.add(Message(
+            chat_id=request.chat_id, role="assistant", content=assistant_content,
+            model=model_used, provider="nvidia",
+            input_tokens=input_tokens, output_tokens=output_tokens,
+        ))
+        await db.commit()
+
+    if request.stream:
+        async def generate_vision():
+            yield f"data: {json.dumps({'type': 'meta', 'model': 'vision', 'task': 'vision', 'chat_id': request.chat_id})}\n\n"
+            start = time.time()
+            try:
+                resp = await vision_provider.analyze(image_data=image_bytes, prompt=prompt, mime_type=mime)
+                result = resp.content or "I could not analyze this image."
+                yield f"data: {json.dumps({'type': 'content', 'content': result})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'latency_ms': (time.time() - start) * 1000, 'input_tokens': resp.input_tokens, 'output_tokens': resp.output_tokens})}\n\n"
+                await _save(result, resp.model or "vision", resp.input_tokens, resp.output_tokens)
+            except Exception as e:
+                msg = f"I could not analyze this image: {str(e)}"
+                yield f"data: {json.dumps({'type': 'error', 'content': msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'content', 'content': msg})}\n\n"
+                await _save(msg, "vision")
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(generate_vision(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+
+    try:
+        resp = await vision_provider.analyze(image_data=image_bytes, prompt=prompt, mime_type=mime)
+        result = resp.content or "I could not analyze this image."
+        await _save(result, resp.model or "vision", resp.input_tokens, resp.output_tokens)
+        return {"content": result, "model": resp.model or "vision", "provider": "nvidia"}
+    except Exception as e:
+        msg = f"I could not analyze this image: {str(e)}"
+        await _save(msg, "vision")
+        return {"content": msg, "model": "vision", "provider": "nvidia"}
+
+
+async def _ask_for_prompt_response(request, db, fname: str):
+    """Reply asking for a prompt/context when a non-image file is uploaded without one."""
+    content = (
+        f'Please provide a prompt or context for the uploaded file "{fname}" '
+        f'(e.g., "Summarize this PDF", "Extract the key points", "What is this about?").'
+    )
+
+    async def _save():
+        db.add(Message(chat_id=request.chat_id, role="user", content=request.message))
+        db.add(Message(chat_id=request.chat_id, role="assistant", content=content, model="assistant", provider="hsbot"))
+        await db.commit()
+
+    if request.stream:
+        async def generate_ask():
+            yield f"data: {json.dumps({'type': 'meta', 'model': 'assistant', 'task': 'file', 'chat_id': request.chat_id})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'latency_ms': 0, 'input_tokens': 0, 'output_tokens': 0})}\n\n"
+            await _save()
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(generate_ask(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+
+    await _save()
+    return {"content": content, "model": "assistant", "provider": "hsbot"}
 
 
 class ChatRequest(BaseModel):
@@ -108,6 +192,18 @@ async def nvidia_chat(
             raise HTTPException(status_code=404, detail="Chat not found")
 
         system_prompt = request.system_prompt or chat.system_prompt or "You are a helpful AI assistant. You ONLY respond in English. No matter what language the user writes in, you ALWAYS answer in English. Never use any other language in your responses."
+
+        import re as _re
+
+        # ── File-only message (no prompt) ──
+        tag_match = _re.fullmatch(r'\[(Image|File):\s*(.+?)\]', request.message.strip())
+        if tag_match and user:
+            tag_kind, fname = tag_match.group(1), tag_match.group(2)
+            if tag_kind == "Image":
+                file_path = RAGService.get_cached_file_path(user.id, fname)
+                if file_path:
+                    return await _vision_response(request, user, db, file_path)
+            return await _ask_for_prompt_response(request, db, fname)
 
         if user:
             rag = RAGService(db, user.id)

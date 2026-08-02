@@ -24,6 +24,8 @@ interface ChatState {
   createChat: () => Promise<Chat>
   deleteChat: (id: string) => Promise<void>
   sendMessage: (content: string, chatId?: string) => Promise<void>
+  addAssistantMessage: (content: string, chatId?: string) => Promise<void>
+  updateLastAssistantMessage: (content: string, chatId?: string) => Promise<void>
   cancelStream: (chatId?: string) => void
 }
 
@@ -252,6 +254,46 @@ export const useChat = create<ChatState>((set, get) => {
       } finally {
         delete streamControllers[chat.id]
       }
+    },
+
+    addAssistantMessage: async (content: string, chatId?: string) => {
+      const chat = chatId ? get().chats.find(c => c.id === chatId) : get().currentChat
+      if (!chat) return
+      const msg: Message = {
+        id: crypto.randomUUID(),
+        chat_id: chat.id,
+        role: 'assistant',
+        content,
+        token_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date().toISOString(),
+      }
+      set(state => ({
+        chatMessages: { ...state.chatMessages, [chat.id]: [...(state.chatMessages[chat.id] || []), msg] },
+      }))
+      syncDisplay()
+    },
+
+    updateLastAssistantMessage: async (content: string, chatId?: string) => {
+      const chat = chatId ? get().chats.find(c => c.id === chatId) : get().currentChat
+      if (!chat) return
+      const msgs = get().chatMessages[chat.id] || []
+      if (msgs.length === 0) {
+        await get().addAssistantMessage(content, chat.id)
+        return
+      }
+      const lastIdx = msgs.length - 1
+      const last = msgs[lastIdx]
+      if (last.role !== 'assistant') {
+        await get().addAssistantMessage(content, chat.id)
+        return
+      }
+      const updated = msgs.map((m, i) => i === lastIdx ? { ...m, content } : m)
+      set(state => ({
+        chatMessages: { ...state.chatMessages, [chat.id]: updated },
+      }))
+      syncDisplay()
     },
 
     cancelStream: (chatId?: string) => {

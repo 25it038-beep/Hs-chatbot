@@ -10,7 +10,7 @@ import type { FileInfo } from '@/types'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, sendMessage, cancelStream, createChat, generatingImage } = useChat()
+  const { messages, currentChat, streaming, streamingContent, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
@@ -44,33 +44,31 @@ export function ChatContainer() {
     await sendMessage(content)
   }
 
-  const handleUploadFile = async (file: File) => {
+  const handleSendWithFile = async (file: File, prompt: string) => {
     if (!currentChat) {
       await createChat()
     }
     let filename = file.name
-    let analysis: string | undefined
     try {
       const uploadRes = await api.uploadFile(file) as FileInfo
       filename = uploadRes.filename || file.name
-      analysis = uploadRes.analysis
     } catch {
+      // upload failed — fall back to raw filename; chat will report if file is missing
     }
+
     if (file.type.startsWith('image/')) {
-      try {
-        const visionRes: any = await api.nvidiaVision(file, 'Describe this image in detail.')
-        const description = visionRes.content || visionRes.text || ''
-        await sendMessage(`[Image: ${filename}] ${description}`.trim())
-      } catch {
-        await sendMessage(`[Image: ${filename}]`)
-      }
-    } else {
-      if (analysis) {
-        await sendMessage(`[File: ${filename}]\n\n**Analysis Report:**\n${analysis}\n\nI've analyzed the file above. What would you like to know about it?`)
-      } else {
-        await sendMessage(`[File: ${filename}]`)
-      }
+      await sendMessage(`[Image: ${filename}]${prompt ? ` ${prompt}` : ''}`)
+      return
     }
+
+    if (!prompt) {
+      await addAssistantMessage(
+        `I've received **${filename}**. To analyze it, tell me what you'd like to know — e.g. "Summarize this PDF", "Extract the key points", or "What is this about?"`,
+      )
+      return
+    }
+
+    await sendMessage(`[File: ${filename}] ${prompt}`)
   }
 
   if (messages.length === 0) {
@@ -110,7 +108,7 @@ export function ChatContainer() {
             </div>
           </div>
         </div>
-        <ChatInput onSend={handleSend} onStop={cancelStream} onUploadFile={handleUploadFile} streaming={streaming} />
+        <ChatInput onSend={handleSend} onSendWithFile={handleSendWithFile} onStop={cancelStream} streaming={streaming} />
       </div>
     )
   }
@@ -164,7 +162,7 @@ export function ChatContainer() {
         </button>
       )}
 
-      <ChatInput onSend={handleSend} onStop={cancelStream} onUploadFile={handleUploadFile} streaming={streaming} />
+      <ChatInput onSend={handleSend} onSendWithFile={handleSendWithFile} onStop={cancelStream} streaming={streaming} />
     </div>
   )
 }

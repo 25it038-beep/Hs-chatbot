@@ -34,13 +34,8 @@ pillow==11.1.0
 markdown==3.7.0
 python-magic==0.4.27
 
-# Data Science / Code
-black==24.10.0
-autopep8==2.3.1
-
-# RAG
+# RAG (uses NVIDIA NV-Embed API — no local model needed)
 qdrant-client==1.13.0
-sentence-transformers==3.3.1
 
 # Background Tasks
 celery==5.4.0

@@ -1,0 +1,9 @@
+# Exclude backend - it runs on Render/Railway/Docker, not Vercel serverless
+backend/
+desktop/
+scripts/
+data/
+docker-compose*.yml
+Dockerfile
+render.yaml
+wrangler.jsonc

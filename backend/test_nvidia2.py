@@ -1,8 +1,8 @@
 import httpx, json, sys
 
-# Test DeepSeek V4 Flash (faster model) with a very short request
+# Test GLM 5.2 with a very short request
 test_payload = {
-    "model": "deepseek-ai/deepseek-v4-flash",
+    "model": "z-ai/glm-5.2",
     "messages": [{"role": "user", "content": "hi"}],
     "max_tokens": 5,
     "temperature": 0.1,
@@ -13,7 +13,7 @@ headers = {
     "Content-Type": "application/json"
 }
 
-print("Testing DeepSeek V4 Flash...")
+print("Testing GLM 5.2...")
 sys.stdout.flush()
 try:
     r = httpx.post(

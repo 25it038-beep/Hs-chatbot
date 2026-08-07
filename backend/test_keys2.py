@@ -4,8 +4,7 @@ import httpx, json
 # Test with multiple keys and different models
 models_to_test = [
     "meta/llama-3.3-70b-instruct",
-    "deepseek-ai/deepseek-v4-flash",
-    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    "z-ai/glm-5.2",
     "meta/llama-3.2-11b-vision-instruct",
 ]
 

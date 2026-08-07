@@ -3,7 +3,7 @@ import httpx, json
 # Test backend with the fastest model
 payload = {
     "message": "hi",
-    "model": "deepseek-v4-pro",
+    "model": "glm-5.2",
     "stream": False,
     "auto_route": False,
     "max_tokens": 5,

@@ -10,7 +10,7 @@ print(f"Using key: {key.key[:15]}...")
 
 # Test with flash model (fastest)
 payload = {
-    "model": "deepseek-ai/deepseek-v4-flash",
+    "model": "z-ai/glm-5.2",
     "messages": [{"role": "user", "content": "say hello in one word"}],
     "max_tokens": 10,
     "stream": False

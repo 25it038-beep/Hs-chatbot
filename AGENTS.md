@@ -46,9 +46,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 ### Removed / Non-existent Models
 - `llama-4-maverick` - Not on NVIDIA
 - `qwen-2.5-72b` - Not on NVIDIA
-- `deepseek-r1` - Not on NVIDIA
 - `llama-code` - Not on NVIDIA
-- `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-coder` - Replaced by `z-ai/glm-5.2` (GLM 5.2)
 
 ### Known Issues
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.

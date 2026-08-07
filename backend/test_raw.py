@@ -7,8 +7,7 @@ headers = {
 }
 
 models = [
-    "deepseek-ai/deepseek-v4-pro",
-    "deepseek-ai/deepseek-v4-flash",
+    "z-ai/glm-5.2",
     "meta/llama-3.3-70b-instruct",
     "mistralai/mistral-large",
     "nvidia/nemotron-4-340b-instruct",

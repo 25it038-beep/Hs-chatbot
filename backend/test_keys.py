@@ -11,7 +11,7 @@ import httpx
 import json
 
 payload = {
-    "model": "deepseek-ai/deepseek-v4-flash",
+    "model": "z-ai/glm-5.2",
     "messages": [{"role": "user", "content": "hi"}],
     "max_tokens": 5,
     "temperature": 0.1,

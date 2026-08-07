@@ -29,6 +29,11 @@ class OpenAIProvider(ModelProvider):
         elif provider_name == "sambanova":
             api_key = settings.sambanova_api_key
             base_url = settings.sambanova_base_url
+        if not api_key:
+            raise ValueError(
+                f"Missing API key for provider '{provider_name}'. "
+                f"Set {provider_name.upper()}_API_KEY in the environment."
+            )
         self.client = AsyncOpenAI(api_key=api_key or "", base_url=base_url or "")
 
     def _get_model(self, model: str | None) -> str:

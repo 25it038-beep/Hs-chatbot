@@ -38,6 +38,7 @@ async def warmup_default_models(provider=None) -> None:
         logger.info("No NVIDIA API keys configured; skipping warmup")
         return
 
+    from app.services.nvidia.config import TASK_ROUTES
     from app.services.nvidia.chat import NvidiaChatProvider
 
     provider = provider or NvidiaChatProvider()
@@ -56,6 +57,7 @@ async def _keep_warm_loop() -> None:
     """Periodically ping the fast default chat model to avoid cold-start
     latency. Fast responses come from SambaNova's DeepSeek-V3.2, so NVIDIA
     keep-warm is limited to the chat default (GLM) if configured."""
+    from app.services.nvidia.config import TASK_ROUTES
     from app.services.nvidia.chat import NvidiaChatProvider
 
     provider = NvidiaChatProvider()

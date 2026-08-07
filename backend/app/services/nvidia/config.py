@@ -2,9 +2,9 @@ NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 NVIDIA_MODELS = {
     # Chat
-    "deepseek-v4-pro": {
-        "id": "deepseek-ai/deepseek-v4-pro",
-        "name": "DeepSeek V4 Pro",
+    "glm-5.2": {
+        "id": "z-ai/glm-5.2",
+        "name": "GLM 5.2",
         "type": "chat",
         "capabilities": ["chat", "streaming", "json", "reasoning", "tools"],
         "max_tokens": 16384,
@@ -27,19 +27,10 @@ NVIDIA_MODELS = {
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
-    "deepseek-v4-flash": {
-        "id": "deepseek-ai/deepseek-v4-flash",
-        "name": "DeepSeek V4 Flash",
-        "type": "chat",
-        "capabilities": ["chat", "streaming", "reasoning"],
-        "max_tokens": 16384,
-        "default_temp": 0.6,
-        "supports_thinking": True,
-    },
-    # Coding
-    "deepseek-coder": {
-        "id": "deepseek-ai/deepseek-v4-flash",
-        "name": "DeepSeek V4 Flash (Coding)",
+    # Coding (uses GLM 5.2)
+    "glm-coder": {
+        "id": "z-ai/glm-5.2",
+        "name": "GLM 5.2 (Coding)",
         "type": "coding",
         "capabilities": ["chat", "streaming", "code", "reasoning"],
         "max_tokens": 16384,
@@ -102,15 +93,15 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "deepseek-v4-flash",
+        "default": "glm-5.2",
         "fallback": ["llama-3.1-70b"],
     },
     "coding": {
-        "default": "deepseek-coder",
-        "fallback": ["deepseek-v4-flash", "llama-3.1-70b"],
+        "default": "glm-coder",
+        "fallback": ["glm-5.2", "llama-3.1-70b"],
     },
     "reasoning": {
-        "default": "deepseek-v4-flash",
+        "default": "glm-5.2",
         "fallback": ["llama-3.1-70b"],
     },
     "vision": {

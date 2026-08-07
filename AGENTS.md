@@ -33,12 +33,11 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 ### NVIDIA Models Verified Working
 | Model Key | NVIDIA API ID | Response Time |
 |-----------|---------------|---------------|
-| `deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` | 5-10s |
+| `glm-5.2` | `z-ai/glm-5.2` | 5-165s (cold start ~165s) |
 | `llama-3.3-70b` | `meta/llama-3.3-70b-instruct` | 265s (slow!) |
 | `llama-3.1-70b` | `meta/llama-3.1-70b-instruct` | 4-5s |
 | `mistral-large` | `mistralai/mistral-large-2-instruct` | 5-10s |
-| `deepseek-v4-flash` | `deepseek-ai/deepseek-v4-flash` | 9-30s |
-| `deepseek-coder` | `deepseek-ai/deepseek-coder-6.7b-instruct` | 10-20s |
+| `glm-coder` | `z-ai/glm-5.2` | same as glm-5.2 |
 | `codestral` | `mistralai/codestral-22b-instruct-v0.1` | 10-20s |
 | `flux-1-dev` | `black-forest-labs/flux.1-dev` | ~7-13s |
 | `nv-embed-v1` | `nvidia/nv-embed-v1` | <5s |
@@ -49,6 +48,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - `qwen-2.5-72b` - Not on NVIDIA
 - `deepseek-r1` - Not on NVIDIA
 - `llama-code` - Not on NVIDIA
+- `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-coder` - Replaced by `z-ai/glm-5.2` (GLM 5.2)
 
 ### Known Issues
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.

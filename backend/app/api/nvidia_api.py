@@ -148,7 +148,7 @@ async def nvidia_chat(
         else:
             model = auto_model
     else:
-        model = request.model or "deepseek-v4-flash"
+        model = request.model or "glm-5.2"
         task = "chat"
 
     _hs_persona = (

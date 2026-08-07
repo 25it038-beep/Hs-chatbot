@@ -25,7 +25,7 @@ class NvidiaChatProvider:
     async def generate(
         self,
         messages: list[dict],
-        model: str = "deepseek-v4-pro",
+        model: str = "glm-5.2",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -115,7 +115,7 @@ class NvidiaChatProvider:
     async def generate_stream(
         self,
         messages: list[dict],
-        model: str = "deepseek-v4-pro",
+        model: str = "glm-5.2",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,

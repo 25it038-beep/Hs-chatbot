@@ -34,7 +34,7 @@ class OpenAIProvider(ModelProvider):
                 "openai": settings.openai_default_model,
                 "azure": settings.azure_openai_deployment or "gpt-4o",
                 "openrouter": settings.openrouter_default_model or "openai/gpt-4o",
-                "nvidia": "deepseek-ai/deepseek-v4-pro",
+                "nvidia": "z-ai/glm-5.2",
                 "lm_studio": settings.ollama_default_model,
             }
             return defaults.get(self.provider_name, settings.openai_default_model)

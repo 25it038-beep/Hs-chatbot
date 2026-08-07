@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     qdrant_collection: str = "hsbot_docs"
 
     nvidia_api_keys: str = ""
-    nvidia_default_chat_model: str = "deepseek-v4-pro"
-    nvidia_default_code_model: str = "deepseek-coder"
+    nvidia_default_chat_model: str = "glm-5.2"
+    nvidia_default_code_model: str = "glm-coder"
     nvidia_default_vision_model: str = "nemotron-vl"
     nvidia_default_image_model: str = "nemotron-vl"
     nvidia_default_embed_model: str = "nv-embed-v1"

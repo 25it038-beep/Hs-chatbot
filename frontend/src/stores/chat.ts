@@ -94,7 +94,7 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     createChat: async () => {
-      const chat = await api.createChat({ model: 'deepseek-v4-flash', provider: 'nvidia' })
+      const chat = await api.createChat({ model: 'glm-5.2', provider: 'nvidia' })
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
@@ -159,7 +159,7 @@ export const useChat = create<ChatState>((set, get) => {
         const reader = await api.nvidiaChatStream({
           message: content,
           chat_id: chat.id,
-          model: chat.model || 'deepseek-v4-flash',
+          model: chat.model || 'glm-5.2',
           stream: true,
           auto_route: true,
         }, abortController.signal)

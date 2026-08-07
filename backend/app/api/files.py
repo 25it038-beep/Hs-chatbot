@@ -35,7 +35,7 @@ async def analyze_file_text(text: str, filename: str) -> Optional[str]:
     try:
         response = await chat_provider.generate(
             messages=messages,
-            model="deepseek-v4-flash",
+            model="glm-5.2",
             system_prompt="You are a thorough document analyst. Provide a clear, structured analysis report.",
             max_tokens=2048,
         )

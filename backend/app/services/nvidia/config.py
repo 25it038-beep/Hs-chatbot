@@ -57,6 +57,13 @@ NVIDIA_MODELS = {
         "supports_images": True,
     },
     # Image Generation
+    "flux-2-klein": {
+        "id": "black-forest-labs/flux.2-klein-4b",
+        "name": "FLUX.2 Klein 4B",
+        "type": "image_generation",
+        "capabilities": ["image-generation"],
+        "default_steps": 4,
+    },
     "flux-1-schnell": {
         "id": "black-forest-labs/flux.1-schnell",
         "name": "FLUX.1 Schnell (Fast)",
@@ -109,8 +116,8 @@ TASK_ROUTES = {
         "fallback": ["llama-3.2-vision"],
     },
     "image_generation": {
-        "default": "flux-1-schnell",
-        "fallback": ["flux-1-dev"],
+        "default": "flux-2-klein",
+        "fallback": ["flux-1-schnell", "flux-1-dev"],
     },
     "embeddings": {
         "default": "nv-embed-v1",

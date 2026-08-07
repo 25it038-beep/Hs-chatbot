@@ -10,9 +10,10 @@ key_manager = KeyManager()
 FLUX_MODELS = {
     "flux-1-schnell": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell",
     "flux-1-dev": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev",
+    "flux-2-klein": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b",
 }
 
-DEFAULT_IMAGE_MODEL = "flux-1-schnell"
+DEFAULT_IMAGE_MODEL = "flux-2-klein"
 
 
 class ImageGenResponse(BaseModel):
@@ -39,12 +40,21 @@ class NvidiaImageProvider:
 
         url = FLUX_MODELS.get(model, FLUX_MODELS[DEFAULT_IMAGE_MODEL])
 
-        payload = {
-            "prompt": prompt,
-            "mode": "base",
-            "steps": steps if model == "flux-1-dev" else min(steps, 4),
-            "seed": seed,
-        }
+        if model == "flux-2-klein":
+            payload = {
+                "prompt": prompt,
+                "width": 1024,
+                "height": 1024,
+                "steps": min(steps or 4, 4),
+                "seed": seed,
+            }
+        else:
+            payload = {
+                "prompt": prompt,
+                "mode": "base",
+                "steps": steps if model == "flux-1-dev" else min(steps, 4),
+                "seed": seed,
+            }
 
 
         if image:

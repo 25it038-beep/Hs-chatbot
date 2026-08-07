@@ -6,7 +6,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 ## Tech Stack
 - **Backend**: Python FastAPI, SQLAlchemy 2.0, SQLite/PostgreSQL, Celery, Redis
 - **Vector Store**: Qdrant
-- **AI Providers**: NVIDIA NIM, OpenAI, Anthropic, Google Gemini, Ollama, OpenRouter, LM Studio, Azure OpenAI
+- **AI Providers**: NVIDIA NIM, OpenAI, Anthropic, Google Gemini, Ollama, OpenRouter, LM Studio, Azure OpenAI, SambaNova (fast default)
 - **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS 4, Zustand, Radix UI, Clerk Auth (`@clerk/clerk-react`)
 - **Authentication**: Clerk Authentication (`VITE_CLERK_PUBLISHABLE_KEY`) as primary default, with fallback JWT auth
 
@@ -30,8 +30,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - `POST /api/files/upload` - File upload
 - `GET /api/nvidia/usage` - Key manager stats
 
-### NVIDIA Models Verified Working
-| Model Key | NVIDIA API ID | Response Time |
+### NVIDIA Models Verified Working| Model Key | NVIDIA API ID | Response Time |
 |-----------|---------------|---------------|
 | `glm-5.2` | `z-ai/glm-5.2` | 5-165s (cold start ~165s) |
 | `llama-3.3-70b` | `meta/llama-3.3-70b-instruct` | 265s (slow!) |
@@ -47,6 +46,12 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - `llama-4-maverick` - Not on NVIDIA
 - `qwen-2.5-72b` - Not on NVIDIA
 - `llama-code` - Not on NVIDIA
+
+### SambaNova (fast default provider)
+- Base URL: `https://api.sambanova.ai/v1` (OpenAI-compatible), enabled via `SAMBANOVA_API_KEY`
+- **Default fast chat model: `Meta-Llama-3.3-70B-Instruct` (~1s)** — used for new chats
+- Available models: `Meta-Llama-3.3-70B-Instruct` (~1s), `DeepSeek-V3.2` (~5s), `DeepSeek-V3.1` (~13s), `MiniMax-M2.7` (requires payment, 402), `gemma-4-31B-it` (~14s), `gpt-oss-120b`
+- Frontend routes `provider === "sambanova"` through the generic `/api/chats/messages` stream; NVIDIA path (image gen, coding→thinking) is used when provider is `nvidia`
 
 ### Known Issues
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.

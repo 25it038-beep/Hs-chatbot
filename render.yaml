@@ -14,3 +14,16 @@ services:
         value: sqlite+aiosqlite:////tmp/hsbot.db
       - key: CORS_ORIGINS
         value: "*"
+      - key: SAMBANOVA_API_KEY
+        value: ""
+        sync: false
+      - key: SAMBANOVA_DEFAULT_MODEL
+        value: DeepSeek-V3.2
+      - key: NVIDIA_API_KEYS
+        value: ""
+        sync: false
+      - key: NVIDIA_DEFAULT_IMAGE_MODEL
+        value: flux-2-klein
+      - key: GOOGLE_API_KEY
+        value: ""
+        sync: false

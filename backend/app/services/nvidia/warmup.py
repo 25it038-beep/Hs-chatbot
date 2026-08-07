@@ -30,25 +30,10 @@ async def _ping_model(provider, model_key: str) -> None:
         logger.warning("Model warmup failed for %s: %s", model_key, e)
 
 
-def _get_targets() -> set[str]:
-    from app.services.nvidia.config import TASK_ROUTES
-
-    targets = set()
-    for task in ("chat", "coding", "reasoning"):
-        route = TASK_ROUTES.get(task, {})
-        default = route.get("default")
-        if default:
-            targets.add(default)
-        for fb in route.get("fallback", []):
-            targets.add(fb)
-    targets.discard(None)
-    return targets
-
-
 async def warmup_default_models(provider=None) -> None:
-    """Warm the default chat model once. Fast models respond quickly; slow
-    ones (glm) time out after 60s and are left to cool — NVIDIA cold-starts
-    them on demand with router fallback kicking in."""
+    """Warm the default GLM chat model once. GLM cold-starts on NVIDIA in
+    ~165s so the warmup may time out; the router fallback still resolves
+    coding/reasoning tasks to available models."""
     if not settings.nvidia_api_keys:
         logger.info("No NVIDIA API keys configured; skipping warmup")
         return
@@ -56,21 +41,29 @@ async def warmup_default_models(provider=None) -> None:
     from app.services.nvidia.chat import NvidiaChatProvider
 
     provider = provider or NvidiaChatProvider()
-    await asyncio.gather(*(_ping_model(provider, m) for m in _get_targets()))
+    targets = set()
+    for task in ("chat", "coding", "reasoning"):
+        route = TASK_ROUTES.get(task, {})
+        if route.get("default"):
+            targets.add(route["default"])
+        for fb in route.get("fallback", []):
+            targets.add(fb)
+    targets.discard(None)
+    await asyncio.gather(*(_ping_model(provider, m) for m in targets))
 
 
 async def _keep_warm_loop() -> None:
-    """Periodically ping the fast default chat model to prevent NVIDIA
-    cold-start latency. Only llama-3.1-70b is kept hot; slower models are
-    warmed once at startup and on demand (router fallback)."""
-    from app.services.nvidia.config import TASK_ROUTES
-
+    """Periodically ping the fast default chat model to avoid cold-start
+    latency. Fast responses come from SambaNova's DeepSeek-V3.2, so NVIDIA
+    keep-warm is limited to the chat default (GLM) if configured."""
     from app.services.nvidia.chat import NvidiaChatProvider
 
     provider = NvidiaChatProvider()
+    fast = None
+    if settings.nvidia_api_keys:
+        fast = TASK_ROUTES.get("chat", {}).get("default")
     while True:
         try:
-            fast = TASK_ROUTES.get("chat", {}).get("default")
             if fast:
                 await _ping_model(provider, fast)
         except Exception as e:  # noqa: BLE001

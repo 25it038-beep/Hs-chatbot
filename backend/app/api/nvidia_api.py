@@ -151,6 +151,8 @@ async def nvidia_chat(
         model = request.model or "glm-5.2"
         task = "chat"
 
+    reasoning = request.reasoning or task in ("coding", "reasoning")
+
     _hs_persona = (
         "You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
         "anything they need. You are intelligent, friendly, and highly capable. "
@@ -273,7 +275,7 @@ async def nvidia_chat(
                         max_tokens=request.max_tokens,
                         top_p=request.top_p,
                         json_mode=request.json_mode,
-                        reasoning=request.reasoning,
+                        reasoning=reasoning,
                     ):
                         if chunk.type == "content":
                             full_content += chunk.content
@@ -322,7 +324,7 @@ async def nvidia_chat(
                 max_tokens=request.max_tokens,
                 top_p=request.top_p,
                 json_mode=request.json_mode,
-                reasoning=request.reasoning,
+                reasoning=reasoning,
             )
             user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
             assistant_msg = Message(
@@ -357,7 +359,7 @@ async def nvidia_chat(
                     max_tokens=request.max_tokens,
                     top_p=request.top_p,
                     json_mode=request.json_mode,
-                    reasoning=request.reasoning,
+                    reasoning=reasoning,
                 ):
                     yield f"data: {json.dumps(chunk.model_dump())}\n\n"
             except (asyncio.CancelledError, GeneratorExit):
@@ -379,7 +381,7 @@ async def nvidia_chat(
             max_tokens=request.max_tokens,
             top_p=request.top_p,
             json_mode=request.json_mode,
-            reasoning=request.reasoning,
+            reasoning=reasoning,
         )
         return response
 

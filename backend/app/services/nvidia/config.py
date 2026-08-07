@@ -108,8 +108,8 @@ TASK_ROUTES = {
         "fallback": ["glm-5.2", "llama-3.1-70b"],
     },
     "reasoning": {
-        "default": "llama-3.1-70b",
-        "fallback": ["glm-5.2"],
+        "default": "glm-5.2",
+        "fallback": ["llama-3.1-70b"],
     },
     "vision": {
         "default": "nemotron-vl",

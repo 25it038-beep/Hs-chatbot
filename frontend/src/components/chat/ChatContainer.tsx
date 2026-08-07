@@ -10,7 +10,7 @@ import type { FileInfo } from '@/types'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage } = useChat()
+  const { messages, currentChat, streaming, streamingContent, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
@@ -37,6 +37,7 @@ export function ChatContainer() {
     setShowScrollBtn(!atBottom)
   }
 
+  const currentPhase = currentChat ? streamingPhase[currentChat.id] : undefined
   const handleSend = async (content: string) => {
     if (!currentChat) {
       await createChat()
@@ -136,8 +137,11 @@ export function ChatContainer() {
             />
           )}
           {streaming && !streamingContent && !generatingImage && (
-            <div className="flex items-center gap-3 py-4 px-4">
+            <div className="flex items-center gap-3 py-4 px-4 animate-fade-in">
               <AIThinking />
+              <span className="text-sm text-muted-foreground animate-pulse">
+                {currentPhase === 'writing' ? 'Writing...' : 'Thinking...'}
+              </span>
             </div>
           )}
           {generatingImage && (

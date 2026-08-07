@@ -55,7 +55,7 @@ class NvidiaChatProvider:
             payload["response_format"] = {"type": "json_object"}
 
         if model_conf.get("supports_thinking") and reasoning:
-            payload["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
+            payload["chat_template_kwargs"] = {"thinking": True}
 
         if tools:
             payload["tools"] = tools
@@ -145,7 +145,7 @@ class NvidiaChatProvider:
             payload["response_format"] = {"type": "json_object"}
 
         if model_conf.get("supports_thinking") and reasoning:
-            payload["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
+            payload["chat_template_kwargs"] = {"thinking": True}
 
         if tools:
             payload["tools"] = tools
@@ -154,6 +154,7 @@ class NvidiaChatProvider:
         input_tokens = 0
         output_tokens = 0
         full_content = ""
+        full_reasoning = ""
 
         async with httpx.AsyncClient(timeout=300.0) as client:
             try:
@@ -181,6 +182,15 @@ class NvidiaChatProvider:
                             try:
                                 chunk_data = json.loads(raw)
                                 delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                                reason_text = delta.get("reasoning_content")
+                                if reason_text:
+                                    full_reasoning += reason_text
+                                    yield StreamChunk(
+                                        type="reasoning",
+                                        content=reason_text,
+                                        model=model,
+                                        provider="nvidia",
+                                    )
                                 if delta.get("content"):
                                     full_content += delta["content"]
                                     yield StreamChunk(
@@ -204,6 +214,7 @@ class NvidiaChatProvider:
                         type="done",
                         model=model,
                         provider="nvidia",
+                        reasoning=full_reasoning or None,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         done=True,

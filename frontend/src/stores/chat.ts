@@ -16,6 +16,8 @@ interface ChatState {
   chatMessages: Record<string, Message[]>
   chatStreamingContent: Record<string, string>
   streamingChatIds: string[]
+  streamingPhase: Record<string, 'thinking' | 'writing'>
+  streamingReasoning: Record<string, string>
 
   loadChats: () => Promise<void>
   loadFolders: () => Promise<void>
@@ -60,6 +62,8 @@ export const useChat = create<ChatState>((set, get) => {
     chatMessages: {},
     chatStreamingContent: {},
     streamingChatIds: [],
+    streamingPhase: {},
+    streamingReasoning: {},
 
     loadChats: async () => {
       try {
@@ -111,12 +115,16 @@ export const useChat = create<ChatState>((set, get) => {
       set(state => {
         const { [id]: _, ...restMessages } = state.chatMessages
         const { [id]: __, ...restStreaming } = state.chatStreamingContent
+        const { [id]: ___, ...restPhase } = state.streamingPhase
+        const { [id]: ____, ...restReasoning } = state.streamingReasoning
         return {
           chats: state.chats.filter(c => c.id !== id),
           currentChat: state.currentChat?.id === id ? null : state.currentChat,
           chatMessages: restMessages,
           chatStreamingContent: restStreaming,
           streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
+          streamingPhase: restPhase,
+          streamingReasoning: restReasoning,
         }
       })
       syncDisplay()
@@ -149,6 +157,8 @@ export const useChat = create<ChatState>((set, get) => {
         chatMessages: { ...state.chatMessages, [chat.id]: updatedMessages },
         streamingChatIds: [...state.streamingChatIds, chat.id],
         chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: '' },
+        streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
+        streamingReasoning: { ...state.streamingReasoning, [chat.id]: '' },
       }))
       if (get().currentChat?.id === chat.id) syncDisplay()
 
@@ -182,10 +192,17 @@ export const useChat = create<ChatState>((set, get) => {
               if (data === '[DONE]') continue
               try {
                 const chunk = JSON.parse(data)
-                if (chunk.type === 'content' && chunk.content) {
+                if (chunk.type === 'reasoning' && chunk.content) {
+                  const reasoning = (get().streamingReasoning[chat.id] || '') + chunk.content
+                  set(state => ({
+                    streamingReasoning: { ...state.streamingReasoning, [chat.id]: reasoning },
+                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
+                  }))
+                } else if (chunk.type === 'content' && chunk.content) {
                   fullContent += chunk.content
                   set(state => ({
                     chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'writing' },
                   }))
                   if (get().currentChat?.id === chat.id) {
                     set({ streamingContent: fullContent })
@@ -236,10 +253,14 @@ export const useChat = create<ChatState>((set, get) => {
         const finalMessages = [...(get().chatMessages[chat.id] || []), assistantMsg]
         set(state => {
           const { [chat.id]: _, ...rest } = state.chatStreamingContent
+          const { [chat.id]: __, ...restPhase } = state.streamingPhase
+          const { [chat.id]: ___, ...restReasoning } = state.streamingReasoning
           return {
             chatMessages: { ...state.chatMessages, [chat.id]: finalMessages },
             streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
             chatStreamingContent: rest,
+            streamingPhase: restPhase,
+            streamingReasoning: restReasoning,
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()
@@ -247,9 +268,15 @@ export const useChat = create<ChatState>((set, get) => {
         await get().loadChats()
       } catch (error) {
         console.error('Send error:', error)
-        set(state => ({
-          streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
-        }))
+        set(state => {
+          const { [chat.id]: _, ...restPhase } = state.streamingPhase
+          const { [chat.id]: __, ...restReasoning } = state.streamingReasoning
+          return {
+            streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+            streamingPhase: restPhase,
+            streamingReasoning: restReasoning,
+          }
+        })
         if (get().currentChat?.id === chat.id) syncDisplay()
       } finally {
         delete streamControllers[chat.id]
@@ -301,9 +328,15 @@ export const useChat = create<ChatState>((set, get) => {
       if (id) {
         streamControllers[id]?.abort()
         delete streamControllers[id]
-        set(state => ({
-          streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
-        }))
+        set(state => {
+          const { [id]: _, ...restPhase } = state.streamingPhase
+          const { [id]: __, ...restReasoning } = state.streamingReasoning
+          return {
+            streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
+            streamingPhase: restPhase,
+            streamingReasoning: restReasoning,
+          }
+        })
         syncDisplay()
       }
     },

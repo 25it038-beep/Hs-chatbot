@@ -26,6 +26,9 @@ class OpenAIProvider(ModelProvider):
         elif provider_name == "lm_studio":
             api_key = "not-needed"
             base_url = f"{settings.lm_studio_base_url}/v1"
+        elif provider_name == "sambanova":
+            api_key = settings.sambanova_api_key
+            base_url = settings.sambanova_base_url
         self.client = AsyncOpenAI(api_key=api_key or "", base_url=base_url or "")
 
     def _get_model(self, model: str | None) -> str:
@@ -36,6 +39,7 @@ class OpenAIProvider(ModelProvider):
                 "openrouter": settings.openrouter_default_model or "openai/gpt-4o",
                 "nvidia": "z-ai/glm-5.2",
                 "lm_studio": settings.ollama_default_model,
+                "sambanova": settings.sambanova_default_model or "Meta-Llama-3.3-70B-Instruct",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":

@@ -49,6 +49,15 @@ def _build_models():
         {"id": "mistral", "name": "Mistral", "provider": "ollama", "capabilities": ["chat", "streaming"]},
         {"id": "codellama", "name": "CodeLlama", "provider": "ollama", "capabilities": ["chat", "streaming"]},
     ])
+    # SambaNova
+    models.extend([
+        {"id": "Meta-Llama-3.3-70B-Instruct", "name": "Meta Llama 3.3 70B (Fast)", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "DeepSeek-V3.2", "name": "DeepSeek V3.2", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "DeepSeek-V3.1", "name": "DeepSeek V3.1", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "MiniMax-M2.7", "name": "MiniMax M2.7", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "gemma-4-31B-it", "name": "Gemma 4 31B", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "gpt-oss-120b", "name": "GPT-OSS 120B", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
+    ])
     return models
 
 
@@ -62,6 +71,7 @@ PROVIDERS: list[dict] = [
     {"id": "ollama", "name": "Ollama (Local)", "icon": "server", "requires_key": False},
     {"id": "azure", "name": "Azure OpenAI", "icon": "cloud", "requires_key": True},
     {"id": "openrouter", "name": "OpenRouter", "icon": "route", "requires_key": True},
+    {"id": "sambanova", "name": "SambaNova", "icon": "zap", "requires_key": True},
     {"id": "lm_studio", "name": "LM Studio", "icon": "monitor", "requires_key": False},
 ]
 

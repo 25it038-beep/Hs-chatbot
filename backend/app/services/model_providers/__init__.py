@@ -18,6 +18,7 @@ PROVIDER_MAP: dict[str, type[ModelProvider]] = {
     "openrouter": OpenAIProvider,
     "nvidia": OpenAIProvider,
     "lm_studio": OpenAIProvider,
+    "sambanova": OpenAIProvider,
 }
 
 

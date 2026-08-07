@@ -81,8 +81,11 @@ export function ChatContainer() {
               <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-2">How can I help you?</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground/70 mb-6 sm:mb-8 max-w-xs sm:max-w-sm mx-auto">
+            <p className="text-xs sm:text-sm text-muted-foreground/70 mb-2 max-w-xs sm:max-w-sm mx-auto">
               I'm your AI assistant. Ask me anything — I can help with coding, analysis, research, and more.
+            </p>
+            <p className="text-[11px] text-muted-foreground/50 mb-6 max-w-xs mx-auto">
+              Note: the first response may be a little slower while the model warms up.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 max-w-md mx-auto">
               {[

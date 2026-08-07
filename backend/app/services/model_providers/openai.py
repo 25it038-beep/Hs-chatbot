@@ -39,7 +39,7 @@ class OpenAIProvider(ModelProvider):
                 "openrouter": settings.openrouter_default_model or "openai/gpt-4o",
                 "nvidia": "z-ai/glm-5.2",
                 "lm_studio": settings.ollama_default_model,
-                "sambanova": settings.sambanova_default_model or "Meta-Llama-3.3-70B-Instruct",
+                "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":

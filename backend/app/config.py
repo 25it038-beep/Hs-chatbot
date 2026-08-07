@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     sambanova_api_key: Optional[str] = None
     sambanova_base_url: str = "https://api.sambanova.ai/v1"
-    sambanova_default_model: str = "Meta-Llama-3.3-70B-Instruct"
+    sambanova_default_model: str = "DeepSeek-V3.2"
 
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50

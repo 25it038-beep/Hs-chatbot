@@ -10,6 +10,7 @@ from app.models.message import Message
 from app.schemas.chat import ChatCreate, ChatUpdate
 from app.schemas.message import ChatRequest
 from app.services.model_providers import get_provider
+from app.config import settings
 from app.services.model_providers.base import StreamChunk
 from app.services.rag import RAGService
 
@@ -136,11 +137,17 @@ class ChatService:
         model = request.model
         provider_name = request.provider or "openai"
 
+        default_models = {
+            "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
+            "nvidia": "glm-5.2",
+            "gemini": settings.google_default_model,
+        }
+
         if not chat_id:
             chat = await self.create_chat(
                 user_id,
                 ChatCreate(
-                    model=model or "gpt-4o",
+                    model=model or default_models.get(provider_name, "gpt-4o"),
                     provider=provider_name,
                     system_prompt=request.system_prompt,
                     temperature=request.temperature or 0.7,

@@ -49,8 +49,8 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 
 ### SambaNova (fast default provider)
 - Base URL: `https://api.sambanova.ai/v1` (OpenAI-compatible), enabled via `SAMBANOVA_API_KEY`
-- **Default fast chat model: `Meta-Llama-3.3-70B-Instruct` (~1s)** — used for new chats
-- Available models: `Meta-Llama-3.3-70B-Instruct` (~1s), `DeepSeek-V3.2` (~5s), `DeepSeek-V3.1` (~13s), `MiniMax-M2.7` (requires payment, 402), `gemma-4-31B-it` (~14s), `gpt-oss-120b`
+- **Default fast chat model: `DeepSeek-V3.2` (~4s)** — used for new chats
+- Available models: `DeepSeek-V3.2` (~4s), `Meta-Llama-3.3-70B-Instruct` (~1s), `DeepSeek-V3.1` (~13s), `MiniMax-M2.7` (requires payment, 402), `gemma-4-31B-it` (~14s), `gpt-oss-120b`
 - Frontend routes `provider === "sambanova"` through the generic `/api/chats/messages` stream; NVIDIA path (image gen, coding→thinking) is used when provider is `nvidia`
 
 ### Known Issues

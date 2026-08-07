@@ -98,7 +98,7 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     createChat: async () => {
-      const chat = await api.createChat({ model: 'Meta-Llama-3.3-70B-Instruct', provider: 'sambanova' })
+      const chat = await api.createChat({ model: 'DeepSeek-V3.2', provider: 'sambanova' })
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
@@ -167,7 +167,7 @@ export const useChat = create<ChatState>((set, get) => {
         streamControllers[chat.id] = abortController
 
         const provider = chat.provider || 'sambanova'
-        const model = chat.model || 'Meta-Llama-3.3-70B-Instruct'
+        const model = chat.model || 'DeepSeek-V3.2'
         const reader = provider === 'nvidia'
           ? await api.nvidiaChatStream({
               message: content,

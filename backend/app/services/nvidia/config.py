@@ -93,16 +93,16 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "glm-5.2",
-        "fallback": ["llama-3.1-70b"],
+        "default": "llama-3.1-70b",
+        "fallback": ["glm-5.2"],
     },
     "coding": {
         "default": "glm-coder",
         "fallback": ["glm-5.2", "llama-3.1-70b"],
     },
     "reasoning": {
-        "default": "glm-5.2",
-        "fallback": ["llama-3.1-70b"],
+        "default": "llama-3.1-70b",
+        "fallback": ["glm-5.2"],
     },
     "vision": {
         "default": "nemotron-vl",

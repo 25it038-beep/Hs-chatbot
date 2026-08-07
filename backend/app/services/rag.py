@@ -186,9 +186,25 @@ class RAGService:
     async def search_similar(self, query: str, top_k: int = 5) -> Optional[str]:
         if not query or not query.strip():
             return None
-        embed_provider = self._get_embed_provider()
+
         qdrant = self._get_qdrant()
-        if not embed_provider or not qdrant:
+        if not qdrant:
+            return None
+
+        # Fast skip: if this process has no cached files for the user and the
+        # collection does not exist, there is nothing to search — avoids the
+        # expensive NVIDIA embedding call on every message.
+        if not _file_cache.get(self.user_id):
+            try:
+                collections = await asyncio.wait_for(qdrant.get_collections(), timeout=2.0)
+                exists = any(c.name == settings.qdrant_collection for c in collections.collections)
+                if not exists:
+                    return None
+            except Exception:
+                return None
+
+        embed_provider = self._get_embed_provider()
+        if not embed_provider:
             return None
         try:
             query_embedding = await embed_provider.create(texts=[query], input_type="query")

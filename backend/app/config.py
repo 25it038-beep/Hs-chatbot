@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     anthropic_default_model: str = "claude-sonnet-4-20250514"
 
     google_api_key: Optional[str] = None
-    google_default_model: str = "gemini-2.5-flash"
+    google_default_model: str = "gemini-flash-latest"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_default_model: str = "llama3.1"

@@ -38,8 +38,9 @@ def _build_models():
     ])
     # Gemini
     models.extend([
-        {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "provider": "gemini", "capabilities": ["chat", "vision", "tools", "streaming"]},
-        {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "provider": "gemini", "capabilities": ["chat", "vision", "tools", "streaming", "reasoning"]},
+        {"id": "gemini-flash-latest", "name": "Gemini Flash", "provider": "gemini", "capabilities": ["chat", "vision", "tools", "streaming"]},
+        {"id": "gemini-flash", "name": "Gemini 2.5 Flash", "provider": "gemini", "capabilities": ["chat", "vision", "tools", "streaming"]},
+        {"id": "gemini-pro", "name": "Gemini Pro", "provider": "gemini", "capabilities": ["chat", "vision", "tools", "streaming", "reasoning"]},
     ])
     # Ollama
     models.extend([

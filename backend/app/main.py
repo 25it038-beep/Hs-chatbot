@@ -6,6 +6,7 @@ from app.config import settings
 from app.database import init_db
 from app.api import auth, chats, models, files, nvidia_api
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.services.nvidia.warmup import start_warmup, stop_warmup
 
 os.makedirs(settings.upload_dir, exist_ok=True)
 os.makedirs("./data", exist_ok=True)
@@ -14,7 +15,9 @@ os.makedirs("./data", exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await start_warmup()
     yield
+    await stop_warmup()
 
 app = FastAPI(
     title=settings.app_name,

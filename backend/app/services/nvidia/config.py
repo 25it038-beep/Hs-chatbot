@@ -57,19 +57,19 @@ NVIDIA_MODELS = {
         "supports_images": True,
     },
     # Image Generation
-    "flux-1-dev": {
-        "id": "black-forest-labs/flux.1-dev",
-        "name": "FLUX.1 Dev",
-        "type": "image_generation",
-        "capabilities": ["image-generation"],
-        "default_steps": 20,
-    },
     "flux-1-schnell": {
         "id": "black-forest-labs/flux.1-schnell",
         "name": "FLUX.1 Schnell (Fast)",
         "type": "image_generation",
         "capabilities": ["image-generation"],
         "default_steps": 4,
+    },
+    "flux-1-dev": {
+        "id": "black-forest-labs/flux.1-dev",
+        "name": "FLUX.1 Dev",
+        "type": "image_generation",
+        "capabilities": ["image-generation"],
+        "default_steps": 20,
     },
     # Embeddings
     "nv-embed-v1": {
@@ -109,8 +109,8 @@ TASK_ROUTES = {
         "fallback": ["llama-3.2-vision"],
     },
     "image_generation": {
-        "default": "flux-1-dev",
-        "fallback": ["flux-1-schnell"],
+        "default": "flux-1-schnell",
+        "fallback": ["flux-1-dev"],
     },
     "embeddings": {
         "default": "nv-embed-v1",

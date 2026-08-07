@@ -10,8 +10,10 @@ from app.models.message import Message
 from app.schemas.chat import ChatCreate, ChatUpdate
 from app.schemas.message import ChatRequest
 from app.services.model_providers import get_provider
+from app.services.model_providers.base import ModelResponse, StreamChunk
+from app.services.nvidia.router import ai_router
+from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
-from app.services.model_providers.base import StreamChunk
 from app.services.rag import RAGService
 
 
@@ -216,6 +218,9 @@ class ChatService:
 
         provider = get_provider(provider_name)
 
+        task, _ = ai_router.get_model_for_message(request.message)
+        is_image_task = task == "image_generation"
+
         if request.stream:
             full_content = ""
             input_tokens = 0
@@ -223,19 +228,55 @@ class ChatService:
             start = time.time()
 
             try:
-                async for chunk in provider.generate_stream(
-                    messages=api_messages,
-                    model=model or chat.model,
-                    system_prompt=system_prompt,
-                    temperature=request.temperature or chat.temperature,
-                    max_tokens=request.max_tokens or chat.max_tokens,
-                ):
-                    if chunk.type == "content":
-                        full_content += chunk.content
-                    elif chunk.type == "done":
-                        input_tokens = chunk.input_tokens
-                        output_tokens = chunk.output_tokens
-                    yield chunk
+                if is_image_task:
+                    yield StreamChunk(type="generating", content="Generating image...")
+                    try:
+                        img_provider = NvidiaImageProvider()
+                        img_resp = await img_provider.generate(prompt=request.message)
+                        full_content = (
+                            f'<img src="data:image/png;base64,{img_resp.image_b64}" '
+                            f'alt="Generated image" style="max-width:100%;border-radius:8px;" />'
+                        )
+                        yield StreamChunk(
+                            type="image",
+                            content=img_resp.image_b64,
+                            model="flux-2-klein",
+                            provider="nvidia",
+                        )
+                        yield StreamChunk(
+                            type="content",
+                            content="",
+                            model="flux-2-klein",
+                            provider="nvidia",
+                        )
+                    except Exception as e:
+                        full_content = f"I could not generate the image. {str(e)}"
+                        yield StreamChunk(
+                            type="error",
+                            content=f"Image generation failed: {str(e)}",
+                            model="flux-2-klein",
+                            provider="nvidia",
+                        )
+                        yield StreamChunk(
+                            type="content",
+                            content=full_content,
+                            model="flux-2-klein",
+                            provider="nvidia",
+                        )
+                else:
+                    async for chunk in provider.generate_stream(
+                        messages=api_messages,
+                        model=model or chat.model,
+                        system_prompt=system_prompt,
+                        temperature=request.temperature or chat.temperature,
+                        max_tokens=request.max_tokens or chat.max_tokens,
+                    ):
+                        if chunk.type == "content":
+                            full_content += chunk.content
+                        elif chunk.type == "done":
+                            input_tokens = chunk.input_tokens
+                            output_tokens = chunk.output_tokens
+                        yield chunk
 
                 if full_content:
                     latency = (time.time() - start) * 1000
@@ -260,13 +301,30 @@ class ChatService:
                 raise
         else:
             start = time.time()
-            response = await provider.generate(
-                messages=api_messages,
-                model=model or chat.model,
-                system_prompt=system_prompt,
-                temperature=request.temperature or chat.temperature,
-                max_tokens=request.max_tokens or chat.max_tokens,
-            )
+            if is_image_task:
+                try:
+                    img_provider = NvidiaImageProvider()
+                    img_resp = await img_provider.generate(prompt=request.message)
+                    content = (
+                        f'<img src="data:image/png;base64,{img_resp.image_b64}" '
+                        f'alt="Generated image" style="max-width:100%;border-radius:8px;" />'
+                    )
+                except Exception as e:
+                    content = f"I could not generate the image. {str(e)}"
+                response = ModelResponse(
+                    content=content,
+                    model="flux-2-klein",
+                    provider="nvidia",
+                    latency_ms=(time.time() - start) * 1000,
+                )
+            else:
+                response = await provider.generate(
+                    messages=api_messages,
+                    model=model or chat.model,
+                    system_prompt=system_prompt,
+                    temperature=request.temperature or chat.temperature,
+                    max_tokens=request.max_tokens or chat.max_tokens,
+                )
             user_msg = Message(chat_id=chat_id, role="user", content=request.message)
             assistant_msg = Message(
                 chat_id=chat_id,

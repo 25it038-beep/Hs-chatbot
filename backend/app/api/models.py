@@ -61,7 +61,7 @@ def _build_models():
     # Cloudflare AI Gateway
     models.extend([
         {"id": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "name": "Llama 3.3 70B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
-        {"id": "@cf/meta/llama-3.1-8b-instruct", "name": "Llama 3.1 8B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
+        {"id": "@cf/meta/llama-3.2-3b-instruct", "name": "Llama 3.2 3B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
         {"id": "@cf/qwen/qwen2.5-coder-32b-instruct", "name": "Qwen 2.5 Coder 32B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
         {"id": "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "name": "DeepSeek R1 Distill (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "reasoning", "streaming"]},
     ])

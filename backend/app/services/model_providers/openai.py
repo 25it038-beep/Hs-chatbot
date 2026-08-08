@@ -154,9 +154,10 @@ class OpenAIProvider(ModelProvider):
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta:
                 if delta.content:
+                    content = str(delta.content)
                     yield StreamChunk(
                         type="content",
-                        content=delta.content,
+                        content=content,
                         model=model_name,
                         provider=self.provider_name,
                     )

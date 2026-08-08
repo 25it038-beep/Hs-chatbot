@@ -137,13 +137,13 @@ class ChatService:
     ) -> AsyncGenerator[StreamChunk, None]:
         chat_id = request.chat_id
         model = request.model
-        provider_name = request.provider or "openai"
-
         default_models = {
+            "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
             "nvidia": "glm-5.2",
             "gemini": settings.google_default_model,
         }
+        provider_name = request.provider or "cloudflare"
 
         if not chat_id:
             chat = await self.create_chat(

@@ -49,7 +49,12 @@ class ChatService:
 
         total = self._estimate_tokens(system_prompt or "")
 
-        all_dicts = [{"role": m.role, "content": m.content} for m in messages]
+        all_dicts = []
+        for m in messages:
+            content = m.content
+            if "data:image/png;base64" in content:
+                content = "[Generated image]"
+            all_dicts.append({"role": m.role, "content": content})
         for m in all_dicts:
             total += self._estimate_tokens(m["content"])
 
@@ -252,8 +257,7 @@ class ChatService:
                                 f"The user asked you to generate an image with this prompt: {request.message}.\n"
                                 "The image was generated successfully. Reply with a brief, friendly message "
                                 "(1-2 sentences) confirming the image is ready and referencing the prompt. "
-                                "Then add this exact note: "
-                                "'You can only generate images in this chat from here on. For other requests, please start a new chat.'"
+                                "Do not add any additional notes after your message."
                             )
                             async for chunk in provider.generate_stream(
                                 messages=[{"role": "user", "content": caption_prompt}],
@@ -266,11 +270,22 @@ class ChatService:
                                     full_content += chunk.content
                                 yield chunk
                         except Exception:
-                            fallback = "\n\nHere is your generated image!\n\nNote: You can only generate images in this chat from here on. For other requests, please start a new chat."
-                            full_content += fallback
+                            full_content += "\n\nHere is your generated image!"
                             yield StreamChunk(
                                 type="content",
-                                content=fallback,
+                                content="\n\nHere is your generated image!",
+                                model="flux-2-klein",
+                                provider="nvidia",
+                            )
+                        finally:
+                            image_note = (
+                                "\n\n**Note:** You can only generate images in this chat from here on. "
+                                "For other requests, please start a new chat."
+                            )
+                            full_content += image_note
+                            yield StreamChunk(
+                                type="content",
+                                content=image_note,
                                 model="flux-2-klein",
                                 provider="nvidia",
                             )

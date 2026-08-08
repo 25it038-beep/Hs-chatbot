@@ -190,7 +190,8 @@ async def nvidia_chat(
                             f"The user asked you to generate an image with this prompt: {request.message}.\n"
                             "The image was generated successfully. Reply with a brief, friendly message "
                             "(1-2 sentences) confirming the image is ready and referencing the prompt. "
-                            "Do not describe the image in detail."
+                            "Then add this exact note: "
+                            "'You can only generate images in this chat from here on. For other requests, please start a new chat.'"
                         )
                         async for chunk in chat_provider.generate_stream(
                             messages=[{"role": "user", "content": caption_prompt}],
@@ -205,7 +206,7 @@ async def nvidia_chat(
                             if chunk.type == "content":
                                 yield f"data: {json.dumps(chunk.model_dump())}\n\n"
                     except Exception:
-                        yield f"data: {json.dumps({'type': 'content', 'content': '\n\nHere is your generated image!'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': '\n\nHere is your generated image!\n\nNote: You can only generate images in this chat from here on. For other requests, please start a new chat.'})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'error', 'content': f'Image generation failed: {str(e)}'})}\n\n"
                     yield f"data: {json.dumps({'type': 'content', 'content': f'I could not generate the image. {str(e)}'})}\n\n"

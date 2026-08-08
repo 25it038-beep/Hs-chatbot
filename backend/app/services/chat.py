@@ -252,7 +252,8 @@ class ChatService:
                                 f"The user asked you to generate an image with this prompt: {request.message}.\n"
                                 "The image was generated successfully. Reply with a brief, friendly message "
                                 "(1-2 sentences) confirming the image is ready and referencing the prompt. "
-                                "Do not describe the image in detail."
+                                "Then add this exact note: "
+                                "'You can only generate images in this chat from here on. For other requests, please start a new chat.'"
                             )
                             async for chunk in provider.generate_stream(
                                 messages=[{"role": "user", "content": caption_prompt}],
@@ -265,7 +266,7 @@ class ChatService:
                                     full_content += chunk.content
                                 yield chunk
                         except Exception:
-                            fallback = "\n\nHere is your generated image!"
+                            fallback = "\n\nHere is your generated image!\n\nNote: You can only generate images in this chat from here on. For other requests, please start a new chat."
                             full_content += fallback
                             yield StreamChunk(
                                 type="content",

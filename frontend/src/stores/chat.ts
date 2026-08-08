@@ -249,6 +249,17 @@ export const useChat = create<ChatState>((set, get) => {
           }
         }
 
+        const IMAGE_NOTE = '\n\n**Note:** You can only generate images in this chat from here on. For other requests, please start a new chat.'
+        if (fullContent.includes('data:image/png;base64') && !fullContent.includes(IMAGE_NOTE.trim())) {
+          fullContent += IMAGE_NOTE
+          set(state => ({
+            chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+          }))
+          if (get().currentChat?.id === chat.id) {
+            set({ streamingContent: fullContent })
+          }
+        }
+
         const assistantMsg: Message = {
           id: crypto.randomUUID(),
           chat_id: chat.id,

@@ -32,12 +32,25 @@ class OpenAIProvider(ModelProvider):
         elif provider_name == "sambanova":
             api_key = settings.sambanova_api_key
             base_url = settings.sambanova_base_url
+        elif provider_name == "cloudflare":
+            api_key = settings.cloudflare_gateway_api_key
+            base_url = (
+                f"https://gateway.ai.cloudflare.com/v1/{settings.cloudflare_gateway_account_id}"
+                f"/{settings.cloudflare_gateway_slug}/compat"
+            )
         if not api_key:
             raise ValueError(
                 f"Missing API key for provider '{provider_name}'. "
                 f"Set {provider_name.upper()}_API_KEY in the environment."
             )
-        self.client = AsyncOpenAI(api_key=api_key or "", base_url=base_url or "")
+        extra_headers = {}
+        if provider_name == "cloudflare":
+            extra_headers["cf-aig-authorization"] = f"Bearer {api_key}"
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url or "",
+            default_headers=extra_headers or None,
+        )
 
     def _get_model(self, model: str | None) -> str:
         if not model:
@@ -48,6 +61,7 @@ class OpenAIProvider(ModelProvider):
                 "nvidia": "z-ai/glm-5.2",
                 "lm_studio": settings.ollama_default_model,
                 "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
+                "cloudflare": settings.cloudflare_gateway_default_model or "deepseek/deepseek-chat",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":

@@ -27,3 +27,12 @@ services:
       - key: GOOGLE_API_KEY
         value: ""
         sync: false
+      - key: CLOUDFLARE_GATEWAY_API_KEY
+        value: ""
+        sync: false
+      - key: CLOUDFLARE_GATEWAY_ACCOUNT_ID
+        value: 21e5f9f23e1d60cb56bf1200e89255f3
+      - key: CLOUDFLARE_GATEWAY_SLUG
+        value: default
+      - key: CLOUDFLARE_GATEWAY_DEFAULT_MODEL
+        value: deepseek/deepseek-chat

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     sambanova_base_url: str = "https://api.sambanova.ai/v1"
     sambanova_default_model: str = "DeepSeek-V3.2"
 
+    cloudflare_gateway_api_key: Optional[str] = None
+    cloudflare_gateway_account_id: str = "21e5f9f23e1d60cb56bf1200e89255f3"
+    cloudflare_gateway_slug: str = "default"
+    cloudflare_gateway_default_model: str = "deepseek/deepseek-chat"
+
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50
 

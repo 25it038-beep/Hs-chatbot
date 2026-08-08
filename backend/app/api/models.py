@@ -58,6 +58,13 @@ def _build_models():
         {"id": "gemma-4-31B-it", "name": "Gemma 4 31B", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
         {"id": "gpt-oss-120b", "name": "GPT-OSS 120B", "provider": "sambanova", "capabilities": ["chat", "streaming", "tools"]},
     ])
+    # Cloudflare AI Gateway
+    models.extend([
+        {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1 (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "reasoning", "streaming", "tools"]},
+        {"id": "openai/gpt-4o", "name": "GPT-4o (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "vision", "streaming", "tools"]},
+        {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "vision", "streaming", "tools"]},
+    ])
     return models
 
 
@@ -72,6 +79,7 @@ PROVIDERS: list[dict] = [
     {"id": "azure", "name": "Azure OpenAI", "icon": "cloud", "requires_key": True},
     {"id": "openrouter", "name": "OpenRouter", "icon": "route", "requires_key": True},
     {"id": "sambanova", "name": "SambaNova", "icon": "zap", "requires_key": True},
+    {"id": "cloudflare", "name": "Cloudflare Gateway", "icon": "cloud", "requires_key": True},
     {"id": "lm_studio", "name": "LM Studio", "icon": "monitor", "requires_key": False},
 ]
 

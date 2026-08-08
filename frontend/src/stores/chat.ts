@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
 import { api } from '@/lib/api'
+import { playCompletionSound } from '@/lib/sound'
 
 interface ChatState {
   chats: Chat[]
@@ -273,6 +274,8 @@ export const useChat = create<ChatState>((set, get) => {
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()
+
+        playCompletionSound()
 
         await get().loadChats()
       } catch (error) {

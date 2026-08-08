@@ -35,21 +35,17 @@ class OpenAIProvider(ModelProvider):
         elif provider_name == "cloudflare":
             api_key = settings.cloudflare_gateway_api_key
             base_url = (
-                f"https://gateway.ai.cloudflare.com/v1/{settings.cloudflare_gateway_account_id}"
-                f"/{settings.cloudflare_gateway_slug}/compat"
+                f"https://api.cloudflare.com/client/v4/accounts/{settings.cloudflare_gateway_account_id}"
+                "/ai/v1"
             )
         if not api_key:
             raise ValueError(
                 f"Missing API key for provider '{provider_name}'. "
                 f"Set {provider_name.upper()}_API_KEY in the environment."
             )
-        extra_headers = {}
-        if provider_name == "cloudflare":
-            extra_headers["cf-aig-authorization"] = f"Bearer {api_key}"
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or "",
-            default_headers=extra_headers or None,
         )
 
     def _get_model(self, model: str | None) -> str:
@@ -61,7 +57,7 @@ class OpenAIProvider(ModelProvider):
                 "nvidia": "z-ai/glm-5.2",
                 "lm_studio": settings.ollama_default_model,
                 "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
-                "cloudflare": settings.cloudflare_gateway_default_model or "deepseek/deepseek-chat",
+                "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":
@@ -113,7 +109,7 @@ class OpenAIProvider(ModelProvider):
         latency = (time.time() - start) * 1000
         return ModelResponse(
             content=response.choices[0].message.content or "",
-            model=model,
+            model=model_name,
             provider=self.provider_name,
             input_tokens=response.usage.prompt_tokens if response.usage else 0,
             output_tokens=response.usage.completion_tokens if response.usage else 0,

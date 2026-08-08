@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     cloudflare_gateway_api_key: Optional[str] = None
     cloudflare_gateway_account_id: str = "21e5f9f23e1d60cb56bf1200e89255f3"
     cloudflare_gateway_slug: str = "default"
-    cloudflare_gateway_default_model: str = "deepseek/deepseek-chat"
+    cloudflare_gateway_default_model: str = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50

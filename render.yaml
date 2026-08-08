@@ -35,4 +35,4 @@ services:
       - key: CLOUDFLARE_GATEWAY_SLUG
         value: default
       - key: CLOUDFLARE_GATEWAY_DEFAULT_MODEL
-        value: deepseek/deepseek-chat
+        value: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

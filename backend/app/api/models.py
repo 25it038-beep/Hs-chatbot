@@ -60,10 +60,10 @@ def _build_models():
     ])
     # Cloudflare AI Gateway
     models.extend([
-        {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "streaming", "tools"]},
-        {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1 (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "reasoning", "streaming", "tools"]},
-        {"id": "openai/gpt-4o", "name": "GPT-4o (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "vision", "streaming", "tools"]},
-        {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet (via CF Gateway)", "provider": "cloudflare", "capabilities": ["chat", "vision", "streaming", "tools"]},
+        {"id": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "name": "Llama 3.3 70B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
+        {"id": "@cf/meta/llama-3.1-8b-instruct", "name": "Llama 3.1 8B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
+        {"id": "@cf/qwen/qwen2.5-coder-32b-instruct", "name": "Qwen 2.5 Coder 32B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
+        {"id": "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "name": "DeepSeek R1 Distill (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "reasoning", "streaming"]},
     ])
     return models
 

@@ -247,12 +247,32 @@ class ChatService:
                             model="flux-2-klein",
                             provider="nvidia",
                         )
-                        yield StreamChunk(
-                            type="content",
-                            content="",
-                            model="flux-2-klein",
-                            provider="nvidia",
-                        )
+                        try:
+                            caption_prompt = (
+                                f"The user asked you to generate an image with this prompt: {request.message}.\n"
+                                "The image was generated successfully. Reply with a brief, friendly message "
+                                "(1-2 sentences) confirming the image is ready and referencing the prompt. "
+                                "Do not describe the image in detail."
+                            )
+                            async for chunk in provider.generate_stream(
+                                messages=[{"role": "user", "content": caption_prompt}],
+                                model=model_to_use,
+                                system_prompt="You are HS ChatBot, a helpful image assistant.",
+                                temperature=0.7,
+                                max_tokens=300,
+                            ):
+                                if chunk.type == "content":
+                                    full_content += chunk.content
+                                yield chunk
+                        except Exception:
+                            fallback = "\n\nHere is your generated image!"
+                            full_content += fallback
+                            yield StreamChunk(
+                                type="content",
+                                content=fallback,
+                                model="flux-2-klein",
+                                provider="nvidia",
+                            )
                     except Exception as e:
                         full_content = f"I could not generate the image. {str(e)}"
                         yield StreamChunk(

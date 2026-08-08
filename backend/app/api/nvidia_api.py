@@ -185,7 +185,27 @@ async def nvidia_chat(
                 try:
                     img_resp = await image_provider.generate(prompt=enhanced, model=model)
                     yield f"data: {json.dumps({'type': 'image', 'content': img_resp.image_b64, 'seed': img_resp.seed})}\n\n"
-                    yield f"data: {json.dumps({'type': 'content', 'content': ''})}\n\n"
+                    try:
+                        caption_prompt = (
+                            f"The user asked you to generate an image with this prompt: {request.message}.\n"
+                            "The image was generated successfully. Reply with a brief, friendly message "
+                            "(1-2 sentences) confirming the image is ready and referencing the prompt. "
+                            "Do not describe the image in detail."
+                        )
+                        async for chunk in chat_provider.generate_stream(
+                            messages=[{"role": "user", "content": caption_prompt}],
+                            model=model,
+                            system_prompt="You are HS ChatBot, a helpful image assistant.",
+                            temperature=0.7,
+                            max_tokens=300,
+                            top_p=0.95,
+                            json_mode=False,
+                            reasoning=False,
+                        ):
+                            if chunk.type == "content":
+                                yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+                    except Exception:
+                        yield f"data: {json.dumps({'type': 'content', 'content': '\n\nHere is your generated image!'})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'error', 'content': f'Image generation failed: {str(e)}'})}\n\n"
                     yield f"data: {json.dumps({'type': 'content', 'content': f'I could not generate the image. {str(e)}'})}\n\n"

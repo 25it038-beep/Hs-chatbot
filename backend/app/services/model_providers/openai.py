@@ -1,9 +1,12 @@
 import time
+import asyncio
 from typing import AsyncGenerator, Optional
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APIConnectionError
 from app.config import settings
 from app.services.model_providers.base import ModelProvider, ModelResponse, StreamChunk
 from app.services.nvidia.config import NVIDIA_MODELS
+
+_RATE_LIMIT_SLEEPS = [1.0, 2.0, 4.0]
 
 NVIDIA_MODEL_MAP = {v["id"]: k for k, v in NVIDIA_MODELS.items()}
 NVIDIA_ID_MAP = {k: v["id"] for k, v in NVIDIA_MODELS.items()}
@@ -51,6 +54,20 @@ class OpenAIProvider(ModelProvider):
             return NVIDIA_ID_MAP.get(model, model)
         return model
 
+    async def _chat_completion(self, **kwargs):
+        """Create a chat completion with retry/backoff on rate limits."""
+        for attempt, sleep in enumerate([*_RATE_LIMIT_SLEEPS, None]):
+            try:
+                return await self.client.chat.completions.create(**kwargs)
+            except RateLimitError:
+                if sleep is None:
+                    raise
+                await asyncio.sleep(sleep)
+            except APIConnectionError:
+                if sleep is None:
+                    raise
+                await asyncio.sleep(sleep)
+
     async def generate(
         self,
         messages: list[dict],
@@ -78,7 +95,7 @@ class OpenAIProvider(ModelProvider):
             model_conf = NVIDIA_MODELS.get(model or "")
             if model_conf and model_conf.get("supports_thinking"):
                 kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
-        response = await self.client.chat.completions.create(**kwargs)
+        response = await self._chat_completion(**kwargs)
         latency = (time.time() - start) * 1000
         return ModelResponse(
             content=response.choices[0].message.content or "",
@@ -117,7 +134,7 @@ class OpenAIProvider(ModelProvider):
             model_conf = NVIDIA_MODELS.get(model or "")
             if model_conf and model_conf.get("supports_thinking"):
                 kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
-        stream = await self.client.chat.completions.create(**kwargs)
+        stream = await self._chat_completion(**kwargs)
         input_tokens = 0
         output_tokens = 0
         async for chunk in stream:

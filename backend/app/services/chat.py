@@ -264,19 +264,44 @@ class ChatService:
                             provider="nvidia",
                         )
                 else:
-                    async for chunk in provider.generate_stream(
-                        messages=api_messages,
-                        model=model or chat.model,
-                        system_prompt=system_prompt,
-                        temperature=request.temperature or chat.temperature,
-                        max_tokens=request.max_tokens or chat.max_tokens,
-                    ):
-                        if chunk.type == "content":
-                            full_content += chunk.content
-                        elif chunk.type == "done":
-                            input_tokens = chunk.input_tokens
-                            output_tokens = chunk.output_tokens
-                        yield chunk
+                    try:
+                        async for chunk in provider.generate_stream(
+                            messages=api_messages,
+                            model=model or chat.model,
+                            system_prompt=system_prompt,
+                            temperature=request.temperature or chat.temperature,
+                            max_tokens=request.max_tokens or chat.max_tokens,
+                        ):
+                            if chunk.type == "content":
+                                full_content += chunk.content
+                            elif chunk.type == "done":
+                                input_tokens = chunk.input_tokens
+                                output_tokens = chunk.output_tokens
+                            yield chunk
+                    except Exception as e:
+                        if not full_content:
+                            error_msg = (
+                                f"Rate limit exceeded. The provider is busy - please wait a moment and try again."
+                                if "RateLimit" in type(e).__name__ or "rate_limit" in str(e).lower()
+                                else f"Provider error: {type(e).__name__}: {e}"
+                            )
+                            yield StreamChunk(
+                                type="error",
+                                content=error_msg,
+                                model=model or chat.model,
+                                provider=provider_name,
+                                done=True,
+                            )
+                        else:
+                            yield StreamChunk(
+                                type="error",
+                                content="Stream interrupted mid-response.",
+                                model=model or chat.model,
+                                provider=provider_name,
+                                done=True,
+                            )
+                        await self.db.rollback()
+                        return
 
                 if full_content:
                     latency = (time.time() - start) * 1000
@@ -318,13 +343,28 @@ class ChatService:
                     latency_ms=(time.time() - start) * 1000,
                 )
             else:
-                response = await provider.generate(
-                    messages=api_messages,
-                    model=model or chat.model,
-                    system_prompt=system_prompt,
-                    temperature=request.temperature or chat.temperature,
-                    max_tokens=request.max_tokens or chat.max_tokens,
-                )
+                try:
+                    response = await provider.generate(
+                        messages=api_messages,
+                        model=model or chat.model,
+                        system_prompt=system_prompt,
+                        temperature=request.temperature or chat.temperature,
+                        max_tokens=request.max_tokens or chat.max_tokens,
+                    )
+                except Exception as e:
+                    error_msg = (
+                        f"Rate limit exceeded. The provider is busy - please wait a moment and try again."
+                        if "RateLimit" in type(e).__name__ or "rate_limit" in str(e).lower()
+                        else f"Provider error: {type(e).__name__}: {e}"
+                    )
+                    yield StreamChunk(
+                        type="error",
+                        content=error_msg,
+                        model=model or chat.model,
+                        provider=provider_name,
+                        done=True,
+                    )
+                    return
             user_msg = Message(chat_id=chat_id, role="user", content=request.message)
             assistant_msg = Message(
                 chat_id=chat_id,

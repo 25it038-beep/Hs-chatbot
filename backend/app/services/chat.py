@@ -221,6 +221,10 @@ class ChatService:
         task, _ = ai_router.get_model_for_message(request.message)
         is_image_task = task == "image_generation"
 
+        model_to_use = model or chat.model
+        if provider_name == "cloudflare" and task == "coding":
+            model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
+
         if request.stream:
             full_content = ""
             input_tokens = 0
@@ -267,7 +271,7 @@ class ChatService:
                     try:
                         async for chunk in provider.generate_stream(
                             messages=api_messages,
-                            model=model or chat.model,
+                            model=model_to_use,
                             system_prompt=system_prompt,
                             temperature=request.temperature or chat.temperature,
                             max_tokens=request.max_tokens or chat.max_tokens,
@@ -346,7 +350,7 @@ class ChatService:
                 try:
                     response = await provider.generate(
                         messages=api_messages,
-                        model=model or chat.model,
+                        model=model_to_use,
                         system_prompt=system_prompt,
                         temperature=request.temperature or chat.temperature,
                         max_tokens=request.max_tokens or chat.max_tokens,

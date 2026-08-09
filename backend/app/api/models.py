@@ -65,6 +65,14 @@ def _build_models():
         {"id": "@cf/qwen/qwen2.5-coder-32b-instruct", "name": "Qwen 2.5 Coder 32B (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "streaming"]},
         {"id": "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "name": "DeepSeek R1 Distill (Workers AI)", "provider": "cloudflare", "capabilities": ["chat", "reasoning", "streaming"]},
     ])
+    # Groq
+    models.extend([
+        {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B Versatile", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B Instant", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "llama3-70b-8192", "name": "Llama 3 70B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "llama3-8b-8192", "name": "Llama 3 8B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
+        {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
+    ])
     return models
 
 
@@ -80,6 +88,7 @@ PROVIDERS: list[dict] = [
     {"id": "openrouter", "name": "OpenRouter", "icon": "route", "requires_key": True},
     {"id": "sambanova", "name": "SambaNova", "icon": "zap", "requires_key": True},
     {"id": "cloudflare", "name": "Cloudflare Gateway", "icon": "cloud", "requires_key": True},
+    {"id": "groq", "name": "Groq", "icon": "zap", "requires_key": True},
     {"id": "lm_studio", "name": "LM Studio", "icon": "monitor", "requires_key": False},
 ]
 

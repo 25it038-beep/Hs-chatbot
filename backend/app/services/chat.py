@@ -148,7 +148,7 @@ class ChatService:
             "nvidia": "glm-5.2",
             "gemini": settings.google_default_model,
         }
-        provider_name = request.provider or "cloudflare"
+        provider_name = request.provider or "groq"
 
         if not chat_id:
             chat = await self.create_chat(

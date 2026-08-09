@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_default_model: str = "gpt-4o"
 
+    groq_api_key: Optional[str] = None
+    groq_default_model: str = "llama-3.3-70b-versatile"
+
     anthropic_api_key: Optional[str] = None
     anthropic_default_model: str = "claude-sonnet-4-20250514"
 

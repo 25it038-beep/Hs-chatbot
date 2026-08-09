@@ -38,6 +38,9 @@ class OpenAIProvider(ModelProvider):
                 f"https://api.cloudflare.com/client/v4/accounts/{settings.cloudflare_gateway_account_id}"
                 "/ai/v1"
             )
+        elif provider_name == "groq":
+            api_key = settings.groq_api_key
+            base_url = "https://api.groq.com/openai/v1"
         if not api_key:
             raise ValueError(
                 f"Missing API key for provider '{provider_name}'. "
@@ -58,6 +61,7 @@ class OpenAIProvider(ModelProvider):
                 "lm_studio": settings.ollama_default_model,
                 "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
                 "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":

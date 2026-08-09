@@ -203,8 +203,20 @@ export const useChat = create<ChatState>((set, get) => {
         let fullContent = ''
         let buffer = ''
 
+        // 45-second timeout for first chunk — cancels if NVIDIA hangs
+        let firstChunkReceived = false
+        const timeoutId = setTimeout(() => {
+          if (!firstChunkReceived) {
+            abortController.abort()
+          }
+        }, 45000)
+
         while (true) {
           const { done, value } = await reader.read()
+          if (!firstChunkReceived && value?.length) {
+            firstChunkReceived = true
+            clearTimeout(timeoutId)
+          }
           if (done) break
 
           buffer += decoder.decode(value, { stream: true })
@@ -301,19 +313,24 @@ export const useChat = create<ChatState>((set, get) => {
         })
         if (get().currentChat?.id === chat.id) syncDisplay()
 
+        clearTimeout(timeoutId)
         playCompletionSound()
 
         await get().loadChats()
       } catch (error) {
-        const isAbort = error instanceof DOMException && error.name === 'AbortError'
+        clearTimeout(timeoutId)
+        const isTimeout = error instanceof DOMException && error.name === 'AbortError' && !firstChunkReceived
+        const isAbort = error instanceof DOMException && error.name === 'AbortError' && firstChunkReceived
         if (!isAbort) {
           console.error('Send error:', error)
-          // Show error as an assistant message so user sees what happened
+          const errorText = isTimeout
+            ? '⏱️ **Request timed out.** The AI took too long to respond. Please try sending your message again.'
+            : `⚠️ **Something went wrong.** ${error instanceof Error ? error.message : 'Please try again.'}\n\n_If this keeps happening, try refreshing the page._`
           const errMsg: Message = {
             id: crypto.randomUUID(),
             chat_id: chat.id,
             role: 'assistant',
-            content: `⚠️ **Something went wrong.** ${error instanceof Error ? error.message : 'Please try again.'}\n\n_If this keeps happening, try refreshing the page._`,
+            content: errorText,
             token_count: 0,
             input_tokens: 0,
             output_tokens: 0,

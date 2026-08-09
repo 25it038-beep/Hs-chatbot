@@ -169,13 +169,28 @@ export const useChat = create<ChatState>((set, get) => {
 
         const provider = chat.provider || 'nvidia'
         const model = chat.model || 'llama-3.1-70b'
+
+        // Detect image generation requests to enable auto_route only for them
+        const IMAGE_KEYWORDS = [
+          '/image', '/img', '/draw',
+          'generate an image', 'generate a picture', 'generate a photo',
+          'create an image', 'create a picture', 'create a photo',
+          'draw a', 'draw an', 'draw me',
+          'render a', 'render an', 'render me',
+          'make an image', 'make a picture', 'make a photo',
+          'generate image', 'create image', 'generate art', 'create art',
+          'illustrate a', 'illustrate an',
+        ]
+        const lower = content.toLowerCase()
+        const isImageRequest = IMAGE_KEYWORDS.some(k => lower.includes(k))
+
         const reader = provider === 'nvidia'
           ? await api.nvidiaChatStream({
               message: content,
               chat_id: chat.id,
               model,
               stream: true,
-              auto_route: false,
+              auto_route: isImageRequest,
             }, abortController.signal)
           : await api.sendMessageStream({
               message: content,

@@ -191,17 +191,35 @@ class RAGService:
         if not qdrant:
             return None
 
-        # Fast skip: if this process has no cached files for the user and the
-        # collection does not exist, there is nothing to search — avoids the
-        # expensive NVIDIA embedding call on every message.
-        if not _file_cache.get(self.user_id):
-            try:
-                collections = await asyncio.wait_for(qdrant.get_collections(), timeout=2.0)
-                exists = any(c.name == settings.qdrant_collection for c in collections.collections)
-                if not exists:
-                    return None
-            except Exception:
+        # Fast skip: check if collection exists, and verify if the user has any indexed files.
+        # This completely avoids calling the expensive external NVIDIA embedding endpoint
+        # for users who haven't uploaded any documents.
+        try:
+            collections = await asyncio.wait_for(qdrant.get_collections(), timeout=2.0)
+            exists = any(c.name == settings.qdrant_collection for c in collections.collections)
+            if not exists:
                 return None
+            
+            # Check if this user has any documents in Qdrant
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            user_filter = None
+            if self.user_id:
+                user_filter = Filter(
+                    must=[FieldCondition(key="user_id", match=MatchValue(value=self.user_id))]
+                )
+            
+            count_res = await asyncio.wait_for(
+                qdrant.count(
+                    collection_name=settings.qdrant_collection,
+                    count_filter=user_filter,
+                    exact=False
+                ),
+                timeout=2.0
+            )
+            if not count_res or count_res.count == 0:
+                return None
+        except Exception:
+            return None
 
         embed_provider = self._get_embed_provider()
         if not embed_provider:

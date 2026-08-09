@@ -67,6 +67,7 @@ def _build_models():
     ])
     # Groq
     models.extend([
+        {"id": "qwen/qwen3.6-27b", "name": "Qwen 3.6 27B", "provider": "groq", "capabilities": ["chat", "streaming", "reasoning"]},
         {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B Versatile", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
         {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B Instant", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
         {"id": "llama3-70b-8192", "name": "Llama 3 70B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},

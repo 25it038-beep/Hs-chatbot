@@ -8,6 +8,15 @@ from app.services.nvidia.config import NVIDIA_MODELS
 
 _RATE_LIMIT_SLEEPS = [1.0, 2.0, 4.0]
 
+_THINK_RE = r"<think>.*?</think>"
+
+
+def _strip_thinking(content: str) -> str:
+    if not content:
+        return content
+    import re as _re
+    return _re.sub(_THINK_RE, "", content, flags=_re.DOTALL).strip()
+
 NVIDIA_MODEL_MAP = {v["id"]: k for k, v in NVIDIA_MODELS.items()}
 NVIDIA_ID_MAP = {k: v["id"] for k, v in NVIDIA_MODELS.items()}
 
@@ -61,7 +70,7 @@ class OpenAIProvider(ModelProvider):
                 "lm_studio": settings.ollama_default_model,
                 "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
                 "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-                "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
+                "groq": settings.groq_default_model or "qwen/qwen3.6-27b",
             }
             return defaults.get(self.provider_name, settings.openai_default_model)
         if self.provider_name == "nvidia":
@@ -112,7 +121,7 @@ class OpenAIProvider(ModelProvider):
         response = await self._chat_completion(**kwargs)
         latency = (time.time() - start) * 1000
         return ModelResponse(
-            content=response.choices[0].message.content or "",
+            content=_strip_thinking(response.choices[0].message.content or ""),
             model=model_name,
             provider=self.provider_name,
             input_tokens=response.usage.prompt_tokens if response.usage else 0,
@@ -151,6 +160,7 @@ class OpenAIProvider(ModelProvider):
         stream = await self._chat_completion(**kwargs)
         input_tokens = 0
         output_tokens = 0
+        in_think = False
         async for chunk in stream:
             if chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens or 0
@@ -158,13 +168,32 @@ class OpenAIProvider(ModelProvider):
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta:
                 if delta.content:
-                    content = str(delta.content)
-                    yield StreamChunk(
-                        type="content",
-                        content=content,
-                        model=model_name,
-                        provider=self.provider_name,
-                    )
+                    piece = str(delta.content)
+                    visible = ""
+                    while piece:
+                        if in_think:
+                            close_idx = piece.find("</think>")
+                            if close_idx == -1:
+                                piece = ""
+                            else:
+                                in_think = False
+                                piece = piece[close_idx + len("</think>"):]
+                        else:
+                            open_idx = piece.find("<think>")
+                            if open_idx == -1:
+                                visible += piece
+                                piece = ""
+                            else:
+                                visible += piece[:open_idx]
+                                in_think = True
+                                piece = piece[open_idx + len("<think>"):]
+                    if visible:
+                        yield StreamChunk(
+                            type="content",
+                            content=visible,
+                            model=model_name,
+                            provider=self.provider_name,
+                        )
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         yield StreamChunk(

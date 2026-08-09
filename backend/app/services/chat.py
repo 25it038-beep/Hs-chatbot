@@ -147,6 +147,7 @@ class ChatService:
             "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
             "nvidia": "glm-5.2",
             "gemini": settings.google_default_model,
+            "groq": settings.groq_default_model or "qwen/qwen3.6-27b",
         }
         provider_name = request.provider or "groq"
 

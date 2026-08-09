@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     openai_default_model: str = "gpt-4o"
 
     groq_api_key: Optional[str] = None
-    groq_default_model: str = "llama-3.3-70b-versatile"
+    groq_default_model: str = "qwen/qwen3.6-27b"
 
     anthropic_api_key: Optional[str] = None
     anthropic_default_model: str = "claude-sonnet-4-20250514"

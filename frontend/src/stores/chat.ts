@@ -99,7 +99,7 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     createChat: async () => {
-      const chat = await api.createChat({ model: 'llama-3.3-70b-versatile', provider: 'groq' })
+      const chat = await api.createChat({ model: 'qwen/qwen3.6-27b', provider: 'groq' })
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
@@ -168,7 +168,7 @@ export const useChat = create<ChatState>((set, get) => {
         streamControllers[chat.id] = abortController
 
         const provider = chat.provider || 'groq'
-        const model = chat.model || 'llama-3.3-70b-versatile'
+        const model = chat.model || 'qwen/qwen3.6-27b'
         const reader = provider === 'nvidia'
           ? await api.nvidiaChatStream({
               message: content,

@@ -125,8 +125,8 @@ TASK_ROUTES = {
         "fallback": ["llama-3.2-vision"],
     },
     "image_generation": {
-        "default": "flux-2-klein",
-        "fallback": ["flux-1-schnell", "flux-1-dev"],
+        "default": "flux-1-dev",
+        "fallback": ["flux-1-schnell"],
     },
     "embeddings": {
         "default": "nv-embed-v1",

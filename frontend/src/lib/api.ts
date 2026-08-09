@@ -183,7 +183,7 @@ export const api = {
   health: () => request<{ status: string }>('/health'),
 
   // NVIDIA
-  nvidiaChatStream: (data: {
+  nvidiaChatStream: async (data: {
     message: string
     chat_id?: string
     model?: string

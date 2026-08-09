@@ -163,6 +163,9 @@ export const useChat = create<ChatState>((set, get) => {
       }))
       if (get().currentChat?.id === chat.id) syncDisplay()
 
+      let firstChunkReceived = false
+      let timeoutId: any = undefined
+
       try {
         const abortController = new AbortController()
         streamControllers[chat.id] = abortController
@@ -213,8 +216,8 @@ export const useChat = create<ChatState>((set, get) => {
         let buffer = ''
 
         // 45-second timeout for first chunk — cancels if NVIDIA hangs
-        let firstChunkReceived = false
-        const timeoutId = setTimeout(() => {
+        firstChunkReceived = false
+        timeoutId = setTimeout(() => {
           if (!firstChunkReceived) {
             abortController.abort()
           }

@@ -55,7 +55,11 @@ class NvidiaChatProvider:
             payload["response_format"] = {"type": "json_object"}
 
         if model_conf.get("supports_thinking") and reasoning:
-            payload["chat_template_kwargs"] = {"thinking": True}
+            if "nemotron" in model_id.lower():
+                payload["chat_template_kwargs"] = {"enable_thinking": True}
+                payload["reasoning_budget"] = 16384
+            else:
+                payload["chat_template_kwargs"] = {"thinking": True}
 
         if tools:
             payload["tools"] = tools
@@ -145,7 +149,11 @@ class NvidiaChatProvider:
             payload["response_format"] = {"type": "json_object"}
 
         if model_conf.get("supports_thinking") and reasoning:
-            payload["chat_template_kwargs"] = {"thinking": True}
+            if "nemotron" in model_id.lower():
+                payload["chat_template_kwargs"] = {"enable_thinking": True}
+                payload["reasoning_budget"] = 16384
+            else:
+                payload["chat_template_kwargs"] = {"thinking": True}
 
         if tools:
             payload["tools"] = tools

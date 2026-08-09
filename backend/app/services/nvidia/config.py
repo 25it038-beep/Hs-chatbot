@@ -11,6 +11,15 @@ NVIDIA_MODELS = {
         "default_temp": 1.0,
         "supports_thinking": True,
     },
+    "nemotron-3-ultra-550b": {
+        "id": "nvidia/nemotron-3-ultra-550b-a55b",
+        "name": "Nemotron-3 Ultra 550B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "reasoning"],
+        "max_tokens": 16384,
+        "default_temp": 1.0,
+        "supports_thinking": True,
+    },
     "llama-3.3-70b": {
         "id": "meta/llama-3.3-70b-instruct",
         "name": "Llama 3.3 70B",
@@ -100,16 +109,16 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "llama-3.1-70b",
-        "fallback": ["glm-5.2"],
+        "default": "nemotron-3-ultra-550b",
+        "fallback": ["llama-3.1-70b", "glm-5.2"],
     },
     "coding": {
         "default": "glm-coder",
         "fallback": ["glm-5.2"],
     },
     "reasoning": {
-        "default": "llama-3.1-70b",
-        "fallback": ["glm-5.2"],
+        "default": "nemotron-3-ultra-550b",
+        "fallback": ["llama-3.1-70b", "glm-5.2"],
     },
     "vision": {
         "default": "nemotron-vl",

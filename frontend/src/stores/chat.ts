@@ -184,20 +184,33 @@ export const useChat = create<ChatState>((set, get) => {
         const lower = content.toLowerCase()
         const isImageRequest = IMAGE_KEYWORDS.some(k => lower.includes(k))
 
-        const reader = provider === 'nvidia'
-          ? await api.nvidiaChatStream({
+        const getReader = async () => {
+          if (provider === 'nvidia') {
+            return api.nvidiaChatStream({
               message: content,
               chat_id: chat.id,
               model,
               stream: true,
               auto_route: isImageRequest,
             }, abortController.signal)
-          : await api.sendMessageStream({
+          } else {
+            return api.sendMessageStream({
               message: content,
               chat_id: chat.id,
               model,
               provider,
             })
+          }
+        }
+
+        // Auto-retry once on failure (handles Render cold-start / NVIDIA hiccup)
+        let reader: ReadableStreamDefaultReader<Uint8Array>
+        try {
+          reader = await getReader()
+        } catch {
+          await new Promise(r => setTimeout(r, 2000)) // wait 2s then retry
+          reader = await getReader()
+        }
 
         const decoder = new TextDecoder()
         let fullContent = ''

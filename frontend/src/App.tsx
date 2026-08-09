@@ -2,10 +2,21 @@ import React, { useEffect } from 'react'
 import { useUser } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'
+import { api } from '@/lib/api'
 import { AnimatedBackground } from '@/components/animations/AnimatedBackground'
 import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+
+// Keep Render backend warm — ping every 4 minutes so it never cold-starts
+function useKeepAlive() {
+  useEffect(() => {
+    const ping = () => api.health().catch(() => {})
+    ping() // immediate ping on mount
+    const id = setInterval(ping, 4 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+}
 
 const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true'
@@ -49,6 +60,8 @@ function ClerkAppInner() {
 export default function App() {
   const { user: customUser, initialized, loadUser } = useAuth()
   const { loadChats, loadFolders, loadModels } = useChat()
+
+  useKeepAlive() // keep Render backend awake
 
   useEffect(() => {
     if (!HAS_CLERK) loadUser()

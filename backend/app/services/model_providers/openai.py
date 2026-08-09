@@ -8,6 +8,8 @@ from app.services.nvidia.config import NVIDIA_MODELS
 
 _RATE_LIMIT_SLEEPS = [1.0, 2.0, 4.0]
 
+_GROQ_BACKUP_MODEL = "llama-3.3-70b-versatile"
+
 _THINK_RE = r"<think>.*?</think>"
 
 
@@ -118,11 +120,26 @@ class OpenAIProvider(ModelProvider):
             model_conf = NVIDIA_MODELS.get(model or "")
             if model_conf and model_conf.get("supports_thinking"):
                 kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
-        response = await self._chat_completion(**kwargs)
+        response = None
+        used_model = model_name
+        try:
+            response = await self._chat_completion(**kwargs)
+        except Exception as e:
+            if self.provider_name == "groq" and model_name != _GROQ_BACKUP_MODEL:
+                kwargs["model"] = _GROQ_BACKUP_MODEL
+                try:
+                    response = await self._chat_completion(**kwargs)
+                    used_model = _GROQ_BACKUP_MODEL
+                except Exception:
+                    raise e
+            else:
+                raise e
+        if response is None:
+            raise ValueError(f"Provider '{self.provider_name}' returned no response")
         latency = (time.time() - start) * 1000
         return ModelResponse(
             content=_strip_thinking(response.choices[0].message.content or ""),
-            model=model_name,
+            model=used_model,
             provider=self.provider_name,
             input_tokens=response.usage.prompt_tokens if response.usage else 0,
             output_tokens=response.usage.completion_tokens if response.usage else 0,
@@ -158,6 +175,13 @@ class OpenAIProvider(ModelProvider):
             if model_conf and model_conf.get("supports_thinking"):
                 kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
         stream = await self._chat_completion(**kwargs)
+        if stream is None:
+            if self.provider_name == "groq" and model_name != _GROQ_BACKUP_MODEL:
+                kwargs["model"] = _GROQ_BACKUP_MODEL
+                stream = await self._chat_completion(**kwargs)
+                model_name = _GROQ_BACKUP_MODEL
+            else:
+                raise ValueError(f"Provider '{self.provider_name}' returned no stream")
         input_tokens = 0
         output_tokens = 0
         in_think = False

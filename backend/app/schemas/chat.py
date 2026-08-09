@@ -23,8 +23,8 @@ class ChatFolderResponse(BaseModel):
 
 class ChatCreate(BaseModel):
     title: Optional[str] = None
-    model: str = "gpt-4o"
-    provider: str = "openai"
+    model: str = "qwen/qwen3.6-27b"
+    provider: str = "groq"
     system_prompt: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 4096

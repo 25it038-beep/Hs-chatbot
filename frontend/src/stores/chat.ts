@@ -305,14 +305,33 @@ export const useChat = create<ChatState>((set, get) => {
 
         await get().loadChats()
       } catch (error) {
-        console.error('Send error:', error)
+        const isAbort = error instanceof DOMException && error.name === 'AbortError'
+        if (!isAbort) {
+          console.error('Send error:', error)
+          // Show error as an assistant message so user sees what happened
+          const errMsg: Message = {
+            id: crypto.randomUUID(),
+            chat_id: chat.id,
+            role: 'assistant',
+            content: `⚠️ **Something went wrong.** ${error instanceof Error ? error.message : 'Please try again.'}\n\n_If this keeps happening, try refreshing the page._`,
+            token_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            created_at: new Date().toISOString(),
+          }
+          set(state => ({
+            chatMessages: { ...state.chatMessages, [chat.id]: [...(state.chatMessages[chat.id] || []), errMsg] },
+          }))
+        }
         set(state => {
           const { [chat.id]: _, ...restPhase } = state.streamingPhase
           const { [chat.id]: __, ...restReasoning } = state.streamingReasoning
+          const { [chat.id]: ___, ...restStreaming } = state.chatStreamingContent
           return {
             streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
             streamingPhase: restPhase,
             streamingReasoning: restReasoning,
+            chatStreamingContent: restStreaming,
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()

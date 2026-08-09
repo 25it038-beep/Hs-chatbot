@@ -200,23 +200,34 @@ export const api = {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
     }
-    return fetch(`${BASE_URL}/nvidia/chat`, {
-      method: 'POST',
-      headers,
-      signal,
-      body: JSON.stringify({ ...data, stream: true }),
-    }).then(async res => {
-      if (!res.ok) {
-        let msg = `NVIDIA stream failed with status ${res.status}`
-        try {
-          const err = await res.json()
-          msg = err.detail || err.message || msg
-        } catch {}
-        throw new Error(msg)
-      }
-      return res.body!.getReader()
-    })
+    const doFetch = (hdrs: Record<string, string>) =>
+      fetch(`${BASE_URL}/nvidia/chat`, {
+        method: 'POST',
+        headers: hdrs,
+        signal,
+        body: JSON.stringify({ ...data, stream: true }),
+      })
 
+    let res = await doFetch(headers)
+
+    // Auto-refresh token on 401 (same as request())
+    if (res.status === 401 && refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+        res = await doFetch(headers)
+      }
+    }
+
+    if (!res.ok) {
+      let msg = `Stream failed (${res.status})`
+      try {
+        const err = await res.json()
+        msg = err.detail || err.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
+    return res.body!.getReader()
   },
 
   nvidiaVision: (file: File, prompt: string) => {

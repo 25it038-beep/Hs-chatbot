@@ -145,7 +145,7 @@ class ChatService:
         default_models = {
             "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             "sambanova": settings.sambanova_default_model or "Meta-Llama-3.3-70B-Instruct",
-            "nvidia": settings.nvidia_default_chat_model or "meta/llama-3.3-70b-instruct",
+            "nvidia": settings.nvidia_default_chat_model or "llama-3.1-70b",
             "gemini": settings.google_default_model,
             "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
         }

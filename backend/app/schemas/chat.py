@@ -23,8 +23,8 @@ class ChatFolderResponse(BaseModel):
 
 class ChatCreate(BaseModel):
     title: Optional[str] = None
-    model: str = "Meta-Llama-3.3-70B-Instruct"
-    provider: str = "sambanova"
+    model: str = "llama-3.1-70b"
+    provider: str = "nvidia"
     system_prompt: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 4096

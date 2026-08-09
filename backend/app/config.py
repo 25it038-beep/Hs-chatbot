@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "hsbot_docs"
 
-    nvidia_api_keys: str = "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"
-    nvidia_default_chat_model: str = "meta/llama-3.3-70b-instruct"
+    nvidia_api_keys: str = "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"
+    nvidia_default_chat_model: str = "meta/llama-3.1-70b-instruct"
     nvidia_default_code_model: str = "glm-coder"
     nvidia_default_vision_model: str = "nemotron-vl"
     nvidia_default_image_model: str = "nemotron-vl"
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     openai_default_model: str = "gpt-4o"
 
     groq_api_key: Optional[str] = None
-    groq_default_model: str = "qwen/qwen3.6-27b"
+    groq_default_model: str = "llama-3.3-70b-versatile"
 
     huggingface_api_key: Optional[str] = None
 
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     sambanova_api_key: Optional[str] = None
     sambanova_base_url: str = "https://api.sambanova.ai/v1"
-    sambanova_default_model: str = "DeepSeek-V3.2"
+    sambanova_default_model: str = "Meta-Llama-3.3-70B-Instruct"
 
     cloudflare_gateway_api_key: Optional[str] = None
     cloudflare_gateway_account_id: str = "21e5f9f23e1d60cb56bf1200e89255f3"

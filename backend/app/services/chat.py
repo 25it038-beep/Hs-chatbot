@@ -144,10 +144,10 @@ class ChatService:
         model = request.model
         default_models = {
             "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-            "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
+            "sambanova": settings.sambanova_default_model or "Meta-Llama-3.3-70B-Instruct",
             "nvidia": settings.nvidia_default_chat_model or "meta/llama-3.3-70b-instruct",
             "gemini": settings.google_default_model,
-            "groq": settings.groq_default_model or "qwen/qwen3.6-27b",
+            "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
         }
         provider_name = request.provider or "nvidia"
 

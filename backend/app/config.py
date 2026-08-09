@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     qdrant_collection: str = "hsbot_docs"
 
     nvidia_api_keys: str = "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"
-    nvidia_default_chat_model: str = "nemotron-3-ultra-550b"
+    nvidia_default_chat_model: str = "llama-3.1-70b"
     nvidia_default_code_model: str = "glm-coder"
     nvidia_default_vision_model: str = "nemotron-vl"
     nvidia_default_image_model: str = "nemotron-vl"

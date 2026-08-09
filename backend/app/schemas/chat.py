@@ -23,7 +23,7 @@ class ChatFolderResponse(BaseModel):
 
 class ChatCreate(BaseModel):
     title: Optional[str] = None
-    model: str = "nemotron-3-ultra-550b"
+    model: str = "llama-3.1-70b"
     provider: str = "nvidia"
     system_prompt: Optional[str] = None
     temperature: float = 0.7

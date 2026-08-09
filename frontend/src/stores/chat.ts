@@ -170,19 +170,15 @@ export const useChat = create<ChatState>((set, get) => {
         const provider = chat.provider || 'nvidia'
         const model = chat.model || 'llama-3.1-70b'
 
-        // Detect image generation requests to enable auto_route only for them
-        const IMAGE_KEYWORDS = [
-          '/image', '/img', '/draw',
-          'generate an image', 'generate a picture', 'generate a photo',
-          'create an image', 'create a picture', 'create a photo',
-          'draw a', 'draw an', 'draw me',
-          'render a', 'render an', 'render me',
-          'make an image', 'make a picture', 'make a photo',
-          'generate image', 'create image', 'generate art', 'create art',
-          'illustrate a', 'illustrate an',
-        ]
+        // Detect image generation — flexible regex handles "a/an/the/me" variants
         const lower = content.toLowerCase()
-        const isImageRequest = IMAGE_KEYWORDS.some(k => lower.includes(k))
+        const IMAGE_PATTERNS = [
+          /\/image\b/, /\/img\b/, /\/draw\b/,
+          /(generate|create|make|produce|render|build|design)\s+(a\s+|an\s+|the\s+|me\s+)?(image|picture|photo|illustration|drawing|artwork|art|painting|sketch|diagram|chart)/,
+          /(draw|illustrate|sketch|paint)\s+(a\s+|an\s+|the\s+|me\s+)?/,
+          /text.?to.?image/,
+        ]
+        const isImageRequest = IMAGE_PATTERNS.some(p => p.test(lower))
 
         const getReader = async () => {
           if (provider === 'nvidia') {

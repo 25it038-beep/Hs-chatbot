@@ -4,10 +4,11 @@ from app.services.model_providers.anthropic import AnthropicProvider
 from app.services.model_providers.gemini import GeminiProvider
 from app.services.model_providers.ollama import OllamaProvider
 from app.services.model_providers.groq import GroqProvider
+from app.services.model_providers.huggingface import HuggingFaceProvider
 
 __all__ = [
     "ModelProvider", "ModelResponse", "StreamChunk",
-    "OpenAIProvider", "AnthropicProvider", "GeminiProvider", "OllamaProvider", "GroqProvider",
+    "OpenAIProvider", "AnthropicProvider", "GeminiProvider", "OllamaProvider", "GroqProvider", "HuggingFaceProvider",
 ]
 
 PROVIDER_MAP: dict[str, type[ModelProvider]] = {
@@ -22,6 +23,7 @@ PROVIDER_MAP: dict[str, type[ModelProvider]] = {
     "sambanova": OpenAIProvider,
     "cloudflare": OpenAIProvider,
     "groq": GroqProvider,
+    "huggingface": HuggingFaceProvider,
 }
 
 

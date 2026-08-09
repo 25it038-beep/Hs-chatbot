@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     groq_api_key: Optional[str] = None
     groq_default_model: str = "qwen/qwen3.6-27b"
 
+    huggingface_api_key: Optional[str] = None
+
     anthropic_api_key: Optional[str] = None
     anthropic_default_model: str = "claude-sonnet-4-20250514"
 

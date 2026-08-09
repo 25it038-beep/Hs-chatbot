@@ -74,6 +74,10 @@ def _build_models():
         {"id": "llama3-8b-8192", "name": "Llama 3 8B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
         {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "provider": "groq", "capabilities": ["chat", "streaming", "tools"]},
     ])
+    # Hugging Face
+    models.extend([
+        {"id": "deepseek-ai/DeepSeek-V4-Flash-0731", "name": "DeepSeek V4 Flash", "provider": "huggingface", "capabilities": ["chat", "streaming"]},
+    ])
     return models
 
 
@@ -90,6 +94,7 @@ PROVIDERS: list[dict] = [
     {"id": "sambanova", "name": "SambaNova", "icon": "zap", "requires_key": True},
     {"id": "cloudflare", "name": "Cloudflare Gateway", "icon": "cloud", "requires_key": True},
     {"id": "groq", "name": "Groq", "icon": "zap", "requires_key": True},
+    {"id": "huggingface", "name": "Hugging Face", "icon": "cpu", "requires_key": True},
     {"id": "lm_studio", "name": "LM Studio", "icon": "monitor", "requires_key": False},
 ]
 

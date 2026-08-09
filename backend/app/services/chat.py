@@ -145,11 +145,11 @@ class ChatService:
         default_models = {
             "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
-            "nvidia": "glm-5.2",
+            "nvidia": settings.nvidia_default_chat_model or "meta/llama-3.3-70b-instruct",
             "gemini": settings.google_default_model,
             "groq": settings.groq_default_model or "qwen/qwen3.6-27b",
         }
-        provider_name = request.provider or "groq"
+        provider_name = request.provider or "nvidia"
 
         if not chat_id:
             chat = await self.create_chat(

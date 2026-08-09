@@ -7,12 +7,14 @@ class AIRouter:
     def detect_task(self, message: str) -> str:
         text = message.lower()
 
-        # Check for image generation tasks
-        img_score = 0
-        for kw in TASK_PATTERNS["image_generation"]:
-            if kw in text:
-                img_score += 1
-        if img_score >= 1:
+        # Check for image generation tasks with typo tolerance (genrate, cretae, iamge, etc.)
+        image_patterns = [
+            r"/(image|img|draw)\b",
+            r"\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*|pic[ture]*|photo|art[work]*|drawing|painting)\b",
+            r"\b(draw|illustrate|paint|sketch)\b\s+(a\s+|an\s+|the\s+|me\s+)?",
+            r"text.?to.?image",
+        ]
+        if any(re.search(pat, text) for pat in image_patterns):
             return "image_generation"
 
         # Check for vision tasks

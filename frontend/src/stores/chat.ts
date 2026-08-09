@@ -170,12 +170,12 @@ export const useChat = create<ChatState>((set, get) => {
         const provider = chat.provider || 'nvidia'
         const model = chat.model || 'llama-3.1-70b'
 
-        // Detect image generation — flexible regex handles "a/an/the/me" variants
+        // Detect image generation — flexible regex handles typos (genrate, cretea, iamge, etc.)
         const lower = content.toLowerCase()
         const IMAGE_PATTERNS = [
           /\/image\b/, /\/img\b/, /\/draw\b/,
-          /(generate|create|make|produce|render|build|design)\s+(a\s+|an\s+|the\s+|me\s+)?(image|picture|photo|illustration|drawing|artwork|art|painting|sketch|diagram|chart)/,
-          /(draw|illustrate|sketch|paint)\s+(a\s+|an\s+|the\s+|me\s+)?/,
+          /\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*|pic[ture]*|photo|art[work]*|drawing|painting)\b/,
+          /\b(draw|illustrate|paint|sketch)\b\s+(a\s+|an\s+|the\s+|me\s+)?/,
           /text.?to.?image/,
         ]
         const isImageRequest = IMAGE_PATTERNS.some(p => p.test(lower))

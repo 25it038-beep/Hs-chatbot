@@ -14,7 +14,10 @@ class NvidiaChatProvider:
         self.base_url = NVIDIA_BASE_URL
 
     def _get_model_id(self, model_key: str) -> str:
-        if model_key in ("nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b"):
+        if model_key in (
+            "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
+            "glm-5.2", "z-ai/glm-5.2", "glm-coder"
+        ):
             model_key = "llama-3.1-70b"
         model_conf = NVIDIA_MODELS.get(model_key)
         if model_conf:
@@ -22,7 +25,10 @@ class NvidiaChatProvider:
         return model_key
 
     def _get_model_config(self, model_key: str) -> dict:
-        if model_key in ("nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b"):
+        if model_key in (
+            "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
+            "glm-5.2", "z-ai/glm-5.2", "glm-coder"
+        ):
             model_key = "llama-3.1-70b"
         return NVIDIA_MODELS.get(model_key, {})
 

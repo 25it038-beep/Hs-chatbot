@@ -154,15 +154,46 @@ class WebSearchService:
             return list(ddgs.text(query, max_results=limit))
 
     def _images_sync(self, query: str, limit: int) -> list[tuple[str, str]]:
-        from ddgs import DDGS
-        results = []
+        """Fetch images via Wikimedia Commons — file titles must match the
+        query, so results are on-topic (unlike generic image indexes)."""
         try:
-            with DDGS() as ddgs:
-                for img in ddgs.images(query, max_results=limit):
-                    url = img.get("image") or ""
-                    alt = (img.get("title") or query).strip()[:80]
-                    if url:
-                        results.append((alt, url))
+            import httpx
+            resp = httpx.get(
+                "https://commons.wikimedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "generator": "search",
+                    "gsrsearch": query,
+                    "gsrnamespace": "6",
+                    "gsrlimit": str(min(limit * 3, 20)),
+                    "prop": "imageinfo",
+                    "iiprop": "url|mime",
+                    "iiurlwidth": "480",
+                    "format": "json",
+                },
+                headers={"User-Agent": "HSBot/1.0 (https://github.com/25it038-beep/Hs-chatbot; contact: hsbot@example.com)"},
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            pages = resp.json().get("query", {}).get("pages", {})
         except Exception:
             return []
+
+        keywords = [k for k in re.split(r"[\s,]+", query.lower()) if len(k) > 2]
+        results = []
+        for page in pages.values():
+            info = (page.get("imageinfo") or [{}])[0]
+            url = (info.get("thumburl") or info.get("url") or "").split("?")[0]
+            mime = info.get("mime", "")
+            title = page.get("title", "").replace("File:", "")
+            if not url:
+                continue
+            if mime and not mime.startswith("image/"):
+                continue
+            title_l = title.lower()
+            if keywords and not any(k in title_l for k in keywords):
+                continue
+            results.append((title.strip()[:80], url))
+            if len(results) >= limit:
+                break
         return results

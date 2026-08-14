@@ -238,7 +238,7 @@ export const api = {
     return fetch(`${BASE_URL}/nvidia/vision`, { method: 'POST', body: formData, headers }).then(r => r.json())
   },
 
-  nvidiaGenerateImage: (prompt: string, model = 'flux-1-dev', steps = 20) => {
+  nvidiaGenerateImage: (prompt: string, model = 'flux-2-klein', steps = 4) => {
     const formData = new FormData()
     formData.append('prompt', prompt)
     formData.append('model', model)

@@ -179,11 +179,14 @@ TASK_PATTERNS = {
         "show me photos of", "show me photos for",
         "images of", "pictures of", "photos of",
         "show me a picture of", "show me a photo of",
+        "show me an image of", "show me image of",
         "find images of", "search images of",
         "images for", "pictures for", "photos for",
         "find me images of", "find me pictures of",
         "find me photos of", "image search for",
         "web image of", "web images of",
+        "an image of", "a picture of", "a photo of",
+        "image of", "picture of", "photo of",
     ],
 
 }

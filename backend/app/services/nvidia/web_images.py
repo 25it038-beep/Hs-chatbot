@@ -64,9 +64,11 @@ class WebImageSearch:
         import re
         text = message.strip()
         patterns = [
-            r"(?i)^(show|find|search|get|fetch)\s+(me\s+)?(some\s+|any\s+|the\s+)?(images?|pictures?|photos?)\s+(of|for)\s+",
-            r"(?i)^(images?|pictures?|photos?)\s+(of|for)\s+",
-            r"(?i)^(show|find|search)\s+(me\s+)?(images?|pictures?|photos?)\s+",
+            r"(?i)^(show|display|find|search|get|fetch|send|want|give|need)\s+(me\s+)?(some\s+|any\s+|the\s+|a\s+|an\s+)?(images?|pictures?|photos?|pics?|image)\s+(of|for)\s+",
+            r"(?i)^(images?|pictures?|photos?|pics?|image)\s+(of|for)\s+",
+            r"(?i)^(an\s+|a\s+|the\s+)?(image|picture|photo|pic)\s+of\s+",
+            r"(?i)^(show|display|find|search|get|fetch|send|want|give|need)\s+(me\s+)?(images?|pictures?|photos?|pics?|image)\s+",
+            r"(?i)^(web\s+)?images?\s+of\s+",
         ]
         for p in patterns:
             text = re.sub(p, "", text)

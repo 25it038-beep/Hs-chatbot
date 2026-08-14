@@ -209,7 +209,7 @@ class ChatService:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         if WebSearchService.needs_web_search(request.message) and not request.stream:
-            web_context = await WebSearchService().search(request.message)
+            web_context = await WebSearchService().search(request.message, with_images=True)
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -311,9 +311,10 @@ class ChatService:
                             provider="nvidia",
                         )
                 else:
+                    web_images_md = ""
                     if WebSearchService.needs_web_search(request.message):
                         yield StreamChunk(type="searching", content="Searching the web for updated data...")
-                        web_context = await WebSearchService().search(request.message)
+                        web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                         if web_context:
                             system_prompt = f"{system_prompt}\n\n{web_context}"
                     try:
@@ -330,6 +331,14 @@ class ChatService:
                                 input_tokens = chunk.input_tokens
                                 output_tokens = chunk.output_tokens
                             yield chunk
+                        if web_images_md:
+                            yield StreamChunk(
+                                type="content",
+                                content="\n\n" + web_images_md,
+                                model=model or chat.model,
+                                provider=provider_name,
+                            )
+                            full_content += "\n\n" + web_images_md
                     except Exception as e:
                         if not full_content:
                             error_msg = (

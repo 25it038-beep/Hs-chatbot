@@ -319,7 +319,7 @@ async def nvidia_chat(
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         if WebSearchService.needs_web_search(request.message):
-            web_context = await WebSearchService().search(request.message)
+            web_context = await WebSearchService().search(request.message, with_images=True)
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -349,9 +349,10 @@ async def nvidia_chat(
                 start = time.time()
 
                 gen_system_prompt = system_prompt
+                web_images_md = ""
                 if WebSearchService.needs_web_search(request.message):
                     yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
-                    web_context = await WebSearchService().search(request.message)
+                    web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                     if web_context:
                         gen_system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -375,6 +376,9 @@ async def nvidia_chat(
 
                     if full_content:
                         latency = (time.time() - start) * 1000
+                        if web_images_md:
+                            yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
+                            full_content += "\n\n" + web_images_md
                         user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
                         assistant_msg = Message(
                             chat_id=request.chat_id,
@@ -437,7 +441,7 @@ async def nvidia_chat(
     messages = [{"role": "user", "content": request.message}]
 
     if WebSearchService.needs_web_search(request.message):
-        web_context = await WebSearchService().search(request.message)
+        web_context = await WebSearchService().search(request.message, with_images=True)
         if web_context:
             system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -445,9 +449,10 @@ async def nvidia_chat(
         async def generate():
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
             gen_system_prompt = system_prompt
+            web_images_md = ""
             if WebSearchService.needs_web_search(request.message):
                 yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
-                web_context = await WebSearchService().search(request.message)
+                web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                 if web_context:
                     gen_system_prompt = f"{system_prompt}\n\n{web_context}"
             try:
@@ -466,6 +471,8 @@ async def nvidia_chat(
                 raise
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
+            if web_images_md:
+                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers={

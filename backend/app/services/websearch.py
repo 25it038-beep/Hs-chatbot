@@ -7,6 +7,10 @@ from typing import Optional
 _QUERY_CACHE: dict[str, dict] = {}
 
 
+async def _noop() -> list:
+    return []
+
+
 def _needs_web_search(query: str) -> bool:
     if not query or not query.strip():
         return False
@@ -53,30 +57,42 @@ class WebSearchService:
     def needs_web_search(query: str) -> bool:
         return _needs_web_search(query)
 
-    async def search(self, query: str, max_results: Optional[int] = None) -> Optional[str]:
+    async def search(
+        self,
+        query: str,
+        max_results: Optional[int] = None,
+        with_images: bool = False,
+    ) -> Optional[str]:
         if not query or not query.strip():
             return None
 
         limit = max_results or self.max_results
         today = date.today().isoformat()
-        cache_key = f"{today}|{query.strip().lower()}"
+        cache_key = f"{today}|{query.strip().lower()}|img={int(with_images)}"
         cached = _QUERY_CACHE.get(cache_key)
         if cached:
             return cached["context"]
 
+        loop = asyncio.get_event_loop()
         try:
-            results = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, self._search_sync, query, limit),
-                timeout=20.0,
+            text_results, image_results = await asyncio.gather(
+                asyncio.wait_for(
+                    loop.run_in_executor(None, self._search_sync, query, limit),
+                    timeout=20.0,
+                ),
+                asyncio.wait_for(
+                    loop.run_in_executor(None, self._images_sync, query, limit) if with_images else _noop(),
+                    timeout=20.0,
+                ),
             )
         except (asyncio.TimeoutError, Exception):
             return None
 
-        if not results:
+        if not text_results and not image_results:
             return None
 
         context_parts = []
-        for r in results:
+        for r in text_results or []:
             title = (r.get("title") or "").strip()
             body = (r.get("body") or "").strip()
             url = (r.get("href") or "").strip()
@@ -99,10 +115,54 @@ class WebSearchService:
             + "\n".join(context_parts)
         )
 
+        if image_results:
+            images_md = "\n\n".join(f"![{alt}]({u})" for alt, u in image_results)
+            context = (
+                f"{context}\n\n[RELEVANT IMAGES - You MUST include these images in your answer. "
+                f"At the end of your answer, paste the markdown image links below exactly as shown]:\n{images_md}"
+            )
+
         _QUERY_CACHE[cache_key] = {"context": context, "date": today}
         return context
+
+    async def search_with_images(self, query: str, max_results: Optional[int] = None) -> tuple[Optional[str], str]:
+        """Returns (context, images_markdown). Images are guaranteed regardless of LLM behavior."""
+        context = await self.search(query, max_results=max_results, with_images=True)
+        images_md = await self.fetch_images_markdown(query, max_results)
+        return context, images_md
+
+    async def fetch_images_markdown(self, query: str, max_results: Optional[int] = None) -> str:
+        """Fetch only the images for a query as markdown."""
+        if not query or not query.strip():
+            return ""
+        limit = max_results or self.max_results
+        loop = asyncio.get_event_loop()
+        try:
+            images = await asyncio.wait_for(
+                loop.run_in_executor(None, self._images_sync, query, limit),
+                timeout=20.0,
+            )
+        except (asyncio.TimeoutError, Exception):
+            return ""
+        if not images:
+            return ""
+        return "\n\n".join(f"![{alt}]({u})" for alt, u in images)
 
     def _search_sync(self, query: str, limit: int) -> list[dict]:
         from ddgs import DDGS
         with DDGS() as ddgs:
             return list(ddgs.text(query, max_results=limit))
+
+    def _images_sync(self, query: str, limit: int) -> list[tuple[str, str]]:
+        from ddgs import DDGS
+        results = []
+        try:
+            with DDGS() as ddgs:
+                for img in ddgs.images(query, max_results=limit):
+                    url = img.get("image") or ""
+                    alt = (img.get("title") or query).strip()[:80]
+                    if url:
+                        results.append((alt, url))
+        except Exception:
+            return []
+        return results

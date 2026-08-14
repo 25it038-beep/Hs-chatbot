@@ -146,7 +146,7 @@ async def nvidia_chat(
     if request.auto_route:
         task, auto_model = ai_router.get_model_for_message(request.message)
         if task == "image_generation":
-            model = auto_model or "flux-2-klein"
+            model = auto_model or "flux-1-dev"
         else:
             model = auto_model
     else:
@@ -510,7 +510,7 @@ async def nvidia_vision(
 
 class ImageGenRequest(BaseModel):
     prompt: str
-    model: str = "flux-2-klein"
+    model: str = "flux-1-dev"
     steps: int = 4
     seed: int = 0
 
@@ -524,7 +524,7 @@ async def nvidia_image_generate(
     seed: Optional[int] = Form(None),
 ):
     actual_prompt = req.prompt if req else (prompt or "")
-    actual_model = (req.model if req else model) or "flux-2-klein"
+    actual_model = (req.model if req else model) or "flux-1-dev"
     actual_steps = (req.steps if req else steps) or 4
     actual_seed = (req.seed if req else seed) or 0
 

@@ -256,7 +256,7 @@ class ChatService:
                         yield StreamChunk(
                             type="image",
                             content=img_resp.image_b64,
-                            model="flux-2-klein",
+                            model="flux-1-dev",
                             provider="nvidia",
                         )
                         try:
@@ -281,7 +281,7 @@ class ChatService:
                             yield StreamChunk(
                                 type="content",
                                 content="\n\nHere is your generated image!",
-                                model="flux-2-klein",
+                                model="flux-1-dev",
                                 provider="nvidia",
                             )
                         finally:
@@ -293,7 +293,7 @@ class ChatService:
                             yield StreamChunk(
                                 type="content",
                                 content=image_note,
-                                model="flux-2-klein",
+                                model="flux-1-dev",
                                 provider="nvidia",
                             )
                     except Exception as e:
@@ -301,13 +301,13 @@ class ChatService:
                         yield StreamChunk(
                             type="error",
                             content=f"Image generation failed: {str(e)}",
-                            model="flux-2-klein",
+                            model="flux-1-dev",
                             provider="nvidia",
                         )
                         yield StreamChunk(
                             type="content",
                             content=full_content,
-                            model="flux-2-klein",
+                            model="flux-1-dev",
                             provider="nvidia",
                         )
                 else:
@@ -399,7 +399,7 @@ class ChatService:
                     content = f"I could not generate the image. {str(e)}"
                 response = ModelResponse(
                     content=content,
-                    model="flux-2-klein",
+                    model="flux-1-dev",
                     provider="nvidia",
                     latency_ms=(time.time() - start) * 1000,
                 )

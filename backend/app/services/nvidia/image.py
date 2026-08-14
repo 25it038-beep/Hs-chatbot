@@ -13,7 +13,7 @@ FLUX_MODELS = {
     "flux-2-klein": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b",
 }
 
-DEFAULT_IMAGE_MODEL = "flux-2-klein"
+DEFAULT_IMAGE_MODEL = "flux-1-dev"
 
 
 class ImageGenResponse(BaseModel):
@@ -73,6 +73,33 @@ class NvidiaImageProvider:
                 if response.status_code == 429:
                     key_manager.record_failure(api_key, "rate_limit")
                     raise ValueError("Rate limited by NVIDIA")
+                if response.status_code in (400, 401, 403, 404):
+                    key_manager.record_failure(api_key, f"image_model_unavailable: {response.status_code}")
+                    for fb_model, fb_url in FLUX_MODELS.items():
+                        if fb_model == model:
+                            continue
+                        fb_payload = {"prompt": prompt}
+                        if fb_model == "flux-2-klein":
+                            fb_payload.update({"width": 1024, "height": 1024, "steps": 4, "seed": seed})
+                        else:
+                            fb_payload.update({"mode": "base", "steps": min(steps or 40, 40), "seed": seed})
+                        try:
+                            fb_resp = await client.post(fb_url, headers=headers, json=fb_payload)
+                            if fb_resp.status_code == 200:
+                                fb_data = fb_resp.json()
+                                fb_artifacts = fb_data.get("artifacts", [])
+                                if fb_artifacts:
+                                    key_manager.record_success(api_key)
+                                    return ImageGenResponse(
+                                        image_b64=fb_artifacts[0]["base64"],
+                                        model=fb_model,
+                                        provider="nvidia",
+                                        seed=fb_artifacts[0].get("seed", seed),
+                                        latency_ms=(time.time() - start) * 1000,
+                                    )
+                        except Exception:
+                            continue
+                    raise ValueError(f"Image model {model} unavailable (HTTP {response.status_code}) and no fallback worked")
                 response.raise_for_status()
                 data = response.json()
                 latency = (time.time() - start) * 1000

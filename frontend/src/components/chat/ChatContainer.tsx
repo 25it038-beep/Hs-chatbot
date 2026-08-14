@@ -163,7 +163,9 @@ export function ChatContainer() {
               <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance mb-2">
-              What can I help you with{user?.display_name || user?.username ? `, ${user.display_name || user.username}` : ''}?
+              {user?.display_name || user?.username
+                ? `Hello, ${user.display_name || user.username}! How can I help you today?`
+                : 'What can I help you with?'}
             </h1>
             <p className="text-sm text-muted-foreground mb-7 text-pretty">
               Ask questions, write code, research topics, or analyze documents.

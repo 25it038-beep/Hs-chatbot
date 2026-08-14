@@ -143,7 +143,11 @@ export function ChatContainer() {
             <div className="flex items-center gap-3 py-4 px-4 animate-fade-in">
               <AIThinking />
               <span className="text-sm text-muted-foreground animate-pulse">
-                {currentPhase === 'writing' ? 'Writing...' : 'Thinking...'}
+                {currentPhase === 'searching'
+                  ? 'Searching the web...'
+                  : currentPhase === 'writing'
+                    ? 'Writing...'
+                    : 'Thinking...'}
               </span>
             </div>
           )}

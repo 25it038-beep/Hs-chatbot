@@ -16,7 +16,7 @@ class NvidiaChatProvider:
     def _get_model_id(self, model_key: str) -> str:
         if model_key in (
             "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
-            "glm-5.2", "z-ai/glm-5.2", "glm-coder"
+            "glm-5.2", "z-ai/glm-5.2", "glm-coder", "nemotron-3.5-lightning",
         ):
             model_key = "llama-3.1-70b"
         model_conf = NVIDIA_MODELS.get(model_key)
@@ -27,7 +27,7 @@ class NvidiaChatProvider:
     def _get_model_config(self, model_key: str) -> dict:
         if model_key in (
             "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
-            "glm-5.2", "z-ai/glm-5.2", "glm-coder"
+            "glm-5.2", "z-ai/glm-5.2", "glm-coder", "nemotron-3.5-lightning",
         ):
             model_key = "llama-3.1-70b"
         return NVIDIA_MODELS.get(model_key, {})
@@ -179,13 +179,11 @@ class NvidiaChatProvider:
                 async with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
                     if response.status_code in (429, 503, 529):
                         key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
-                        yield StreamChunk(type="error", content="Server busy, switching model...", done=False)
                         async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
                             yield chunk
                         return
                     if response.status_code >= 500:
                         key_manager.record_failure(api_key, f"server_error: {response.status_code}")
-                        yield StreamChunk(type="error", content="Server error, switching model...", done=False)
                         async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
                             yield chunk
                         return

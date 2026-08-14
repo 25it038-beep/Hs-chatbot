@@ -125,8 +125,12 @@ TASK_ROUTES = {
         "fallback": ["llama-3.2-vision"],
     },
     "image_generation": {
-        "default": "flux-1-dev",
-        "fallback": ["flux-1-schnell"],
+        "default": "flux-1-schnell",
+        "fallback": ["flux-1-dev"],
+    },
+    "web_images": {
+        "default": "llama-3.1-70b",
+        "fallback": ["glm-5.2"],
     },
     "embeddings": {
         "default": "nv-embed-v1",
@@ -168,6 +172,18 @@ TASK_PATTERNS = {
         "draw a", "draw an", "draw me",
         "render a", "render an", "render me",
         "illustrate a", "illustrate an",
+    ],
+    "web_images": [
+        "show me images of", "show me images for",
+        "show me pictures of", "show me pictures for",
+        "show me photos of", "show me photos for",
+        "images of", "pictures of", "photos of",
+        "show me a picture of", "show me a photo of",
+        "find images of", "search images of",
+        "images for", "pictures for", "photos for",
+        "find me images of", "find me pictures of",
+        "find me photos of", "image search for",
+        "web image of", "web images of",
     ],
 
 }

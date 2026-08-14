@@ -15,6 +15,7 @@ from app.services.nvidia.router import ai_router
 from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
 from app.services.rag import RAGService
+from app.services.websearch import WebSearchService
 
 
 class ChatService:
@@ -207,6 +208,11 @@ class ChatService:
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
+        if WebSearchService.needs_web_search(request.message) and not request.stream:
+            web_context = await WebSearchService().search(request.message)
+            if web_context:
+                system_prompt = f"{system_prompt}\n\n{web_context}"
+
         messages_result = await self.db.execute(
             select(Message)
             .where(Message.chat_id == chat_id)
@@ -305,6 +311,11 @@ class ChatService:
                             provider="nvidia",
                         )
                 else:
+                    if WebSearchService.needs_web_search(request.message):
+                        yield StreamChunk(type="searching", content="Searching the web for updated data...")
+                        web_context = await WebSearchService().search(request.message)
+                        if web_context:
+                            system_prompt = f"{system_prompt}\n\n{web_context}"
                     try:
                         async for chunk in provider.generate_stream(
                             messages=api_messages,

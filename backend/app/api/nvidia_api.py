@@ -22,6 +22,8 @@ from app.services.nvidia import (
 )
 from app.services.nvidia.key_manager import key_manager
 from app.services.nvidia.config import NVIDIA_MODELS, NVIDIA_BASE_URL
+from app.services.nvidia.web_images import web_image_search
+from app.services.websearch import WebSearchService
 
 router = APIRouter(prefix="/api/nvidia", tags=["nvidia"])
 
@@ -232,6 +234,51 @@ async def nvidia_chat(
             except Exception as e:
                 return {"content": f"Image generation failed: {str(e)}", "model": model, "provider": "nvidia"}
 
+    # ── Web image search path (Wikimedia Commons, no API key needed) ──
+    if task == "web_images":
+        query = web_image_search.extract_query(request.message)
+        if request.stream:
+            async def search_images():
+                yield f"data: {json.dumps({'type': 'meta', 'model': 'web-images', 'task': task, 'chat_id': request.chat_id or ''})}\n\n"
+                md_parts: list[str] = []
+                try:
+                    results = await web_image_search.search(query, limit=6)
+                    if not results:
+                        msg_content = f'I could not find any images for "{query}". Try a different search term.'
+                        yield f"data: {json.dumps({'type': 'content', 'content': msg_content})}\n\n"
+                    else:
+                        intro = f"Here are some images for **{query}**:\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': intro})}\n\n"
+                        for r in results:
+                            md = f"![{r['title']}]({r['url']})\n\n"
+                            md_parts.append(md.strip())
+                            yield f"data: {json.dumps({'type': 'content', 'content': md})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'error', 'content': f'Image search failed: {str(e)}'})}\n\n"
+
+                if user and request.chat_id and md_parts:
+                    try:
+                        full_md = "Here are some images for " + query + ":\n\n" + "\n\n".join(md_parts)
+                        db.add(Message(chat_id=request.chat_id, role="user", content=request.message))
+                        db.add(Message(chat_id=request.chat_id, role="assistant", content=full_md, model="web-images", provider="wikimedia"))
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(search_images(), media_type="text/event-stream", headers={
+                "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+            })
+        else:
+            try:
+                results = await web_image_search.search(query, limit=6)
+                if not results:
+                    return {"content": f'I could not find any images for "{query}". Try a different search term.', "model": "web-images", "provider": "wikimedia"}
+                md = f"Here are some images for **{query}**:\n\n" + "\n\n".join(f"![{r['title']}]({r['url']})" for r in results)
+                return {"content": md, "model": "web-images", "provider": "wikimedia", "images": results}
+            except Exception as e:
+                return {"content": f"Image search failed: {str(e)}", "model": "web-images", "provider": "wikimedia"}
+
     # ── Conversation memory path (authenticated + chat_id) ──
     if user and request.chat_id:
         svc = ChatService(db)
@@ -271,6 +318,11 @@ async def nvidia_chat(
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
+        if WebSearchService.needs_web_search(request.message):
+            web_context = await WebSearchService().search(request.message)
+            if web_context:
+                system_prompt = f"{system_prompt}\n\n{web_context}"
+
         result = await db.execute(
             select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
         )
@@ -296,11 +348,18 @@ async def nvidia_chat(
                 output_tokens = 0
                 start = time.time()
 
+                gen_system_prompt = system_prompt
+                if WebSearchService.needs_web_search(request.message):
+                    yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
+                    web_context = await WebSearchService().search(request.message)
+                    if web_context:
+                        gen_system_prompt = f"{system_prompt}\n\n{web_context}"
+
                 try:
                     async for chunk in chat_provider.generate_stream(
                         messages=api_messages,
                         model=model,
-                        system_prompt=system_prompt,
+                        system_prompt=gen_system_prompt,
                         temperature=request.temperature,
                         max_tokens=request.max_tokens,
                         top_p=request.top_p,
@@ -377,14 +436,25 @@ async def nvidia_chat(
     # ── Stateless path (anonymous or no chat_id) ──
     messages = [{"role": "user", "content": request.message}]
 
+    if WebSearchService.needs_web_search(request.message):
+        web_context = await WebSearchService().search(request.message)
+        if web_context:
+            system_prompt = f"{system_prompt}\n\n{web_context}"
+
     if request.stream:
         async def generate():
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
+            gen_system_prompt = system_prompt
+            if WebSearchService.needs_web_search(request.message):
+                yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
+                web_context = await WebSearchService().search(request.message)
+                if web_context:
+                    gen_system_prompt = f"{system_prompt}\n\n{web_context}"
             try:
                 async for chunk in chat_provider.generate_stream(
                     messages=messages,
                     model=model,
-                    system_prompt=system_prompt,
+                    system_prompt=gen_system_prompt,
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
                     top_p=request.top_p,

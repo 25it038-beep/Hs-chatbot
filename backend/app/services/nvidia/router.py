@@ -17,6 +17,11 @@ class AIRouter:
         if any(re.search(pat, text) for pat in image_patterns):
             return "image_generation"
 
+        # Check for image search tasks
+        for kw in TASK_PATTERNS["web_images"]:
+            if kw in text:
+                return "web_images"
+
         # Check for vision tasks
         if any(kw in text for kw in TASK_PATTERNS["vision"]):
             return "vision"

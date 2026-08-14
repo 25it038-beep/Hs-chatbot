@@ -8,7 +8,7 @@ logger = logging.getLogger("nvidia.warmup")
 
 _warmup_loop_task: Optional[asyncio.Task] = None
 
-KEEP_WARM_INTERVAL = 30.0
+KEEP_WARM_INTERVAL = 240.0
 
 
 async def _ping_model(provider, model_key: str) -> None:
@@ -64,13 +64,21 @@ async def _keep_warm_loop() -> None:
     fast = None
     if settings.nvidia_api_keys:
         fast = TASK_ROUTES.get("chat", {}).get("default")
+    consecutive_failures = 0
     while True:
         try:
             if fast:
+                from app.services.nvidia.key_manager import key_manager
+                key = key_manager.get_key()
+                if key is None or key.is_rate_limited or not key.is_active:
+                    await asyncio.sleep(KEEP_WARM_INTERVAL)
+                    continue
                 await _ping_model(provider, fast)
+                consecutive_failures = 0
         except Exception as e:  # noqa: BLE001
+            consecutive_failures += 1
             logger.warning("Keep-warm cycle error: %s", e)
-        await asyncio.sleep(KEEP_WARM_INTERVAL)
+        await asyncio.sleep(KEEP_WARM_INTERVAL * (consecutive_failures + 1))
 
 
 async def start_warmup() -> None:

@@ -100,11 +100,11 @@ class KeyManager:
     def record_failure(self, key: APIKey, error: str):
         key.record_failure(error)
         if "429" in error or "rate_limit" in error.lower() or "quota" in error.lower():
-            key.apply_rate_limit(120.0)
+            key.apply_rate_limit(30.0)
         elif "401" in error or "unauthorized" in error.lower() or "invalid" in error.lower():
             key.is_active = False
         elif "529" in error or "503" in error or "server_busy" in error.lower() or "server_error" in error.lower():
-            key.apply_rate_limit(30.0)
+            key.apply_rate_limit(15.0)
 
     def get_usage_stats(self) -> dict:
         return {

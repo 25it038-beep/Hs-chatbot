@@ -17,7 +17,7 @@ interface ChatState {
   chatMessages: Record<string, Message[]>
   chatStreamingContent: Record<string, string>
   streamingChatIds: string[]
-  streamingPhase: Record<string, 'thinking' | 'writing'>
+  streamingPhase: Record<string, 'thinking' | 'writing' | 'searching'>
   streamingReasoning: Record<string, string>
 
   loadChats: () => Promise<void>
@@ -246,6 +246,10 @@ export const useChat = create<ChatState>((set, get) => {
                   set(state => ({
                     streamingReasoning: { ...state.streamingReasoning, [chat.id]: reasoning },
                     streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
+                  }))
+                } else if (chunk.type === 'searching') {
+                  set(state => ({
+                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'searching' },
                   }))
                 } else if (chunk.type === 'content' && chunk.content) {
                   fullContent += chunk.content

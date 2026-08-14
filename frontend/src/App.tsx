@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useUser } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'
 import { api } from '@/lib/api'
 import { AnimatedBackground } from '@/components/animations/AnimatedBackground'
+import { IntroVideo, hasSeenIntro } from '@/components/intro/IntroVideo'
 import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -39,6 +40,12 @@ function LoadingScreen() {
   )
 }
 
+function IntroGate({ children }: { children: React.ReactNode }) {
+  const [introDone, setIntroDone] = useState(() => hasSeenIntro())
+  if (introDone) return <>{children}</>
+  return <IntroVideo onComplete={() => setIntroDone(true)} />
+}
+
 function ClerkAppInner() {
   const { isLoaded, isSignedIn } = useUser()
   const { loadChats, loadFolders, loadModels } = useChat()
@@ -55,10 +62,10 @@ function ClerkAppInner() {
   if (!isSignedIn) return <AuthPage />
 
   return (
-    <React.Fragment>
+    <IntroGate>
       <ChatPage />
       <SettingsPage />
-    </React.Fragment>
+    </IntroGate>
   )
 }
 
@@ -83,10 +90,10 @@ export default function App() {
   return (
     <AnimatedBackground>
       {BYPASS_AUTH ? (
-        <React.Fragment>
+        <IntroGate>
           <ChatPage />
           <SettingsPage />
-        </React.Fragment>
+        </IntroGate>
       ) : HAS_CLERK ? (
         <ClerkAppInner />
       ) : !initialized ? (
@@ -94,10 +101,10 @@ export default function App() {
       ) : !customUser ? (
         <AuthPage />
       ) : (
-        <React.Fragment>
+        <IntroGate>
           <ChatPage />
           <SettingsPage />
-        </React.Fragment>
+        </IntroGate>
       )}
     </AnimatedBackground>
   )

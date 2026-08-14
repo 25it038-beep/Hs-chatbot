@@ -182,6 +182,8 @@ export const useChat = create<ChatState>((set, get) => {
           /text.?to.?image/,
           /\b(show|display|find|search|get|send|want|give|need)\b.*\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
           /\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
+          /\b(?:show|display|find|search|get|send|want|give|need|more|some)\b.*\b(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
+          /\S.*\s+(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
         ]
         const isImageRequest = IMAGE_PATTERNS.some(p => p.test(lower))
 

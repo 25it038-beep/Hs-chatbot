@@ -72,6 +72,8 @@ class WebImageSearch:
         ]
         for p in patterns:
             text = re.sub(p, "", text)
+        text = re.sub(r"(?i)\s+(images?|pictures?|photos?|pics?)\s*$", "", text)
+        text = re.sub(r"(?i)^\s*(?:(?:please|pls|can you|could you)\s+)*(?:show|display|find|search|get|fetch|send|want|give|need)\s+(?:me\s+)?(?:some\s+|any\s+|the\s+|a\s+|an\s+)?", "", text)
         text = re.sub(r"(?i)^\s*(please|pls|can you|could you)\s+", "", text).strip(" .,:;!?")
         return text or message.strip()
 

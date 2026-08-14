@@ -22,6 +22,10 @@ class AIRouter:
             if kw in text:
                 return "web_images"
 
+        # Noun-last form: "cristiano ronaldo images", "cat pictures", "dog photos"
+        if re.search(r"[\w'\-\s]{2,}\s+(images?|pictures?|photos?|pics?)\s*$", text):
+            return "web_images"
+
         # Check for vision tasks
         if any(kw in text for kw in TASK_PATTERNS["vision"]):
             return "vision"

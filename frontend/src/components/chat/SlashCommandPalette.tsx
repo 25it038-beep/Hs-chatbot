@@ -112,7 +112,7 @@ export function SlashCommandPalette({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 6, scale: 0.98 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
-        className="absolute bottom-full left-0 right-0 mb-2.5 z-50 max-h-[340px] sm:max-h-[380px] flex flex-col rounded-2xl border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl overflow-hidden glass-reflection"
+        className="absolute bottom-full left-0 right-0 mb-2.5 z-50 max-h-[340px] sm:max-h-[380px] flex flex-col rounded-xl border border-border bg-card shadow-elevated overflow-hidden"
         role="listbox"
         id="slash-command-palette"
         aria-label="Slash commands"
@@ -148,7 +148,7 @@ export function SlashCommandPalette({
         {/* Command List */}
         <div
           ref={listRef}
-          className="flex-1 overflow-y-auto p-1.5 space-y-3 custom-scrollbar max-h-[300px]"
+          className="flex-1 overflow-y-auto p-1.5 space-y-3 scrollbar-thin max-h-[300px]"
         >
           {groupedSections.map((section, sIdx) => (
             <div key={section.title + sIdx} className="space-y-1">

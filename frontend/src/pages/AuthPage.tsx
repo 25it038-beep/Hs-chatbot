@@ -35,11 +35,11 @@ export function AuthPage() {
     <div className="min-h-screen flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative z-10 overflow-y-auto pt-safe pb-safe">
       <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up my-auto">
         <div className="text-center mb-6 sm:mb-8">
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden mx-auto mb-3 sm:mb-4 shadow-sm border border-primary/10">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden mx-auto mb-4 sm:mb-5 shadow-soft border border-border">
             <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Welcome to HSBot</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground/60 mt-1">Your AI-powered assistant</p>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Welcome to HSBot</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground/70 mt-1.5">Your AI-powered assistant</p>
         </div>
 
         {HAS_CLERK ? (
@@ -51,7 +51,7 @@ export function AuthPage() {
             )}
           </div>
         ) : (
-          <div className="glass-panel-strong rounded-2xl p-6 shadow-lg">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-soft">
             <div className="flex bg-muted/50 rounded-xl p-1 mb-6">
               <button
                 onClick={() => setMode('login')}
@@ -129,7 +129,7 @@ export function AuthPage() {
                 <p className="text-xs text-destructive bg-destructive/5 px-3 py-2 rounded-lg">{error}</p>
               )}
 
-              <Button type="submit" className="w-full h-10 rounded-xl shadow-sm" disabled={loading}>
+              <Button type="submit" className="w-full h-10 rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft" disabled={loading}>
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin w-4 h-4 border-2 border-background border-t-transparent rounded-full" />

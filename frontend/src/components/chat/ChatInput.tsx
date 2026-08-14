@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, Loader2, X } from 'lucide-react'
+import { Send, Paperclip, Square, Mic, Loader2, X, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
 import { fuzzySearch } from '@/lib/fuzzySearch'
 import { executeCommand } from '@/lib/commandExecutionHandler'
+import { useAmbient } from '@/stores/ambient'
 import type { SlashCommand, CommandExecutionContext } from '@/types/command'
 
 interface ChatInputProps {
@@ -15,6 +16,10 @@ interface ChatInputProps {
   onOpenSettings?: () => void
   streaming: boolean
   disabled?: boolean
+  variant?: 'default' | 'hero'
+  editing?: { id: string; content: string } | null
+  onEditSubmit?: (messageId: string, content: string) => void
+  onCancelEdit?: () => void
 }
 
 export function ChatInput({
@@ -24,6 +29,10 @@ export function ChatInput({
   onOpenSettings,
   streaming,
   disabled,
+  variant = 'default',
+  editing,
+  onEditSubmit,
+  onCancelEdit,
 }: ChatInputProps) {
   const [input, setInput] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -31,6 +40,7 @@ export function ChatInput({
   const [recording, setRecording] = useState(false)
   const [speechSupported, setSpeechSupported] = useState(true)
   const [isFocused, setIsFocused] = useState(false)
+  const { setUserTyping } = useAmbient()
 
   // Slash Command Palette State
   const [showPalette, setShowPalette] = useState(false)
@@ -40,6 +50,18 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const recognitionRef = useRef<any>(null)
+
+  const isHero = variant === 'hero'
+  const isEditing = Boolean(editing)
+
+  // Load edited message content into the composer
+  useEffect(() => {
+    if (!editing) return
+    setInput(editing.content)
+    setShowPalette(false)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.id, editing?.content])
 
   // Determine query from input
   const slashQuery = useMemo(() => {
@@ -87,6 +109,14 @@ export function ChatInput({
 
   const handleSubmit = () => {
     const trimmed = input.trim()
+    if (editing) {
+      if (!trimmed || sending) return
+      onEditSubmit?.(editing.id, trimmed)
+      setInput('')
+      setUserTyping(false)
+      setShowPalette(false)
+      return
+    }
     if (streaming || sending) return
     if (!trimmed && !pendingFile) return
     if (pendingFile && onSendWithFile) {
@@ -99,12 +129,14 @@ export function ChatInput({
         })
         .catch(() => {})
       setInput('')
+      setUserTyping(false)
       setShowPalette(false)
       return
     }
     if (!trimmed) return
     onSend(trimmed)
     setInput('')
+    setUserTyping(false)
     setShowPalette(false)
   }
 
@@ -220,12 +252,18 @@ export function ChatInput({
     else startRecording()
   }
 
+  const canSubmit = Boolean(input.trim() || pendingFile)
+
   return (
     <div
       ref={containerRef}
-      className="relative border-t border-border/30 bg-gradient-to-t from-background/90 via-background/60 to-transparent pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 sm:pt-3 backdrop-blur-sm"
+      className={cn(
+        'relative',
+        !isHero &&
+          'border-t border-border bg-background pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm',
+      )}
     >
-      <div className="max-w-4xl mx-auto px-2 sm:px-3 md:px-4 relative">
+      <div className={cn('relative', isHero ? 'w-full' : 'max-w-3xl mx-auto px-3 sm:px-4 md:px-6')}>
         {/* Floating Slash Command Palette */}
         <SlashCommandPalette
           isOpen={showPalette}
@@ -236,35 +274,55 @@ export function ChatInput({
           onClose={() => setShowPalette(false)}
         />
 
+        {isEditing && (
+          <div className="flex items-center justify-between gap-2 px-1 pb-1.5 animate-fade-in">
+            <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Pencil size={11} className="text-brand" />
+              Editing message
+            </span>
+            <button
+              onClick={onCancelEdit}
+              className="text-[11px] font-medium text-muted-foreground/70 hover:text-foreground hover:bg-muted rounded-md px-2 py-1 transition-all"
+              aria-label="Cancel editing"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         <div
           className={cn(
-            'relative flex items-end gap-1.5 sm:gap-2 rounded-2xl border px-2.5 sm:px-3 py-1.5 sm:py-2 transition-all duration-200',
-            'bg-muted/20 backdrop-blur-md glass-reflection',
-            'focus-within:border-ring/30 focus-within:shadow-[0_0_0_1px] focus-within:shadow-ring/20',
-            isFocused ? 'border-ring/30 shadow-soft' : 'border-border/40 hover:border-border/60'
+            'relative flex items-end gap-1.5 rounded-2xl border transition-all duration-200 bg-card',
+            isHero ? 'px-3 py-2.5 sm:px-4 sm:py-3 shadow-soft' : 'px-2.5 py-1.5 sm:px-3 sm:py-2 shadow-soft',
+            isFocused || isEditing
+              ? 'border-foreground/25 shadow-elevated'
+              : 'border-border hover:border-foreground/20',
           )}
         >
           {pendingFile && (
-            <div className="absolute left-2.5 right-2.5 -top-8 flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/80 px-2.5 py-1.5 backdrop-blur-sm">
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+            <div className="absolute left-2.5 right-2.5 -top-10 flex items-center justify-between gap-2 rounded-lg border border-border bg-card shadow-elevated px-2.5 py-1.5">
+              <span className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
                 {pendingFile.type.startsWith('image/') ? (
                   <img
                     src={URL.createObjectURL(pendingFile)}
                     alt=""
-                    className="h-6 w-6 rounded object-cover border border-border/50"
+                    className="h-6 w-6 rounded object-cover border border-border"
                   />
                 ) : (
-                  <Paperclip size={12} className="flex-shrink-0" />
+                  <span className="w-6 h-6 rounded bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                    <Paperclip size={11} />
+                  </span>
                 )}
                 <span className="truncate">{pendingFile.name}</span>
               </span>
               <button
                 onClick={() => setPendingFile(null)}
                 disabled={sending}
-                className="flex-shrink-0 p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-all rounded-md disabled:opacity-50"
+                className="flex-shrink-0 p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-all rounded-md disabled:opacity-50"
                 title="Remove attachment"
+                aria-label="Remove attachment"
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
           )}
@@ -279,21 +337,26 @@ export function ChatInput({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={sending || streaming}
-            className="flex-shrink-0 p-2 sm:p-1.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-all rounded-xl disabled:opacity-50 touch-target sm:touch-auto flex items-center justify-center"
-            title="Attach files"
+            disabled={sending || streaming || isEditing}
+            className="flex-shrink-0 p-2 text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center"
+            title={isEditing ? 'Attach is disabled while editing' : 'Attach files'}
+            aria-label="Attach a file"
           >
-            {sending ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+            {sending ? <Loader2 size={17} className="animate-spin" /> : <Paperclip size={17} />}
           </button>
 
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => {
+              const value = e.target.value
+              setInput(value)
+              setUserTyping(value.trim().length > 0)
+            }}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="Type / for commands, or message HSBot..."
+            placeholder={isEditing ? 'Edit your message...' : 'Type / for commands, or message HSBot...'}
             rows={1}
             disabled={disabled}
             aria-expanded={showPalette}
@@ -305,22 +368,21 @@ export function ChatInput({
                 : undefined
             }
             className={cn(
-              'flex-1 bg-transparent resize-none outline-none text-xs sm:text-sm py-1.5 leading-relaxed max-h-[200px]',
-              'placeholder:text-muted-foreground/40',
-              'disabled:opacity-50'
+              'flex-1 bg-transparent resize-none outline-none py-1.5 leading-relaxed max-h-[200px] placeholder:text-muted-foreground/40 disabled:opacity-50',
+              isHero ? 'text-sm sm:text-[15px]' : 'text-xs sm:text-sm',
             )}
           />
 
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={handleMicClick}
-              disabled={streaming || !speechSupported}
+              disabled={streaming || !speechSupported || isEditing}
               className={cn(
-                'p-2 sm:p-1.5 rounded-xl transition-all flex items-center justify-center',
+                'p-2 rounded-lg transition-all flex items-center justify-center',
                 recording
-                  ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/60',
-                'disabled:opacity-50'
+                  ? 'text-destructive bg-destructive/10'
+                  : 'text-muted-foreground/50 hover:text-foreground hover:bg-muted',
+                'disabled:opacity-40 disabled:pointer-events-none'
               )}
               title={
                 !speechSupported
@@ -329,41 +391,48 @@ export function ChatInput({
                   ? 'Stop recording'
                   : 'Voice input'
               }
+              aria-label={recording ? 'Stop recording' : 'Voice input'}
             >
-              <Mic size={18} className={recording ? 'animate-pulse' : ''} />
+              <Mic size={17} className={recording ? 'animate-pulse' : ''} />
             </button>
 
-            {streaming ? (
+            {streaming && !isEditing ? (
               <Button
                 onClick={onStop}
                 size="icon"
                 variant="secondary"
-                className="h-9 w-9 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 border-0 flex-shrink-0"
+                className={cn(
+                  'rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 border-0 flex-shrink-0',
+                  isHero ? 'h-9 w-9' : 'h-8 w-8',
+                )}
                 title="Stop generating"
+                aria-label="Stop generating"
               >
-                <Square size={14} />
+                <Square size={13} />
               </Button>
             ) : (
               <Button
                 onClick={handleSubmit}
                 size="icon"
                 className={cn(
-                  'h-9 w-9 rounded-xl transition-all flex-shrink-0',
-                  input.trim() || pendingFile
-                    ? 'bg-gradient-to-br from-primary to-primary/80 shadow-sm hover:shadow-md'
-                    : ''
+                  'rounded-lg bg-primary text-primary-foreground transition-all flex-shrink-0 hover:opacity-90 active:scale-[0.97]',
+                  isHero ? 'h-9 w-9' : 'h-8 w-8',
+                  !canSubmit && 'opacity-40 pointer-events-none',
                 )}
-                disabled={(!input.trim() && !pendingFile) || disabled || sending}
-                title="Send message"
+                disabled={!canSubmit || disabled || sending}
+                title={isEditing ? 'Send edited message' : 'Send message'}
+                aria-label={isEditing ? 'Send edited message' : 'Send message'}
               >
                 <Send size={14} />
               </Button>
             )}
           </div>
         </div>
-        <p className="text-[10px] text-muted-foreground/25 text-center mt-1 px-2">
-          HSBot can make mistakes. Verify important information.
-        </p>
+        {!isHero && (
+          <p className="text-[10px] text-muted-foreground/40 text-center mt-1.5 px-2">
+            HSBot can make mistakes. Verify important information.
+          </p>
+        )}
       </div>
     </div>
   )

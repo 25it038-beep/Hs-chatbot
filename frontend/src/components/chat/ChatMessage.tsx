@@ -1,7 +1,7 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { Bot, User, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Copy, Check, Download, Pencil, Undo2 } from 'lucide-react'
 import type { Message } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
 
@@ -9,11 +9,47 @@ interface ChatMessageProps {
   message: Message
   isStreaming?: boolean
   index?: number
+  onEdit?: (message: Message) => void
+  onUnsend?: (message: Message) => void
+  showImages?: boolean
 }
 
-export function ChatMessage({ message, isStreaming, index = 0 }: ChatMessageProps) {
+function GeneratedImage({ content }: { content: string }) {
+  const src = content.match(/src="([^"]+)"/)?.[1] || ''
+  if (!src) return null
+  const handleDownload = () => {
+    const a = document.createElement('a')
+    a.href = src
+    a.download = 'hsbot-generated-image.png'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+  return (
+    <div className="relative group/img rounded-xl overflow-hidden border border-border shadow-elevated bg-background my-1">
+      <img
+        src={src}
+        alt="Generated image"
+        className="max-w-full"
+        style={{ maxHeight: '512px' }}
+        loading="lazy"
+      />
+      <button
+        onClick={handleDownload}
+        title="Download image"
+        aria-label="Download generated image"
+        className="absolute bottom-2 right-2 p-2 rounded-lg bg-background/90 border border-border shadow-soft text-muted-foreground hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover/img:opacity-100 transition-all"
+      >
+        <Download size={13} />
+      </button>
+    </div>
+  )
+}
+
+export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend, showImages = true }: ChatMessageProps) {
   const [copied, setCopied] = React.useState(false)
   const isUser = message.role === 'user'
+  const isGeneratedImage = !isUser && message.content.startsWith('<img ')
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content)
@@ -23,78 +59,64 @@ export function ChatMessage({ message, isStreaming, index = 0 }: ChatMessageProp
 
   return (
     <MessageEntrance index={index}>
-      <div className={cn('flex gap-2.5 sm:gap-3 md:gap-4 py-3 sm:py-4 md:py-6 group min-w-0', isUser ? 'flex-row-reverse' : '')}>
-        <div className={cn(
-          'flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shadow-sm relative overflow-hidden glass-reflection',
-          isUser
-            ? 'bg-gradient-to-br from-primary to-primary/80 text-primary-foreground'
-            : 'bg-gradient-to-br from-primary/10 to-primary/5 text-primary border border-primary/10'
-        )}>
-          {isUser ? <User size={14} /> : <Bot size={14} />}
-        </div>
-
-        <div className={cn('flex flex-col min-w-0 max-w-[92%] sm:max-w-[85%] md:max-w-[75%]', isUser ? 'items-end' : 'items-start')}>
-          <div className={cn(
-            'rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 transition-all duration-200 min-w-0 overflow-hidden',
-            isUser
-              ? 'bg-gradient-to-br from-primary to-primary/90 text-primary-foreground shadow-sm'
-              : 'bg-muted/30 backdrop-blur-sm border border-border/30 hover:border-border/50 shadow-soft'
-          )}>
-            {isUser ? (
-              <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
-            ) : message.content.startsWith('<img ') ? (
-              <div className="min-w-0">
-                <img
-                  src={message.content.match(/src="([^"]+)"/)?.[1] || ''}
-                  alt="Generated image"
-                  className="max-w-full rounded-xl my-1 shadow-elevated hover:shadow-glass-xl transition-shadow duration-300"
-                  style={{ maxHeight: '512px' }}
-                  loading="lazy"
-                />
-              </div>
-            ) : (
-              <div className="min-w-0">
-                <MarkdownRenderer content={message.content} />
-                {isStreaming && (
-                  <span className="inline-flex gap-1 ml-0.5">
-                    <span className="typing-dot" />
-                    <span className="typing-dot" />
-                    <span className="typing-dot" />
-                  </span>
-                )}
+      <div className={cn('group py-4 sm:py-5 min-w-0', isUser ? 'flex justify-end' : '')}>
+        {isUser ? (
+          <div className="max-w-[85%] sm:max-w-[75%]">
+            <div className="inline-block rounded-xl bg-accent px-3.5 py-2.5 text-[13px] sm:text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">
+              {message.content}
+            </div>
+            {onEdit && onUnsend && (
+              <div className="flex items-center gap-0.5 mt-1.5 justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
+                <button
+                  onClick={() => onEdit(message)}
+                  className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all"
+                  title="Edit message"
+                  aria-label="Edit message"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={() => onUnsend(message)}
+                  className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all"
+                  title="Unsend message"
+                  aria-label="Unsend message"
+                >
+                  <Undo2 size={12} />
+                </button>
               </div>
             )}
           </div>
-
-          {!isUser && !isStreaming && message.content && (
-            <div className="flex items-center gap-0.5 mt-1 px-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200">
-              <button
-                onClick={handleCopy}
-                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
-                title="Copy response"
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-              <button
-                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
-                title="Good response"
-              >
-                <ThumbsUp size={12} />
-              </button>
-              <button
-                className="p-1.5 rounded-lg text-muted-foreground/60 sm:text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-all"
-                title="Bad response"
-              >
-                <ThumbsDown size={12} />
-              </button>
-              {message.latency_ms && (
-                <span className="ml-2 text-[10px] text-muted-foreground/40 font-mono">
-                  {(message.latency_ms / 1000).toFixed(1)}s
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        ) : isGeneratedImage ? (
+          <GeneratedImage content={message.content} />
+        ) : (
+          <div className="min-w-0">
+            <MarkdownRenderer content={message.content} allowImages={showImages} />
+            {isStreaming && (
+              <span className="inline-flex gap-1 ml-0.5 align-baseline" aria-label="AI is typing">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </span>
+            )}
+            {!isStreaming && message.content && (
+              <div className="flex items-center gap-0.5 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
+                <button
+                  onClick={handleCopy}
+                  className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all"
+                  title={copied ? 'Copied' : 'Copy response'}
+                  aria-label="Copy response"
+                >
+                  {copied ? <Check size={12} className="text-brand" /> : <Copy size={12} />}
+                </button>
+                {message.latency_ms ? (
+                  <span className="ml-1 text-[10px] text-muted-foreground/40 font-mono" title="Response time">
+                    {(message.latency_ms / 1000).toFixed(1)}s
+                  </span>
+                ) : null}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </MessageEntrance>
   )

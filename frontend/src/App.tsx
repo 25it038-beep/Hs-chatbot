@@ -25,10 +25,15 @@ function LoadingScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center relative z-10">
       <div className="flex flex-col items-center gap-4">
-        <div className="relative w-10 h-10">
-          <div className="absolute inset-0 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+        <div className="w-11 h-11 rounded-xl overflow-hidden border border-border shadow-soft">
+          <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
         </div>
-        <p className="text-sm text-muted-foreground animate-pulse">Loading HSBot...</p>
+        <div className="flex items-center gap-2">
+          <div className="relative w-4 h-4">
+            <div className="absolute inset-0 rounded-full border-2 border-border border-t-foreground animate-spin" />
+          </div>
+          <p className="text-sm text-muted-foreground">Loading HSBot...</p>
+        </div>
       </div>
     </div>
   )

@@ -4,17 +4,81 @@ import { useAuth } from '@/stores/auth'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Bot, Sparkles, MessageSquare, ArrowDown, Code, Brain, FileText } from 'lucide-react'
+import {
+  MessageSquare, ArrowDown, Code, Brain, FileText,
+  Globe, Paperclip, Slash, Wand2,
+} from 'lucide-react'
 import { api } from '@/lib/api'
-import type { FileInfo } from '@/types'
+import type { FileInfo, Message } from '@/types'
+import { isImageRequest } from '@/stores/chat'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 
+const SUGGESTIONS = [
+  {
+    icon: Code,
+    label: 'Write code',
+    prompt: 'Write a Python function to sort a list of dictionaries by a key',
+  },
+  {
+    icon: MessageSquare,
+    label: 'Explain code',
+    prompt: 'Explain how React hooks work with examples',
+  },
+  {
+    icon: Brain,
+    label: 'Research',
+    prompt: 'Research and summarize the key differences between REST and GraphQL',
+  },
+  {
+    icon: FileText,
+    label: 'Analyze',
+    prompt: 'How do I analyze a CSV file with pandas?',
+  },
+]
+
+const CAPABILITIES = [
+  { icon: Globe, label: 'Live web search' },
+  { icon: Wand2, label: 'Image generation' },
+  { icon: Paperclip, label: 'Document analysis' },
+  { icon: Slash, label: 'Slash commands' },
+]
+
+const PHASE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  searching: Globe,
+  writing: FileText,
+  thinking: Brain,
+}
+
+const PHASE_LABELS: Record<string, string> = {
+  searching: 'Searching the web...',
+  writing: 'Writing...',
+  thinking: 'Thinking...',
+}
+
+function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => void }) {
+  const Icon = phase ? PHASE_ICONS[phase] || Brain : Brain
+  return (
+    <div className="flex items-center gap-2.5 py-3 px-1 animate-fade-in" role="status" aria-live="polite">
+      <AIThinking onStop={onStop} />
+      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        {phase === 'searching' && <Icon size={13} className="text-brand animate-pulse" />}
+        {PHASE_LABELS[phase || 'thinking'] || 'Thinking...'}
+      </span>
+    </div>
+  )
+}
+
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage } = useChat()
+  const { messages, currentChat, streaming, streamingContent, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
+  const [editingMessage, setEditingMessage] = React.useState<Message | null>(null)
+
+  useEffect(() => {
+    setEditingMessage(null)
+  }, [currentChat?.id])
 
   const scrollToBottom = (smooth = true) => {
     if (scrollRef.current) {
@@ -43,6 +107,24 @@ export function ChatContainer() {
       await createChat()
     }
     await sendMessage(content)
+  }
+
+  const handleEdit = (msg: Message) => {
+    setEditingMessage(msg)
+  }
+
+  const handleUnsend = (msg: Message) => {
+    if (editingMessage?.id === msg.id) setEditingMessage(null)
+    unsendMessages(msg.id)
+  }
+
+  const handleEditSubmit = async (messageId: string, content: string) => {
+    setEditingMessage(null)
+    await editAndResend(messageId, content)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null)
   }
 
   const handleSendWithFile = async (file: File, prompt: string) => {
@@ -75,55 +157,96 @@ export function ChatContainer() {
   if (messages.length === 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex-1 flex items-center justify-center px-3 sm:px-4 py-4 overflow-y-auto">
-          <div className="text-center max-w-lg mx-auto animate-fade-in-up my-auto">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden mx-auto mb-4 sm:mb-6 shadow-sm border border-primary/10">
+        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-8 overflow-y-auto">
+          <div className="w-full max-w-xl mx-auto animate-fade-in-up text-center my-auto">
+            <div className="w-12 h-12 rounded-xl overflow-hidden border border-border shadow-soft mx-auto mb-5">
               <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
             </div>
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-2">How can I help you?</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground/70 mb-2 max-w-xs sm:max-w-sm mx-auto">
-              I'm your AI assistant. Ask me anything — I can help with coding, analysis, research, and more.
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance mb-2">
+              What can I help you with{user?.display_name || user?.username ? `, ${user.display_name || user.username}` : ''}?
+            </h1>
+            <p className="text-sm text-muted-foreground mb-7 text-pretty">
+              Ask questions, write code, research topics, or analyze documents.
             </p>
-            <p className="text-[11px] text-muted-foreground/50 mb-6 max-w-xs mx-auto">
-              Note: the first response may be a little slower while the model warms up.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 max-w-md mx-auto">
-              {[
-                { icon: Code, label: 'Write code', prompt: 'Write a Python function to sort a list of dictionaries by a key', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/20 hover:border-blue-500/40' },
-                { icon: MessageSquare, label: 'Explain code', prompt: 'Explain how React hooks work with examples', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40' },
-                { icon: Brain, label: 'Research', prompt: 'Research and summarize the key differences between REST and GraphQL', color: 'from-purple-500/10 to-purple-500/5 border-purple-500/20 hover:border-purple-500/40' },
-                { icon: FileText, label: 'Analyze', prompt: 'How do I analyze a CSV file with pandas?', color: 'from-amber-500/10 to-amber-500/5 border-amber-500/20 hover:border-amber-500/40' },
-              ].map((item) => {
+
+            <ChatInput
+              onSend={handleSend}
+              onSendWithFile={handleSendWithFile}
+              onStop={cancelStream}
+              streaming={streaming}
+              variant="hero"
+              editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
+              onEditSubmit={handleEditSubmit}
+              onCancelEdit={handleCancelEdit}
+            />
+
+            <div className="flex items-center justify-center gap-2 flex-wrap mt-4">
+              {SUGGESTIONS.map((item) => {
                 const Icon = item.icon
                 return (
                   <button
                     key={item.label}
                     onClick={() => handleSend(item.prompt)}
-                    className={`text-left p-3 sm:p-3.5 rounded-xl border bg-gradient-to-br ${item.color} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0`}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-card text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted transition-all duration-150 active:scale-[0.98]"
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Icon size={14} className="text-primary" />
-                      <span className="font-medium text-xs sm:text-sm">{item.label}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground/60 line-clamp-1">{item.prompt}</p>
+                    <Icon size={12} />
+                    {item.label}
                   </button>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-center gap-2 flex-wrap mt-6">
+              {CAPABILITIES.map((cap) => {
+                const Icon = cap.icon
+                return (
+                  <span
+                    key={cap.label}
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60"
+                  >
+                    <Icon size={11} />
+                    {cap.label}
+                  </span>
                 )
               })}
             </div>
           </div>
         </div>
-        <ChatInput onSend={handleSend} onSendWithFile={handleSendWithFile} onStop={cancelStream} streaming={streaming} />
       </div>
     )
   }
 
+  let allowImages = false
+  for (let k = messages.length - 1; k >= 0; k--) {
+    if (messages[k].role === 'user') {
+      allowImages = isImageRequest(messages[k].content)
+      break
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0 relative">
-      <ScrollArea ref={scrollRef} className="flex-1 min-h-0 px-3 md:px-4" onScroll={handleScroll}>
-        <div className="max-w-4xl mx-auto py-2 pb-32">
-          {messages.map((msg, i) => (
-            <ChatMessage key={msg.id} message={msg} index={i} />
-          ))}
+      <ScrollArea ref={scrollRef} className="flex-1 min-h-0 px-3 md:px-6" onScroll={handleScroll}>
+        <div className="max-w-3xl mx-auto py-4 pb-36">
+          {messages.map((msg, i) => {
+            let allowImages = false
+            for (let k = i - 1; k >= 0; k--) {
+              if (messages[k].role === 'user') {
+                allowImages = isImageRequest(messages[k].content)
+                break
+              }
+            }
+            return (
+              <ChatMessage
+                key={msg.id}
+                message={msg}
+                index={i}
+                onEdit={handleEdit}
+                onUnsend={handleUnsend}
+                showImages={allowImages}
+              />
+            )
+          })}
           {streaming && streamingContent && (
             <ChatMessage
               message={{
@@ -137,24 +260,18 @@ export function ChatContainer() {
                 created_at: new Date().toISOString(),
               }}
               isStreaming
+              showImages={allowImages}
             />
           )}
           {streaming && !streamingContent && !generatingImage && (
-            <div className="flex items-center gap-3 py-4 px-4 animate-fade-in">
-              <AIThinking />
-              <span className="text-sm text-muted-foreground animate-pulse">
-                {currentPhase === 'searching'
-                  ? 'Searching the web...'
-                  : currentPhase === 'writing'
-                    ? 'Writing...'
-                    : 'Thinking...'}
-              </span>
+            <div className="px-1">
+              <StreamingIndicator phase={currentPhase} onStop={() => cancelStream()} />
             </div>
           )}
           {generatingImage && (
-            <div className="flex items-center gap-3 py-4 px-4 animate-fade-in">
-              <div className="relative w-5 h-5">
-                <div className="absolute inset-0 rounded-full border-2 border-purple-500/20 border-t-purple-500 animate-spin" />
+            <div className="flex items-center gap-2.5 py-4 px-1 animate-fade-in" role="status" aria-live="polite">
+              <div className="relative w-4 h-4">
+                <div className="absolute inset-0 rounded-full border-2 border-border border-t-foreground animate-spin" />
               </div>
               <span className="text-sm text-muted-foreground">Generating image...</span>
             </div>
@@ -166,14 +283,23 @@ export function ChatContainer() {
       {showScrollBtn && (
         <button
           onClick={() => scrollToBottom(true)}
-          className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 h-8 w-8 rounded-full glass-panel shadow-md flex items-center justify-center hover:bg-muted/80 transition-all animate-fade-in"
+          className="absolute bottom-32 left-1/2 -translate-x-1/2 z-10 h-9 w-9 rounded-full bg-card border border-border shadow-elevated flex items-center justify-center hover:bg-muted transition-all animate-fade-in"
           title="Scroll to bottom"
+          aria-label="Scroll to bottom"
         >
           <ArrowDown size={14} />
         </button>
       )}
 
-      <ChatInput onSend={handleSend} onSendWithFile={handleSendWithFile} onStop={cancelStream} streaming={streaming} />
+      <ChatInput
+        onSend={handleSend}
+        onSendWithFile={handleSendWithFile}
+        onStop={cancelStream}
+        streaming={streaming}
+        editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
+        onEditSubmit={handleEditSubmit}
+        onCancelEdit={handleCancelEdit}
+      />
     </div>
   )
 }

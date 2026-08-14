@@ -3,6 +3,22 @@ import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 
+// Detect explicit image requests — typo-tolerant, but only clear intents.
+// General queries that merely mention images ("explain this image") are NOT routed to image generation.
+const IMAGE_PATTERNS = [
+  /\/image\b/, /\/img\b/, /\/draw\b/,
+  /\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*|pic[ture]*|photo|art[work]*|drawing|painting)\b/,
+  /\b(draw|illustrate|paint|sketch)\b\s+(a\s+|an\s+|the\s+|me\s+)?/,
+  /text.?to.?image/,
+  /\b(show|display|find|search|get|send|want|give|need)\b.*\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
+  /\b(?:show|display|find|search|get|send|want|give|need|more|some)\b.*\b(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
+]
+
+export function isImageRequest(content: string): boolean {
+  const lower = content.toLowerCase()
+  return IMAGE_PATTERNS.some(p => p.test(lower))
+}
+
 interface ChatState {
   chats: Chat[]
   currentChat: Chat | null
@@ -30,6 +46,8 @@ interface ChatState {
   addAssistantMessage: (content: string, chatId?: string) => Promise<void>
   updateLastAssistantMessage: (content: string, chatId?: string) => Promise<void>
   cancelStream: (chatId?: string) => void
+  unsendMessages: (fromMessageId: string) => void
+  editAndResend: (messageId: string, newContent: string) => Promise<void>
 }
 
 export const useChat = create<ChatState>((set, get) => {
@@ -165,27 +183,18 @@ export const useChat = create<ChatState>((set, get) => {
 
       let firstChunkReceived = false
       let timeoutId: any = undefined
+      let abortController: AbortController | undefined
 
       try {
-        const abortController = new AbortController()
-        streamControllers[chat.id] = abortController
+        const controller = new AbortController()
+        abortController = controller
+        streamControllers[chat.id] = controller
 
         const provider = chat.provider || 'nvidia'
         const model = chat.model || 'llama-3.1-70b'
 
-        // Detect image generation — flexible regex handles typos (genrate, cretea, iamge, etc.)
-        const lower = content.toLowerCase()
-        const IMAGE_PATTERNS = [
-          /\/image\b/, /\/img\b/, /\/draw\b/,
-          /\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*|pic[ture]*|photo|art[work]*|drawing|painting)\b/,
-          /\b(draw|illustrate|paint|sketch)\b\s+(a\s+|an\s+|the\s+|me\s+)?/,
-          /text.?to.?image/,
-          /\b(show|display|find|search|get|send|want|give|need)\b.*\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
-          /\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
-          /\b(?:show|display|find|search|get|send|want|give|need|more|some)\b.*\b(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
-          /\S.*\s+(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
-        ]
-        const isImageRequest = IMAGE_PATTERNS.some(p => p.test(lower))
+        // Detect explicit image generation requests (shared helper)
+        const isImageRequestForChat = isImageRequest(content)
 
         const getReader = async () => {
           if (provider === 'nvidia') {
@@ -194,8 +203,8 @@ export const useChat = create<ChatState>((set, get) => {
               chat_id: chat.id,
               model,
               stream: true,
-              auto_route: isImageRequest,
-            }, abortController.signal)
+              auto_route: isImageRequestForChat,
+            }, controller.signal)
           } else {
             return api.sendMessageStream({
               message: content,
@@ -223,7 +232,7 @@ export const useChat = create<ChatState>((set, get) => {
         firstChunkReceived = false
         timeoutId = setTimeout(() => {
           if (!firstChunkReceived) {
-            abortController.abort()
+            controller.abort()
           }
         }, 45000)
 
@@ -339,9 +348,10 @@ export const useChat = create<ChatState>((set, get) => {
         await get().loadChats()
       } catch (error) {
         clearTimeout(timeoutId)
+        const stillActive = streamControllers[chat.id] === abortController
         const isTimeout = error instanceof DOMException && error.name === 'AbortError' && !firstChunkReceived
         const isAbort = error instanceof DOMException && error.name === 'AbortError' && firstChunkReceived
-        if (!isAbort) {
+        if (!isAbort && stillActive) {
           console.error('Send error:', error)
           const errorText = isTimeout
             ? '⏱️ **Request timed out.** The AI took too long to respond. Please try sending your message again.'
@@ -360,20 +370,24 @@ export const useChat = create<ChatState>((set, get) => {
             chatMessages: { ...state.chatMessages, [chat.id]: [...(state.chatMessages[chat.id] || []), errMsg] },
           }))
         }
-        set(state => {
-          const { [chat.id]: _, ...restPhase } = state.streamingPhase
-          const { [chat.id]: __, ...restReasoning } = state.streamingReasoning
-          const { [chat.id]: ___, ...restStreaming } = state.chatStreamingContent
-          return {
-            streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
-            streamingPhase: restPhase,
-            streamingReasoning: restReasoning,
-            chatStreamingContent: restStreaming,
-          }
-        })
-        if (get().currentChat?.id === chat.id) syncDisplay()
+        if (stillActive) {
+          set(state => {
+            const { [chat.id]: _, ...restPhase } = state.streamingPhase
+            const { [chat.id]: __, ...restReasoning } = state.streamingReasoning
+            const { [chat.id]: ___, ...restStreaming } = state.chatStreamingContent
+            return {
+              streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+              streamingPhase: restPhase,
+              streamingReasoning: restReasoning,
+              chatStreamingContent: restStreaming,
+            }
+          })
+          if (get().currentChat?.id === chat.id) syncDisplay()
+        }
       } finally {
-        delete streamControllers[chat.id]
+        if (streamControllers[chat.id] === abortController) {
+          delete streamControllers[chat.id]
+        }
       }
     },
 
@@ -433,6 +447,55 @@ export const useChat = create<ChatState>((set, get) => {
         })
         syncDisplay()
       }
+    },
+
+    unsendMessages: (fromMessageId: string) => {
+      const { currentChat, chatMessages } = get()
+      const chat = currentChat
+      if (!chat) return
+      const msgs = chatMessages[chat.id] || []
+      const idx = msgs.findIndex(m => m.id === fromMessageId)
+      if (idx === -1) return
+      const controller = streamControllers[chat.id]
+      if (controller) {
+        controller.abort()
+        delete streamControllers[chat.id]
+      }
+      set(state => ({
+        chatMessages: { ...state.chatMessages, [chat.id]: msgs.slice(0, idx) },
+        streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+        chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: '' },
+        streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
+        streamingReasoning: { ...state.streamingReasoning, [chat.id]: '' },
+        generatingImage: false,
+      }))
+      syncDisplay()
+      get().loadChats().catch(() => {})
+    },
+
+    editAndResend: async (messageId: string, newContent: string) => {
+      const { currentChat, chatMessages } = get()
+      const chat = currentChat
+      if (!chat) return
+      const msgs = chatMessages[chat.id] || []
+      const idx = msgs.findIndex(m => m.id === messageId)
+      if (idx === -1) return
+      const controller = streamControllers[chat.id]
+      if (controller) {
+        controller.abort()
+        delete streamControllers[chat.id]
+      }
+      set(state => ({
+        chatMessages: { ...state.chatMessages, [chat.id]: msgs.slice(0, idx) },
+        streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
+        chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: '' },
+        streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
+        streamingReasoning: { ...state.streamingReasoning, [chat.id]: '' },
+        generatingImage: false,
+      }))
+      syncDisplay()
+      await get().sendMessage(newContent, chat.id)
+      get().loadChats().catch(() => {})
     },
   }
 })

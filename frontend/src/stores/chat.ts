@@ -20,6 +20,32 @@ export function isImageRequest(content: string): boolean {
   return IMAGE_PATTERNS.some(p => p.test(lower))
 }
 
+interface VoiceConfig {
+  language: string
+  voice: string
+  sampleRate: number
+  model: string
+  wakeWord: string
+  wakeWordEnabled: boolean
+  autoSpeak: boolean
+  interruptEnabled: boolean
+  silenceTimeout: number
+  minSpeechDuration: number
+  maxRecordingDuration: number
+}
+
+interface VoiceState {
+  status: 'idle' | 'listening' | 'speaking' | 'processing' | 'ai_speaking' | 'error'
+  transcript: string
+  isRecording: boolean
+  audioLevel: number
+  error: string | null
+  isHandsFree: boolean
+  wakeWordDetected: boolean
+  wsConnected: boolean
+  config: VoiceConfig
+}
+
 interface ChatState {
   chats: Chat[]
   currentChat: Chat | null
@@ -37,6 +63,9 @@ interface ChatState {
   streamingPhase: Record<string, 'thinking' | 'writing' | 'searching' | 'browser_action'>
   streamingReasoning: Record<string, string>
 
+  // Voice state
+  voice: VoiceState
+
   loadChats: () => Promise<void>
   loadFolders: () => Promise<void>
   loadModels: () => Promise<void>
@@ -49,6 +78,18 @@ interface ChatState {
   cancelStream: (chatId?: string) => void
   unsendMessages: (fromMessageId: string) => void
   editAndResend: (messageId: string, newContent: string) => Promise<void>
+
+  // Voice actions
+  setVoiceStatus: (status: VoiceState['status']) => void
+  setVoiceTranscript: (transcript: string) => void
+  setVoiceError: (error: string | null) => void
+  setVoiceRecording: (recording: boolean) => void
+  setVoiceAudioLevel: (level: number) => void
+  setVoiceHandsFree: (enabled: boolean) => void
+  setVoiceWakeWordDetected: (detected: boolean) => void
+  setVoiceWsConnected: (connected: boolean) => void
+  setVoiceConfig: (config: Partial<VoiceConfig>) => void
+  resetVoiceState: () => void
 }
 
 export const useChat = create<ChatState>((set, get) => {
@@ -68,6 +109,33 @@ export const useChat = create<ChatState>((set, get) => {
     })
   }
 
+  // Default voice configuration
+const DEFAULT_VOICE_CONFIG: VoiceConfig = {
+  language: 'en-US',
+  voice: 'en-US-Female-1',
+  sampleRate: 24000,
+  model: 'nvidia/riva-tts-multilingual',
+  wakeWord: 'Hey HS',
+  wakeWordEnabled: false,
+  autoSpeak: true,
+  interruptEnabled: true,
+  silenceTimeout: 1500,
+  minSpeechDuration: 500,
+  maxRecordingDuration: 30000,
+}
+
+const DEFAULT_VOICE_STATE: VoiceState = {
+  status: 'idle',
+  transcript: '',
+  isRecording: false,
+  audioLevel: 0,
+  error: null,
+  isHandsFree: false,
+  wakeWordDetected: false,
+  wsConnected: false,
+  config: DEFAULT_VOICE_CONFIG,
+}
+
   return {
     chats: [],
     currentChat: null,
@@ -84,6 +152,8 @@ export const useChat = create<ChatState>((set, get) => {
     streamingChatIds: [],
     streamingPhase: {},
     streamingReasoning: {},
+
+    voice: DEFAULT_VOICE_STATE,
 
     loadChats: async () => {
       try {
@@ -524,5 +594,37 @@ export const useChat = create<ChatState>((set, get) => {
       await get().sendMessage(newContent, chat.id)
       get().loadChats().catch(() => {})
     },
+
+    // Voice actions
+    setVoiceStatus: (status: VoiceState['status']) => set(state => ({
+      voice: { ...state.voice, status }
+    })),
+    setVoiceTranscript: (transcript: string) => set(state => ({
+      voice: { ...state.voice, transcript }
+    })),
+    setVoiceError: (error: string | null) => set(state => ({
+      voice: { ...state.voice, error }
+    })),
+    setVoiceRecording: (isRecording: boolean) => set(state => ({
+      voice: { ...state.voice, isRecording }
+    })),
+    setVoiceAudioLevel: (audioLevel: number) => set(state => ({
+      voice: { ...state.voice, audioLevel }
+    })),
+    setVoiceHandsFree: (isHandsFree: boolean) => set(state => ({
+      voice: { ...state.voice, isHandsFree }
+    })),
+    setVoiceWakeWordDetected: (wakeWordDetected: boolean) => set(state => ({
+      voice: { ...state.voice, wakeWordDetected }
+    })),
+    setVoiceWsConnected: (wsConnected: boolean) => set(state => ({
+      voice: { ...state.voice, wsConnected }
+    })),
+    setVoiceConfig: (config: Partial<VoiceConfig>) => set(state => ({
+      voice: { ...state.voice, config: { ...state.voice.config, ...config } }
+    })),
+    resetVoiceState: () => set(state => ({
+      voice: DEFAULT_VOICE_STATE
+    }),
   }
 })

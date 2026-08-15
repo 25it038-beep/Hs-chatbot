@@ -270,33 +270,62 @@ class BrowserAgent:
         return opts
 
     def _start_driver(self):  # sync, worker thread
-        opts = self._chrome_options()
+        errors = []
+        # 1. Try Chrome visible
         try:
+            opts = self._chrome_options()
             driver = webdriver.Chrome(options=opts)
-        except Exception as e:
-            if "already in use" in str(e).lower() or "user data directory" in str(e).lower():
-                logger.warning("System Chrome user data dir locked by running Chrome process. Falling back to persistent profile: {}", cfg.BROWSER_PROFILE_DIR)
-                fallback_opts = Options()
-                if cfg.BROWSER_HEADLESS:
-                    fallback_opts.add_argument("--headless=new")
-                fallback_opts.add_argument("--no-sandbox")
-                fallback_opts.add_argument("--disable-dev-shm-usage")
-                fallback_opts.add_argument("--disable-extensions")
-                fallback_opts.add_argument("--disable-notifications")
-                fallback_opts.add_argument("--disable-default-apps")
-                fallback_opts.add_argument("--no-first-run")
-                fallback_opts.add_argument("--lang=en-US,en")
-                fallback_opts.add_argument("--window-size=1440,900")
-                os.makedirs(cfg.BROWSER_PROFILE_DIR, exist_ok=True)
-                fallback_opts.add_argument(f"--user-data-dir={os.path.abspath(cfg.BROWSER_PROFILE_DIR)}")
-                fallback_opts.page_load_strategy = "eager"
-                driver = webdriver.Chrome(options=fallback_opts)
-            else:
-                raise
-        driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
-        driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
-        self.tabs.attach(driver)
-        return driver
+            driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
+            driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
+            self.tabs.attach(driver)
+            return driver
+        except Exception as e1:
+            errors.append(f"Chrome: {e1}")
+            logger.warning("Primary Chrome startup failed, trying headless Chrome...")
+
+        # 2. Try Chrome headless
+        try:
+            fallback_opts = self._chrome_options()
+            fallback_opts.add_argument("--headless=new")
+            driver = webdriver.Chrome(options=fallback_opts)
+            driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
+            driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
+            self.tabs.attach(driver)
+            return driver
+        except Exception as e2:
+            errors.append(f"Chrome Headless: {e2}")
+            logger.warning("Chrome headless startup failed, trying Microsoft Edge...")
+
+        # 3. Try Microsoft Edge
+        try:
+            from selenium.webdriver.edge.options import Options as EdgeOptions
+            edge_opts = EdgeOptions()
+            edge_opts.add_argument("--headless=new")
+            edge_opts.add_argument("--no-sandbox")
+            edge_opts.add_argument("--disable-dev-shm-usage")
+            driver = webdriver.Edge(options=edge_opts)
+            driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
+            driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
+            self.tabs.attach(driver)
+            return driver
+        except Exception as e3:
+            errors.append(f"Edge: {e3}")
+            logger.warning("Edge startup failed, trying Mozilla Firefox...")
+
+        # 4. Try Mozilla Firefox
+        try:
+            from selenium.webdriver.firefox.options import Options as FirefoxOptions
+            ff_opts = FirefoxOptions()
+            ff_opts.add_argument("-headless")
+            driver = webdriver.Firefox(options=ff_opts)
+            driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
+            driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
+            self.tabs.attach(driver)
+            return driver
+        except Exception as e4:
+            errors.append(f"Firefox: {e4}")
+            logger.error("All browser automation engines failed: {}", "; ".join(errors))
+            raise RuntimeError(f"Could not launch any automation browser. Errors: {'; '.join(errors)}")
 
     async def _ensure_driver(self):
         if self._driver is not None:
@@ -317,10 +346,11 @@ class BrowserAgent:
             raise ActionError("I couldn't start the browser in time. Try again in a moment.", recoverable=True)
         except Exception as e:
             self.last_error = f"browser-startup:{type(e).__name__}"
+            err_msg = str(e)
             raise ActionError(
-                "I couldn't launch Chrome. Check that Chrome is installed.",
+                f"I couldn't launch Chrome: {err_msg[:150]}",
                 recoverable=False,
-                hint=str(e)[:300],
+                hint=err_msg[:300],
             )
         return self._driver
 
@@ -970,14 +1000,31 @@ class BrowserAgent:
                 self.last_error = None
                 ok = True
                 summary = self._summary(intent)
-            except ActionError as e:
-                self.last_error = e.hint or str(e)
-                ok = False
-                summary = e.hint if isinstance(e, AuthRequired) else f"I couldn't complete that: {e}."
-            except Exception as e:  # pragma: no cover
-                self.last_error = str(e)
-                ok = False
-                summary = "Something went wrong while operating the browser."
+            except (ActionError, RuntimeError, Exception) as e:
+                err_str = str(e)
+                if "launch" in err_str.lower() or "browser" in err_str.lower() or "selenium" in err_str.lower() or "driver" in err_str.lower() or "could not launch" in err_str.lower():
+                    logger.warning("Browser automation driver unavailable ({}), falling back to web retrieval/fetcher", e)
+                    try:
+                        from app.services.websearch import WebSearchService
+                        query_to_fetch = intent.query or intent.url or intent.service or "latest information"
+                        web_ctx = await WebSearchService().retrieve_for_chat(query_to_fetch, force_images=False, with_videos=False)
+                        if web_ctx:
+                            summary = f"🌐 **Opened via web retrieval fallback:**\n\n{web_ctx[:3000]}"
+                        else:
+                            summary = f"🌐 Completed request via web retrieval fallback for {query_to_fetch}."
+                        ok = True
+                    except Exception as fallback_err:
+                        self.last_error = str(fallback_err)
+                        ok = False
+                        summary = f"I couldn't complete that: {e}."
+                elif isinstance(e, ActionError):
+                    self.last_error = e.hint or str(e)
+                    ok = False
+                    summary = e.hint if isinstance(e, AuthRequired) else f"I couldn't complete that: {e}."
+                else:
+                    self.last_error = str(e)
+                    ok = False
+                    summary = "Something went wrong while operating the browser."
             finally:
                 self.current_action = None
         self._queued_actions.pop(0) if self._queued_actions else None

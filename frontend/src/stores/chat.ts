@@ -115,7 +115,7 @@ const DEFAULT_VOICE_CONFIG: VoiceConfig = {
   voice: 'en-US-Female-1',
   sampleRate: 24000,
   model: 'nvidia/riva-tts-multilingual',
-  wakeWord: 'Hey HS',
+  wakeWord: 'hey hs',
   wakeWordEnabled: false,
   autoSpeak: true,
   interruptEnabled: true,

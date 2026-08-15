@@ -775,6 +775,153 @@ async def nvidia_transcribe(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "en-US-Female-1"
+    model: str = "nvidia/riva-tts-multilingual"
+    language: str = "en-US"
+    sample_rate: int = 24000
+
+
+@router.post("/speech/synthesize")
+async def nvidia_synthesize(
+    request: TTSRequest,
+):
+    try:
+        audio_data = await speech_provider.synthesize(
+            text=request.text,
+            voice=request.voice,
+            model=request.model,
+            language=request.language,
+            sample_rate=request.sample_rate,
+        )
+        return StreamingResponse(
+            iter([audio_data]),
+            media_type="audio/wav",
+            headers={"Content-Disposition": "attachment; filename=speech.wav"},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.websocket("/speech/ws")
+async def nvidia_speech_ws(websocket: WebSocket):
+    """
+    WebSocket for real-time voice interaction.
+    
+    Message types:
+    - {"type": "start", "language": "en", "voice": "en-US-Female-1", "sample_rate": 24000}
+    - {"type": "audio", "data": "<base64_encoded_audio>"}
+    - {"type": "text", "content": "text to synthesize"}
+    - {"type": "stop"}
+    """
+    await websocket.accept()
+    
+    session_config = {
+        "language": "en",
+        "voice": "en-US-Female-1",
+        "model": "nvidia/riva-tts-multilingual",
+        "sample_rate": 24000,
+    }
+    is_listening = False
+    audio_buffer = bytearray()
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({"type": "error", "content": "Invalid JSON"}))
+                continue
+            
+            msg_type = msg.get("type")
+            
+            if msg_type == "start":
+                session_config.update({
+                    "language": msg.get("language", "en"),
+                    "voice": msg.get("voice", "en-US-Female-1"),
+                    "model": msg.get("model", "nvidia/riva-tts-multilingual"),
+                    "sample_rate": msg.get("sample_rate", 24000),
+                })
+                is_listening = True
+                await websocket.send_text(json.dumps({"type": "started", "config": session_config}))
+            
+            elif msg_type == "audio" and is_listening:
+                # Receive audio chunk, buffer it
+                import base64
+                try:
+                    audio_chunk = base64.b64decode(msg.get("data", ""))
+                    audio_buffer.extend(audio_chunk)
+                except Exception:
+                    await websocket.send_text(json.dumps({"type": "error", "content": "Invalid audio data"}))
+            
+            elif msg_type == "text":
+                # Synthesize text to speech
+                try:
+                    text = msg.get("content", "")
+                    if not text:
+                        await websocket.send_text(json.dumps({"type": "error", "content": "Empty text"}))
+                        continue
+                    
+                    async for chunk in speech_provider.synthesize_stream(
+                        text=text,
+                        voice=session_config["voice"],
+                        model=session_config["model"],
+                        language=session_config["language"],
+                        sample_rate=session_config["sample_rate"],
+                    ):
+                        import base64
+                        await websocket.send_text(json.dumps({
+                            "type": "audio_chunk",
+                            "data": base64.b64encode(chunk).decode(),
+                        }))
+                    await websocket.send_text(json.dumps({"type": "audio_end"}))
+                except ValueError as e:
+                    await websocket.send_text(json.dumps({"type": "error", "content": str(e)}))
+            
+            elif msg_type == "transcribe":
+                # Transcribe buffered audio
+                if not audio_buffer:
+                    await websocket.send_text(json.dumps({"type": "error", "content": "No audio buffered"}))
+                    continue
+                
+                try:
+                    text = await speech_provider.transcribe(
+                        audio_data=bytes(audio_buffer),
+                        language=session_config["language"],
+                    )
+                    audio_buffer.clear()
+                    await websocket.send_text(json.dumps({
+                        "type": "transcript",
+                        "text": text,
+                    }))
+                except ValueError as e:
+                    await websocket.send_text(json.dumps({"type": "error", "content": str(e)}))
+            
+            elif msg_type == "stop":
+                is_listening = False
+                audio_buffer.clear()
+                await websocket.send_text(json.dumps({"type": "stopped"}))
+                break
+            
+            elif msg_type == "config":
+                session_config.update({
+                    "language": msg.get("language", session_config["language"]),
+                    "voice": msg.get("voice", session_config["voice"]),
+                    "model": msg.get("model", session_config["model"]),
+                    "sample_rate": msg.get("sample_rate", session_config["sample_rate"]),
+                })
+                await websocket.send_text(json.dumps({"type": "configured", "config": session_config}))
+    
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        await websocket.send_text(json.dumps({"type": "error", "content": str(e)}))
+    finally:
+        audio_buffer.clear()
+
+
 @router.get("/usage")
 async def nvidia_usage():
     return key_manager.get_usage_stats()

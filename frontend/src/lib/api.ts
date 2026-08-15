@@ -1,6 +1,6 @@
 import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
 
-function getBaseUrl(): string {
+function getBaseUrlInternal(): string {
   const envUrl = (import.meta.env.VITE_API_URL as string)?.trim()
   if (!envUrl) return '/api'
   const cleanUrl = envUrl.replace(/\/+$/, '')
@@ -8,7 +8,7 @@ function getBaseUrl(): string {
   return `${cleanUrl}/api`
 }
 
-const BASE_URL = getBaseUrl()
+const BASE_URL = getBaseUrlInternal()
 
 let accessToken: string | null = localStorage.getItem('access_token')
 let refreshToken: string | null = localStorage.getItem('refresh_token')
@@ -44,9 +44,13 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-function getAuthHeader(): Record<string, string> {
+export function getAuthHeader(): Record<string, string> {
   const token = accessToken || localStorage.getItem('access_token') || 'hsbot_default_access_token'
   return { Authorization: `Bearer ${token}` }
+}
+
+export function getBaseUrl(): string {
+  return BASE_URL
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {

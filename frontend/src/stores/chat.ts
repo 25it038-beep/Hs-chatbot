@@ -625,6 +625,6 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     })),
     resetVoiceState: () => set(state => ({
       voice: DEFAULT_VOICE_STATE
-    }),
+    })),
   }
 })

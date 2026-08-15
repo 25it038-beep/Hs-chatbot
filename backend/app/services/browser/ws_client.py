@@ -26,13 +26,18 @@ async def ws_client_loop():
     backoff = 2
     while True:
         try:
-            async with websockets.connect(uri, additional_headers=headers) as websocket:
+            async with websockets.connect(
+                uri,
+                additional_headers=headers,
+                ping_interval=20,   # WS-level ping every 20s to keep connection alive through Render's proxy
+                ping_timeout=40,    # wait 40s for pong before declaring connection dead
+                open_timeout=20,
+            ) as websocket:
                 backoff = 2  # Reset backoff on success
                 logger.info(f"[WS Client] Connected to remote server at {uri}")
 
                 # Task to send local state updates to the server periodically
                 async def send_state_updates():
-                    last_state = None
                     from app.services.browser.diagnostics import run_browser_diagnostics
                     while True:
                         try:
@@ -40,16 +45,15 @@ async def ws_client_loop():
                             current_state = browser_agent.state()
                             current_state["chrome"] = "READY" if diag["chrome"] == "FOUND" and diag["driver"] == "READY" else "NOT CONNECTED"
                             current_state["browser_agent"] = "READY" if diag["selenium"] == "READY" and diag["driver"] == "READY" else "FAILED"
-                            
-                            if current_state != last_state:
-                                await websocket.send(json.dumps({
-                                    "type": "state_update",
-                                    "state": current_state
-                                }))
-                                last_state = current_state
+                            # ALWAYS send — not just on change — to keep the Render proxy alive.
+                            # Render's load balancer closes idle WebSocket connections after ~55s.
+                            await websocket.send(json.dumps({
+                                "type": "state_update",
+                                "state": current_state
+                            }))
                         except Exception as e:
                             logger.error(f"[WS Client] Error sending state update: {e}")
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(15)  # every 15s (well within Render's 55s idle timeout)
 
                 state_task = asyncio.create_task(send_state_updates())
 

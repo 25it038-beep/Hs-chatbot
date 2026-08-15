@@ -66,11 +66,14 @@ class SafeCORSMiddleware(CORSMiddleware):
 
 cors_origins = settings.cors_origin_list
 
-if "*" in cors_origins:
+# Get allowed origins from settings - use specific origins in production, allow all in development
+if "*" in cors_origins or settings.app_env == "development":
+    # In development, allow all origins without credentials for preflight
+    # For actual requests, we'll use a more permissive config
     app.add_middleware(
         SafeCORSMiddleware,
-        allow_origin_regex=r".*",
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,  # Must be False when using allow_origins=["*"]
         allow_methods=["*"],
         allow_headers=["*"],
     )

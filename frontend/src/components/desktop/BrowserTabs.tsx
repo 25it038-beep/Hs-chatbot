@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Globe, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -21,56 +21,85 @@ interface BrowserState {
 }
 
 /** Live view of the controlled Chrome session — multi-tab list, active tab,
- * current action and queued actions (§5, §10, §13). Polls /api/browser/state. */
+ * current action and queued actions (§5, §10, §13). Polls /api/browser/state with exponential backoff. */
 export function BrowserTabs() {
   const [state, setState] = useState<BrowserState | null>(null)
   const [diagnostics, setDiagnostics] = useState<any>(null)
   const [error, setError] = useState(false)
   const timer = useRef<number | null>(null)
   const diagTimer = useRef<number | null>(null)
+  const pollIntervalRef = useRef(2500)
+  const diagIntervalRef = useRef(2500)
+  const consecutiveErrors = useRef(0)
+  const isPolling = useRef(false)
+  const isDiagPolling = useRef(false)
+
+  const poll = useCallback(async () => {
+    if (!isTauri || isPolling.current) return
+    isPolling.current = true
+    try {
+      const res = await api.get<BrowserState>('/browser/state')
+      setState(res)
+      setError(false)
+      consecutiveErrors.current = 0
+      // Reset to base interval on success
+      pollIntervalRef.current = 2500
+    } catch {
+      consecutiveErrors.current += 1
+      // Exponential backoff: 2.5s, 5s, 10s, 20s, 30s (max)
+      const backoffMultiplier = Math.min(2 ** consecutiveErrors.current, 12)
+      pollIntervalRef.current = Math.min(2500 * backoffMultiplier, 30000)
+      if (consecutiveErrors.current <= 2) {
+        setError(false) // Don't show error immediately
+      } else {
+        setError(true)
+      }
+    } finally {
+      isPolling.current = false
+      // Reschedule with new interval
+      if (timer.current) window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(poll, pollIntervalRef.current)
+    }
+  }, [])
+
+  const pollDiagnostics = useCallback(async () => {
+    if (!isTauri || isDiagPolling.current) return
+    isDiagPolling.current = true
+    try {
+      const res = await api.get<any>('/browser/diagnostics')
+      setDiagnostics(res)
+    } catch {
+      setDiagnostics({
+        Backend: 'FAILED',
+        WebSocket: 'NOT CONNECTED',
+        'Browser Agent': 'FAILED',
+        Chrome: 'NOT CONNECTED',
+      })
+    } finally {
+      isDiagPolling.current = false
+      // Diagnostics poll less frequently, max 30s
+      if (diagTimer.current) window.clearTimeout(diagTimer.current)
+      diagTimer.current = window.setTimeout(pollDiagnostics, 5000)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isTauri) return
     let cancelled = false
 
-    const poll = async () => {
-      try {
-        const res = await api.get<BrowserState>('/browser/state')
-        if (cancelled) return
-        setState(res)
-        setError(false)
-      } catch {
-        if (!cancelled) setError(true)
-      }
+    const startPolling = () => {
+      poll()
+      pollDiagnostics()
     }
 
-    const pollDiagnostics = async () => {
-      try {
-        const res = await api.get<any>('/browser/diagnostics')
-        if (cancelled) return
-        setDiagnostics(res)
-      } catch {
-        if (cancelled) return
-        setDiagnostics({
-          Backend: 'FAILED',
-          WebSocket: 'NOT CONNECTED',
-          'Browser Agent': 'FAILED',
-          Chrome: 'NOT CONNECTED',
-        })
-      }
-    }
+    startPolling()
 
-    poll()
-    pollDiagnostics()
-    timer.current = window.setInterval(poll, 2500)
-    diagTimer.current = window.setInterval(pollDiagnostics, 2500)
-    
     return () => {
       cancelled = true
-      if (timer.current) window.clearInterval(timer.current)
-      if (diagTimer.current) window.clearInterval(diagTimer.current)
+      if (timer.current) window.clearTimeout(timer.current)
+      if (diagTimer.current) window.clearTimeout(diagTimer.current)
     }
-  }, [])
+  }, [poll, pollDiagnostics])
 
   if (!isTauri) return null
   if (!state?.browser_open) {

@@ -13,8 +13,9 @@ _warmup_loop_task: Optional[asyncio.Task] = None
 KEEP_WARM_INTERVAL = 30.0
 
 
-async def _ping_model(provider, model_key: str) -> None:
-    """Send a minimal request so NVIDIA keeps the model warm on later calls."""
+async def _ping_model(provider, model_key: str) -> bool:
+    """Send a minimal request so NVIDIA keeps the model warm on later calls.
+    Returns True if successful, False otherwise."""
     try:
         await asyncio.wait_for(
             provider.generate(
@@ -26,16 +27,16 @@ async def _ping_model(provider, model_key: str) -> None:
             timeout=60.0,
         )
         logger.info("Model warmup OK: %s", model_key)
+        return True
     except asyncio.TimeoutError:
         logger.warning("Model warmup timed out: %s", model_key)
     except Exception as e:  # noqa: BLE001
         logger.warning("Model warmup failed for %s: %s", model_key, e)
+    return False
 
 
 async def warmup_default_models(provider=None) -> None:
-    """Warm the default GLM chat model once. GLM cold-starts on NVIDIA in
-    ~165s so the warmup may time out; the router fallback still resolves
-    coding/reasoning tasks to available models."""
+    """Warm the default models once. Non-blocking - failures are logged but don't block."""
     if not settings.nvidia_api_keys:
         logger.info("No NVIDIA API keys configured; skipping warmup")
         return
@@ -52,7 +53,11 @@ async def warmup_default_models(provider=None) -> None:
         for fb in route.get("fallback", []):
             targets.add(fb)
     targets.discard(None)
-    await asyncio.gather(*(_ping_model(provider, m) for m in targets))
+    
+    # Warm up models concurrently, don't fail if any fail
+    results = await asyncio.gather(*(_ping_model(provider, m) for m in targets), return_exceptions=True)
+    successful = sum(1 for r in results if r is True)
+    logger.info("Model warmup completed: %d/%d successful", successful, len(targets))
 
 
 async def _keep_warm_loop() -> None:
@@ -80,7 +85,8 @@ async def _keep_warm_loop() -> None:
         except Exception as e:  # noqa: BLE001
             consecutive_failures += 1
             logger.warning("Keep-warm cycle error: %s", e)
-        await asyncio.sleep(KEEP_WARM_INTERVAL * (consecutive_failures + 1))
+        # Exponential backoff on failures
+        await asyncio.sleep(KEEP_WARM_INTERVAL * min(2 ** consecutive_failures, 8))
 
 
 async def start_warmup() -> None:

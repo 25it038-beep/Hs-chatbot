@@ -9,7 +9,14 @@ class RateLimitMiddleware:
         self.requests: dict[str, list[float]] = defaultdict(list)
 
     async def __call__(self, scope, receive, send):
+        # Skip rate limiting for WebSocket connections
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Skip rate limiting for CORS preflight requests
+        method = scope.get("method", "").upper()
+        if method == "OPTIONS":
             await self.app(scope, receive, send)
             return
 

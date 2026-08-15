@@ -18,9 +18,26 @@ router = APIRouter(prefix="/api/browser", tags=["browser"])
 
 @router.get("/state")
 async def browser_state() -> dict:
-    if ws_manager.is_connected():
-        return ws_manager.get_state()
-    return browser_agent.state()
+    """Return browser agent state. Always returns a valid response even if browser is not running."""
+    try:
+        if ws_manager.is_connected():
+            return ws_manager.get_state()
+        return browser_agent.state()
+    except Exception as e:
+        logger.error(f"Error getting browser state: {e}")
+        # Return a valid default state instead of failing
+        return {
+            "browser_open": False,
+            "current_url": None,
+            "current_title": None,
+            "active_service": None,
+            "persistent_session": False,
+            "active_tab": None,
+            "tabs": [],
+            "current_action": None,
+            "queued_actions": [],
+            "error": str(e)
+        }
 
 
 @router.websocket("/ws")
@@ -49,25 +66,36 @@ async def browser_ws(websocket: WebSocket):
 
 @router.get("/diagnostics")
 async def get_browser_diagnostics() -> dict:
-    from app.services.browser.ws_manager import ws_manager
-    ws_connected = ws_manager.is_connected()
-    
-    if ws_connected:
-        state = ws_manager.get_state()
-        browser_agent_status = state.get("browser_agent", "FAILED")
-        chrome_status = state.get("chrome", "NOT CONNECTED")
-    else:
-        from app.services.browser.diagnostics import run_browser_diagnostics
-        diag = run_browser_diagnostics()
-        browser_agent_status = "READY" if diag["selenium"] == "READY" and diag["driver"] == "READY" else "FAILED"
-        chrome_status = "READY" if diag["chrome"] == "FOUND" and diag["driver"] == "READY" else "NOT CONNECTED"
+    """Return diagnostic information. Always returns valid JSON, never 400."""
+    try:
+        from app.services.browser.ws_manager import ws_manager
+        ws_connected = ws_manager.is_connected()
+        
+        if ws_connected:
+            state = ws_manager.get_state()
+            browser_agent_status = state.get("browser_agent", "FAILED")
+            chrome_status = state.get("chrome", "NOT CONNECTED")
+        else:
+            from app.services.browser.diagnostics import run_browser_diagnostics
+            diag = run_browser_diagnostics()
+            browser_agent_status = "READY" if diag["selenium"] == "READY" and diag["driver"] == "READY" else "FAILED"
+            chrome_status = "READY" if diag["chrome"] == "FOUND" and diag["driver"] == "READY" else "NOT CONNECTED"
 
-    return {
-        "Backend": "CONNECTED",
-        "WebSocket": "CONNECTED" if ws_connected else "NOT CONNECTED",
-        "Browser Agent": browser_agent_status,
-        "Chrome": chrome_status
-    }
+        return {
+            "Backend": "CONNECTED",
+            "WebSocket": "CONNECTED" if ws_connected else "NOT CONNECTED",
+            "Browser Agent": browser_agent_status,
+            "Chrome": chrome_status
+        }
+    except Exception as e:
+        logger.error(f"Error getting browser diagnostics: {e}")
+        return {
+            "Backend": "CONNECTED",
+            "WebSocket": "ERROR",
+            "Browser Agent": "FAILED",
+            "Chrome": "ERROR",
+            "error": str(e)
+        }
 
 
 @router.post("/test_google")

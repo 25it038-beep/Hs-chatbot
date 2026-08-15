@@ -32,6 +32,17 @@ class Settings(BaseSettings):
     nvidia_default_image_model: str = "nemotron-vl"
     nvidia_default_embed_model: str = "nv-embed-v1"
 
+    # NVIDIA Reliability Configuration
+    nvidia_max_retries: int = 3
+    nvidia_timeout_seconds: int = 60
+    nvidia_connection_timeout_seconds: int = 10
+    nvidia_max_concurrent_requests: int = 5
+    nvidia_retry_base_delay: float = 1.0
+    nvidia_retry_max_delay: float = 30.0
+    nvidia_circuit_breaker_threshold: int = 5
+    nvidia_circuit_breaker_cooldown: int = 30
+    nvidia_rate_limit_cooldown: int = 60
+
     openai_api_key: Optional[str] = None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_default_model: str = "gpt-4o"

@@ -81,6 +81,28 @@ class RetrievalConfig:
     MAX_VIDEOS: int = _int("RETRIEVAL_MAX_VIDEOS", 4)
     VIDEO_CANDIDATES: int = _int("RETRIEVAL_VIDEO_CANDIDATES", 20)
 
+    # ── Selenium dynamic-page fallback (section 27) ──
+    # Only used when fast HTTP fetch + Tavily extract both fail, or when the
+    # HTTP body is too thin to be useful (JS-rendered page).
+    SELENIUM_ENABLED: bool = os.getenv("SELENIUM_ENABLED", "1") != "0"
+    SELENIUM_PAGE_LOAD_TIMEOUT_S: float = _float("SELENIUM_PAGE_LOAD_TIMEOUT_S", 8.0)
+    SELENIUM_SCRIPT_TIMEOUT_S: float = _float("SELENIUM_SCRIPT_TIMEOUT_S", 5.0)
+    SELENIUM_TOTAL_TIMEOUT_S: float = _float("SELENIUM_TOTAL_TIMEOUT_S", 10.0)
+    # First browser start includes the chromedriver download (Selenium
+    # Manager); that must not count against a single page's budget.
+    SELENIUM_STARTUP_TIMEOUT_S: float = _float("SELENIUM_STARTUP_TIMEOUT_S", 30.0)
+    SELENIUM_MAX_WORKERS: int = _int("SELENIUM_MAX_WORKERS", 2)
+    SELENIUM_MAX_PAGES_PER_BROWSER: int = _int("SELENIUM_MAX_PAGES_PER_BROWSER", 5)
+    SELENIUM_MAX_FALLBACKS: int = _int("SELENIUM_MAX_FALLBACKS", 3)
+    SELENIUM_MIN_CONTENT_CHARS: int = _int("SELENIUM_MIN_CONTENT_CHARS", 200)
+    SELENIUM_MIN_HTML_CHARS: int = _int("SELENIUM_MIN_HTML_CHARS", 1_500)
+    SELENIUM_HEADLESS: bool = os.getenv("SELENIUM_HEADLESS", "1") != "0"
+    SELENIUM_BLOCK_IMAGES: bool = os.getenv("SELENIUM_BLOCK_IMAGES", "1") != "0"
+    # Explicit wait target: Selenium waits for one of these selectors (or
+    # document.readyState == complete) instead of arbitrary sleeps.
+    SELENIUM_CONTENT_SELECTOR: str = os.getenv("SELENIUM_CONTENT_SELECTOR", "article, main, [role=main], p, h1")
+    SELENIUM_WAIT_SETTLE_S: float = _float("SELENIUM_WAIT_SETTLE_S", 1.0)
+
     # ── User agent ──
     USER_AGENT: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

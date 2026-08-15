@@ -191,7 +191,7 @@ class RetrievalOrchestrator:
                 # Inner budget is slightly tighter than the outer deadline so
                 # completed pages survive when a slow page burns the budget.
                 async with asyncio.timeout(deadline):
-                    fetched = await self._fetcher.fetch_many(urls, budget_s=deadline - 0.5)
+                    fetched = await self._fetcher.fetch_many(urls, budget_s=deadline - 0.5, scope=scope)
             except (TimeoutError, asyncio.TimeoutError):
                 logger.warning("global fetch deadline exceeded for {!r} ({}/{} fetched)", query, len(fetched), len(urls))
         if image_task is not None:

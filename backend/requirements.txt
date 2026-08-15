@@ -47,5 +47,8 @@ rich==13.9.4
 loguru==0.7.3
 aiofiles==24.1.0
 
+# Dynamic-page fallback (headless Chrome; Selenium Manager auto-drives)
+selenium>=4.6.0
+
 groq==1.6.0
 ddgs==9.14.4

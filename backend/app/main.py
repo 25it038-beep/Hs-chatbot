@@ -42,6 +42,9 @@ async def lifespan(app: FastAPI):
     await start_warmup()
     yield
     await stop_warmup()
+    from app.services.retrieval.selenium_fetcher import shutdown as _selenium_shutdown
+
+    await _selenium_shutdown()
 
 app = FastAPI(
     title=settings.app_name,

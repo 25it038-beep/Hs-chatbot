@@ -16,6 +16,7 @@ from loguru import logger
 from .config import retrieval_config as cfg
 from .providers import tavily_extractor
 from .security import is_safe_url
+from .selenium_fetcher import fetch_dynamic, get_cached_page, is_selenium_available
 
 _CLIENT: Optional[httpx.AsyncClient] = None
 _CLIENT_LOCK = asyncio.Lock()
@@ -150,20 +151,40 @@ def _extract_candidate(err: Optional[str]) -> bool:
     return bool(err) and err not in _EXTRACT_SKIP and not err.startswith("http-5")
 
 
+def _selenium_candidate(content: Optional[str], err: Optional[str]) -> bool:
+    """Selenium only for JS-rendered/bot-blocked/thin pages, never for
+    404/unsafe/oversized ones (a browser changes none of those)."""
+    if not cfg.SELENIUM_ENABLED or not is_selenium_available():
+        return False
+    if err is not None:
+        return _extract_candidate(err)
+    # HTTP succeeded but body too thin to answer — classic SPA/JS shell.
+    return content is not None and len(content) < cfg.SELENIUM_MIN_HTML_CHARS
+
+
 class PageFetcher:
     def __init__(self, concurrency: Optional[int] = None) -> None:
         self._sem = asyncio.Semaphore(concurrency or cfg.MAX_FETCH_CONCURRENCY)
         self._extract_left = cfg.TAVILY_EXTRACT_MAX
+        self._selenium_left = cfg.SELENIUM_MAX_FALLBACKS
 
-    async def fetch_many(self, urls: list[str], budget_s: Optional[float] = None) -> list[dict]:
+    async def fetch_many(
+        self,
+        urls: list[str],
+        budget_s: Optional[float] = None,
+        scope: str = "general",
+    ) -> list[dict]:
         """Fetch in parallel; on deadline, keep finished pages, drop the rest.
 
         Uses asyncio.wait so a slow page can never discard the fast results
         (section 6: partial results beat no results). Pages the direct fetch
-        cannot read (bot-blocked / JS-heavy) fall back to Tavily /extract,
-        capped per request so the extract budget is never exhausted.
+        cannot read (bot-blocked / JS-heavy / thin shells) fall back to
+        Tavily /extract, then to a headless-browser render (section 27) —
+        both capped per request so neither budget is ever exhausted.
+        `scope` (news/current/general/docs) drives page-cache freshness.
         """
         self._extract_left = cfg.TAVILY_EXTRACT_MAX
+        self._selenium_left = cfg.SELENIUM_MAX_FALLBACKS
 
         async def _one(url: str):
             async with self._sem:
@@ -181,7 +202,35 @@ class PageFetcher:
                         extracted = None
                     if extracted:
                         content, final_url, err = extracted, url, None
-                return {"url": url, "final_url": final_url or url, "content": content, "error": err}
+
+                # Headless-browser fallback (section 27): only for pages the
+                # fast path provably can't read, budgeted and time-boxed.
+                used_selenium = False
+                if (
+                    self._selenium_left > 0
+                    and _selenium_candidate(content, err)
+                    and await get_cached_page(url, scope) is None
+                ):
+                    self._selenium_left -= 1
+                    used_selenium = True
+                    try:
+                        dyn = await asyncio.wait_for(
+                            fetch_dynamic(url, scope=scope),
+                            timeout=cfg.SELENIUM_TOTAL_TIMEOUT_S + 2,
+                        )
+                    except (asyncio.TimeoutError, TimeoutError):
+                        dyn = {"success": False}
+                    except Exception:
+                        dyn = {"success": False}
+                    if dyn.get("success"):
+                        content, final_url, err = dyn["content"], dyn.get("url") or url, None
+                return {
+                    "url": url,
+                    "final_url": final_url or url,
+                    "content": content,
+                    "error": err,
+                    "method": "selenium" if used_selenium and err is None else "http",
+                }
 
         tasks = {asyncio.create_task(_one(u)): u for u in urls}
         done, pending = await asyncio.wait(tasks, timeout=budget_s)

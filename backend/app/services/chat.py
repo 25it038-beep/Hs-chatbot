@@ -385,20 +385,62 @@ class ChatService:
                             )
                         if web_context:
                             system_prompt = f"{system_prompt}\n\n{web_context}"
+                    fb_provider = None
+                    fb_model = None
+                    if provider_name == "sambanova":
+                        # SAMBANOVA_FALLBACK: a missing/busy SambaNova key used to mean
+                        # an empty HTTP 200. Retry once on NVIDIA so the user always
+                        # gets an answer instead of nothing.
+                        try:
+                            fb_provider = get_provider("nvidia")
+                            # Hardcoded verified model — the env default may point
+                            # at a retired model id (404).
+                            fb_model = "llama-3.1-70b"
+                        except ValueError:
+                            fb_provider = None
                     try:
-                        async for chunk in provider.generate_stream(
-                            messages=api_messages,
-                            model=model_to_use,
-                            system_prompt=system_prompt,
-                            temperature=request.temperature or chat.temperature,
-                            max_tokens=request.max_tokens or chat.max_tokens,
-                        ):
-                            if chunk.type == "content":
-                                full_content += chunk.content
-                            elif chunk.type == "done":
-                                input_tokens = chunk.input_tokens
-                                output_tokens = chunk.output_tokens
-                            yield chunk
+                        try:
+                            async for chunk in provider.generate_stream(
+                                messages=api_messages,
+                                model=model_to_use,
+                                system_prompt=system_prompt,
+                                temperature=request.temperature or chat.temperature,
+                                max_tokens=request.max_tokens or chat.max_tokens,
+                            ):
+                                if chunk.type == "content":
+                                    full_content += chunk.content
+                                elif chunk.type == "done":
+                                    input_tokens = chunk.input_tokens
+                                    output_tokens = chunk.output_tokens
+                                yield chunk
+                        except Exception as e:
+                            if not full_content and fb_provider is not None:
+                                note = (
+                                    "_(SambaNova is busy right now - answering with NVIDIA "
+                                    "instead so you are not left waiting.)_\n\n"
+                                )
+                                full_content += note
+                                yield StreamChunk(
+                                    type="content",
+                                    content=note,
+                                    model=fb_model,
+                                    provider="nvidia",
+                                )
+                                async for chunk in fb_provider.generate_stream(
+                                    messages=api_messages,
+                                    model=fb_model,
+                                    system_prompt=system_prompt,
+                                    temperature=request.temperature or chat.temperature,
+                                    max_tokens=request.max_tokens or chat.max_tokens,
+                                ):
+                                    if chunk.type == "content":
+                                        full_content += chunk.content
+                                    elif chunk.type == "done":
+                                        input_tokens = chunk.input_tokens
+                                        output_tokens = chunk.output_tokens
+                                    yield chunk
+                            else:
+                                raise
                         if video_task is not None:
                             # Non-blocking: brief grace window, then move on.
                             try:

@@ -407,7 +407,7 @@ async def nvidia_chat(
                     async def _cb(s: str) -> None:
                         await status_q.put(s)
 
-                    task = asyncio.create_task(
+                    retrieval_task = asyncio.create_task(
                         WebSearchService().retrieve_for_chat(
                             request.message,
                             force_images=force_images,
@@ -415,10 +415,10 @@ async def nvidia_chat(
                             status_cb=_cb,
                         )
                     )
-                    async for ev in _retrieval_status_events(status_q, task):
+                    async for ev in _retrieval_status_events(status_q, retrieval_task):
                         yield ev
                     try:
-                        web_context, web_images_md, web_videos_md = task.result()
+                        web_context, web_images_md, web_videos_md = retrieval_task.result()
                     except Exception:
                         web_context, web_images_md, web_videos_md = None, "", ""
                     if force_images:
@@ -549,7 +549,7 @@ async def nvidia_chat(
                 async def _cb(s: str) -> None:
                     await status_q.put(s)
 
-                task = asyncio.create_task(
+                retrieval_task = asyncio.create_task(
                     WebSearchService().retrieve_for_chat(
                         request.message,
                         force_images=force_images,
@@ -557,10 +557,10 @@ async def nvidia_chat(
                         status_cb=_cb,
                     )
                 )
-                async for ev in _retrieval_status_events(status_q, task):
+                async for ev in _retrieval_status_events(status_q, retrieval_task):
                     yield ev
                 try:
-                    web_context, web_images_md, web_videos_md = task.result()
+                    web_context, web_images_md, web_videos_md = retrieval_task.result()
                 except Exception:
                     web_context, web_images_md, web_videos_md = None, "", ""
                 if force_images:

@@ -38,6 +38,14 @@ services:
         value: default
       - key: CLOUDFLARE_GATEWAY_DEFAULT_MODEL
         value: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      - key: BROWSER_ENABLED
+        value: "1"
+      - key: BROWSER_HEADLESS
+        value: "1"
+      - key: BROWSER_PERSISTENT_SESSION
+        value: "1"
+      - key: BROWSER_PROFILE_DIR
+        value: /app/data/browser_profile
       - key: BROWSER_AGENT_MODE
         value: server
       - key: BROWSER_WS_TOKEN

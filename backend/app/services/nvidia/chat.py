@@ -192,13 +192,19 @@ class NvidiaChatProvider:
         client = await _get_client()
         try:
             async with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
-                if response.status_code in (429, 503, 529):
-                    key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
-                    async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
-                        yield chunk
-                    return
-                if response.status_code >= 500:
-                    key_manager.record_failure(api_key, f"server_error: {response.status_code}")
+                if response.status_code != 200:
+                    err_msg = f"HTTP {response.status_code}"
+                    try:
+                        err_body = await response.aread()
+                        err_json = json.loads(err_body.decode())
+                        if "detail" in err_json:
+                            err_msg = err_json["detail"]
+                        elif "error" in err_json and "message" in err_json["error"]:
+                            err_msg = err_json["error"]["message"]
+                    except Exception:
+                        pass
+                    
+                    key_manager.record_failure(api_key, f"error {response.status_code}: {err_msg}")
                     async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
                         yield chunk
                     return

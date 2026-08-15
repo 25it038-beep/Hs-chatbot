@@ -43,9 +43,11 @@ services:
       - key: BROWSER_HEADLESS
         value: "1"
       - key: BROWSER_PERSISTENT_SESSION
-        value: "1"
+        value: "0"
       - key: BROWSER_PROFILE_DIR
-        value: /app/data/browser_profile
+        value: /tmp/browser_profile
+      - key: BROWSER_STARTUP_TIMEOUT_S
+        value: "30"
       - key: BROWSER_AGENT_MODE
         value: server
       - key: BROWSER_WS_TOKEN

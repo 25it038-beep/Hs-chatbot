@@ -99,9 +99,14 @@ async def ws_client_loop():
                     state_task.cancel()
                     
         except Exception as e:
-            logger.error(f"[WS Client] Connection lost or failed: {e}. Retrying in {backoff}s...")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
+            err_str = str(e)
+            # For transient DNS / network errors, don't escalate — retry quickly
+            is_dns_error = "getaddrinfo" in err_str or "Name or service not known" in err_str
+            wait = min(backoff, 8) if is_dns_error else backoff
+            logger.error(f"[WS Client] Connection lost or failed: {e}. Retrying in {wait}s...")
+            await asyncio.sleep(wait)
+            if not is_dns_error:
+                backoff = min(backoff * 2, 30)
 
 
 def start_ws_client():

@@ -47,12 +47,14 @@ const PHASE_ICONS: Record<string, React.ComponentType<{ size?: number; className
   searching: Globe,
   writing: FileText,
   thinking: Brain,
+  browser_action: Globe,
 }
 
 const PHASE_LABELS: Record<string, string> = {
   searching: 'Searching the web...',
   writing: 'Writing...',
   thinking: 'Thinking...',
+  browser_action: 'Controlling the browser...',
 }
 
 function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => void }) {

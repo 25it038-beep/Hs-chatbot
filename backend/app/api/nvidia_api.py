@@ -24,6 +24,7 @@ from app.services.nvidia.key_manager import key_manager
 from app.services.nvidia.config import NVIDIA_MODELS, NVIDIA_BASE_URL
 from app.services.nvidia.web_images import web_image_search
 from app.services.websearch import WebSearchService, extract_image_subject
+from app.services.browser.service import browser_service
 
 router = APIRouter(prefix="/api/nvidia", tags=["nvidia"])
 
@@ -46,6 +47,41 @@ _NO_FAKE_VIDEOS_NOTE = (
     "Note: Real videos will be shown separately after your answer. Do NOT fabricate video "
     "links, YouTube links, or placeholders like [Video: ...] anywhere in your response."
 )
+
+
+async def _browser_events(browser_service, request, db, chat, user, full_message: str):
+    """Stream browser-agent events as SSE JSON lines.
+
+    Yields None (sentinel) when the browser agent fully handled the message —
+    the caller should then emit "[DONE]" and stop. On `delegate_web_search`
+    the stream stops without the sentinel so the normal chat flow continues.
+    """
+    final_summary = ""
+    async for ev in browser_service.stream_for_message(full_message, user_id=user.id if user else None):
+        etype = ev.get("type")
+        if etype == "browser_status":
+            yield f"data: {json.dumps({'type': 'browser_status', 'content': ev.get('content', '')})}\n\n"
+        elif etype == "image":
+            yield f"data: {json.dumps({'type': 'image', 'content': ev.get('content', '')})}\n\n"
+        elif etype == "delegate_web_search":
+            return
+        elif etype == "content":
+            final_summary += ev.get("content", "")
+    if final_summary:
+        user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
+        assistant_msg = Message(
+            chat_id=request.chat_id,
+            role="assistant",
+            content=final_summary,
+            model="browser-agent",
+            provider="browser",
+        )
+        db.add(user_msg)
+        db.add(assistant_msg)
+        if chat is not None and chat.title == "New Chat":
+            chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+        await db.commit()
+    yield None
 
 
 async def _retrieval_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
@@ -389,6 +425,14 @@ async def nvidia_chat(
         if request.stream:
             async def generate_with_memory():
                 yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task, 'chat_id': request.chat_id})}\n\n"
+                if browser_service.detect(request.message) is not None:
+                    async for ev in _browser_events(
+                        browser_service, request, db, chat, user, full_message=request.message
+                    ):
+                        if ev is None:
+                            yield "data: [DONE]\n\n"
+                            return
+                        yield ev
                 full_content = ""
                 input_tokens = 0
                 output_tokens = 0
@@ -537,6 +581,14 @@ async def nvidia_chat(
     if request.stream:
         async def generate():
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
+            if browser_service.detect(request.message) is not None:
+                async for ev in _browser_events(
+                    browser_service, request, db, None, user, full_message=request.message
+                ):
+                    if ev is None:
+                        yield "data: [DONE]\n\n"
+                        return
+                    yield ev
             gen_system_prompt = system_prompt
             web_images_md = ""
             web_videos_md = ""

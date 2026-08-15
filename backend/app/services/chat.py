@@ -17,6 +17,7 @@ from app.config import settings
 from app.services.rag import RAGService
 from app.services.websearch import WebSearchService
 from app.services.retrieval.router import classify_video_intent
+from app.services.browser.service import browser_service
 
 
 async def _chat_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
@@ -244,6 +245,46 @@ class ChatService:
         )
         api_messages.append({"role": "user", "content": request.message})
 
+        # ── Browser Automation Agent (section 28) ──
+        # Natural-language browser commands (open/search/play/pause/skip/screenshot...)
+        # are handled by the interactive agent, not the LLM. SEARCH_WEB delegates
+        # back into the fast retrieval pipeline. Consequential actions wait for
+        # an explicit user confirmation before any click.
+        force_web_search = False
+        if request.stream and browser_service.detect(request.message) is not None:
+            final_summary = ""
+            handled = True
+            async for ev in browser_service.stream_for_message(request.message, user_id=user_id):
+                etype = ev.get("type")
+                if etype == "browser_status":
+                    yield StreamChunk(type="browser_status", content=ev.get("content", ""))
+                elif etype == "image":
+                    yield StreamChunk(type="image", content=ev.get("content", ""), model="browser", provider="browser")
+                elif etype == "delegate_web_search":
+                    handled = False
+                    force_web_search = True
+                    break
+                elif etype == "content":
+                    final_summary += ev.get("content", "")
+            if handled:
+                if final_summary:
+                    self.db.add(Message(chat_id=chat_id, role="user", content=request.message))
+                    self.db.add(
+                        Message(
+                            chat_id=chat_id,
+                            role="assistant",
+                            content=final_summary,
+                            model="browser-agent",
+                            provider="browser",
+                            latency_ms=0,
+                        )
+                    )
+                    if chat.title == "New Chat":
+                        chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+                    await self.db.commit()
+                yield StreamChunk(type="done", model="browser-agent", provider="browser", done=True)
+                return
+
         try:
             provider = get_provider(provider_name)
         except ValueError as e:
@@ -350,7 +391,7 @@ class ChatService:
                         video_task = asyncio.create_task(
                             WebSearchService().fetch_videos_markdown(request.message)
                         )
-                    if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images"):
+                    if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images") or force_web_search:
                         status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
                         async def _cb(s: str) -> None:

@@ -33,7 +33,7 @@ interface ChatState {
   chatMessages: Record<string, Message[]>
   chatStreamingContent: Record<string, string>
   streamingChatIds: string[]
-  streamingPhase: Record<string, 'thinking' | 'writing' | 'searching'>
+  streamingPhase: Record<string, 'thinking' | 'writing' | 'searching' | 'browser_action'>
   streamingReasoning: Record<string, string>
 
   loadChats: () => Promise<void>
@@ -282,8 +282,21 @@ export const useChat = create<ChatState>((set, get) => {
                   if (get().currentChat?.id === chat.id) {
                     set({ generatingImage: true, streamingContent: fullContent })
                   }
+                } else if (chunk.type === 'browser_status') {
+                  const line = chunk.content
+                  fullContent += (fullContent ? '\n\n' : '') + line
+                  set(state => ({
+                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'browser_action' },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ streamingContent: fullContent })
+                  }
                 } else if (chunk.type === 'image') {
-                  fullContent = `<img src="data:image/png;base64,${chunk.content}" alt="Generated image" style="max-width:100%;border-radius:8px;" />`
+                  const src = chunk.content.startsWith('data:image/')
+                    ? chunk.content
+                    : `data:image/png;base64,${chunk.content}`
+                  fullContent = `<img src="${src}" alt="Image" style="max-width:100%;border-radius:8px;" />`
                   set(state => ({
                     generatingImage: false,
                     chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },

@@ -975,14 +975,13 @@ class BrowserAgent:
         logger.warning("browser plan: unknown step {!r}", action)
         return None
 
-    async def run_plan(self, intent: BrowserIntent) -> list[dict]:
-        """Execute the plan; returns a list of event dicts (browser_status /
-        content / image / tab_event). Never raises for user-facing flows.
+    async def run_plan(self, intent: BrowserIntent):
+        """Execute the plan; yields event dicts (browser_status / content / image / tab_event).
+        Never raises for user-facing flows.
 
         Whole plans are serialized behind `_command_lock` (action queue,
         section 10) — two simultaneous chat commands can never corrupt the
         Selenium session; the second simply waits its turn."""
-        events: list[dict] = []
         started = time.perf_counter()
         plan = build_plan(intent, current_url=self.current_url)
         summary = ""
@@ -993,12 +992,13 @@ class BrowserAgent:
                 async with self._lock:
                     self.current_action = intent.intent
                     for step in plan:
-                        events.append({"type": "browser_status", "content": step["status"]})
+                        # Yield status immediately (before potentially slow operations)
+                        yield {"type": "browser_status", "content": step["status"]}
                         result = await self._execute_step(intent, step["action"])
                         if result is not None:
-                            events.append(result)
+                            yield result
                         if step["action"] in _TAB_OBSERVE_ACTIONS:
-                            events.append({"type": "tab_event", "tabs": self._run_sync_tabs()})
+                            yield {"type": "tab_event", "tabs": self._run_sync_tabs()}
                 self.last_error = None
                 ok = True
                 summary = self._summary(intent)
@@ -1038,9 +1038,8 @@ class BrowserAgent:
             success=ok,
             duration_ms=round((time.perf_counter() - started) * 1000),
         ).info("browser_agent plan finished")
-        events.append({"type": "content", "content": summary})
-        events.append({"type": "done", "success": ok, "browser": self.state()})
-        return events
+        yield {"type": "content", "content": summary}
+        yield {"type": "done", "success": ok, "browser": self.state()}
 
     def _summary(self, intent: BrowserIntent) -> str:
         i, s, q = intent.intent, intent.service, intent.query

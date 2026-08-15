@@ -79,7 +79,9 @@ async def ws_client_loop():
                                         requires_confirmation=intent_dict.get("requires_confirmation", False),
                                     )
                                     logger.info("[WS Client] Executing local browser action plan for %s request_id=%s", intent.intent, req_id)
-                                    events = await browser_agent.run_plan(intent)
+                                    events = []
+                                    async for ev in browser_agent.run_plan(intent):
+                                        events.append(ev)
                                     res_payload = {
                                         "type": "browser.result",
                                         "request_id": req_id,

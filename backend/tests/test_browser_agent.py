@@ -400,13 +400,18 @@ def service(monkeypatch):
     svc = bsvc.BrowserService()
 
     async def _noop_plan(intent):
-        return [
-            {"type": "browser_status", "content": "did something"},
-            {"type": "content", "content": "Done."},
-            {"type": "done", "success": True},
-        ]
+        yield {"type": "browser_status", "content": "did something"}
+        yield {"type": "content", "content": "Done."}
+        yield {"type": "done", "success": True}
 
-    monkeypatch.setattr(bsvc.browser_agent, "run_plan", AsyncMock(side_effect=_noop_plan))
+    _noop_plan.called = False
+
+    async def _tracked_plan(intent):
+        _noop_plan.called = True
+        async for ev in _noop_plan(intent):
+            yield ev
+
+    monkeypatch.setattr(bsvc.browser_agent, "run_plan", _tracked_plan)
     return svc
 
 
@@ -428,8 +433,8 @@ async def test_service_queues_consequential_until_confirmed(service):
     assert "browser_status" in types and "done" in types
     assert events[-1]["awaiting_confirmation"] is True
     assert service.has_pending("u2")
-    # the run_plan mock must NOT have been called yet
-    assert not bsvc.browser_agent.run_plan.called
+    # the run_plan callback must NOT have been called yet
+    assert getattr(bsvc.browser_agent.run_plan, "called", False) is False
 
 
 @pytest.mark.asyncio

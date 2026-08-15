@@ -106,7 +106,7 @@ class BrowserService:
                 }
                 yield {"type": "done", "success": False}
         else:
-            for ev in await browser_agent.run_plan(intent):
+            async for ev in browser_agent.run_plan(intent):
                 yield ev
 
     def clear_pending(self, user_id: str) -> None:

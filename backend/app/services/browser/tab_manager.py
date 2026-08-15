@@ -13,6 +13,7 @@ so opening tabs here never touches the HS AI chat UI (§1/§20).
 
 from collections import deque
 from typing import Callable, Optional
+import time
 
 # Hard cap: never enumerate more than this many tabs per state snapshot.
 MAX_TRACKED_TABS = 12
@@ -23,16 +24,23 @@ class TabManager:
         self._driver = None
         self._detect = detect_service_fn
         self._history: deque[str] = deque(maxlen=8)
+        self._cache: Optional[list[dict]] = None
+        self._cache_time: float = 0.0
+        self._cache_ttl: float = 0.3  # Cache tab list for 300ms to prevent flicker
 
     # ── lifecycle ──
 
     def attach(self, driver) -> None:
         self._driver = driver
         self._history.clear()
+        self._cache = None
+        self._cache_time = 0.0
 
     def detach(self) -> None:
         self._driver = None
         self._history.clear()
+        self._cache = None
+        self._cache_time = 0.0
 
     def _ensure(self):
         if self._driver is None:
@@ -44,10 +52,17 @@ class TabManager:
     def tabs(self, driver=None) -> list[dict]:
         """[{id, title, url, active, service}] — never raises, caps at
         MAX_TRACKED_TABS. Titles require switching windows, so the active
-        tab is restored afterwards."""
+        tab is restored afterwards. Results are cached for 300ms to prevent
+        rapid tab-switching flicker when multiple lookups happen in sequence."""
         driver = driver or self._driver
         if driver is None:
             return []
+        
+        # Check cache validity
+        now = time.time()
+        if self._cache is not None and (now - self._cache_time) < self._cache_ttl:
+            return self._cache
+        
         try:
             handles = driver.window_handles[:MAX_TRACKED_TABS]
             active = driver.current_window_handle
@@ -77,6 +92,10 @@ class TabManager:
                 pass
         except Exception:
             return out
+        
+        # Cache the result
+        self._cache = out
+        self._cache_time = now
         return out
 
     # ── lookups ──
@@ -122,6 +141,7 @@ class TabManager:
             return self.active(driver) or {"id": tab_id}
         self._remember(driver)
         driver.switch_to.window(tab_id)
+        self._cache = None  # Invalidate cache after switch
         for t in self.tabs(driver):
             if t["id"] == tab_id:
                 return t
@@ -144,6 +164,7 @@ class TabManager:
         target = handles[idx - 1]
         self._remember(driver)
         driver.switch_to.window(target)
+        self._cache = None  # Invalidate cache after switch
         return self.active(driver)
 
     def open_tab(self, driver, url: str) -> dict:
@@ -151,6 +172,7 @@ class TabManager:
         self._remember(driver)
         driver.switch_to.new_window("tab")
         driver.get(url)
+        self._cache = None  # Invalidate cache after opening
         return self.active(driver) or {"url": url}
 
     def close_tab(self, driver, tab_id: str) -> Optional[dict]:
@@ -176,4 +198,5 @@ class TabManager:
             driver.switch_to.window(remaining[-1])
         except Exception:
             pass
+        self._cache = None  # Invalidate cache after closing
         return {"id": tab_id, "title": title, "url": driver.current_url or ""}

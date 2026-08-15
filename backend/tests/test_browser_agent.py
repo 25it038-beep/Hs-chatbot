@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.browser import intent as bi
 from app.services.browser import service as bsvc
 from app.services.browser import planner as bp
+from app.services.browser import tab_manager as tm
 from app.services.browser.agent import ActionError, BrowserAgent
 from app.services.browser.config import browser_config as cfg
 from app.services.browser.intent import classify_browser_intent
@@ -62,9 +63,20 @@ from app.services.browser.intent import classify_browser_intent
         ("extract the text", "EXTRACT", {}),
         ("click the login button", "CLICK", {"target": "login"}),
         ("type hello into the search box", "TYPE", {"text": "hello", "target": "search box"}),
-        ("download this file", "DOWNLOAD", {"requires_confirmation": True}),
+        ("Download this file", "DOWNLOAD", {"requires_confirmation": True}),
         ("Buy this laptop on Amazon", "OPEN_WEBSITE", {"service": "amazon", "requires_confirmation": True}),
         ("Order food from Zomato", "OPEN_WEBSITE", {"service": "zomato", "requires_confirmation": True}),
+        ("Switch to Spotify", "SWITCH_TAB", {"service": "Spotify"}),
+        ("Go back to YouTube", "SWITCH_TAB", {"service": "YouTube"}),
+        ("change to wikipedia", "SWITCH_TAB", {"service": "wikipedia"}),
+        ("Switch to the previous tab", "SWITCH_TAB", {"service": "previous"}),
+        ("switch to the last tab", "SWITCH_TAB", {"service": "previous"}),
+        ("Close the GitHub tab", "CLOSE_TAB", {"service": "GitHub"}),
+        ("Close this tab", "CLOSE_TAB", {"service": bi.CURRENT_PAGE}),
+        ("Open GitHub in a new tab", "OPEN_WEBSITE", {"service": "github", "new_tab": True}),
+        ("Search GitHub for FastAPI in a new tab", "SEARCH_SITE", {"service": "github", "new_tab": True}),
+        ("Search this tab for Python", "SEARCH_SITE", {"service": bi.CURRENT_PAGE, "query": "Python"}),
+        ("Play music on the Spotify tab", "PLAY_MEDIA", {"service": "spotify", "query": None}),
         ("yes", "CONFIRM_ACTION", {}),
         ("go ahead and do it", "CONFIRM_ACTION", {}),
         ("ok, sure", "CONFIRM_ACTION", {}),
@@ -142,7 +154,8 @@ def test_clean_query_removes_trailing_on():
 
 def _intent(**kw):
     defaults = dict(intent="OPEN_WEBSITE", service=None, query=None, url=None,
-                    target=None, text=None, direction=None, requires_confirmation=False)
+                    target=None, text=None, direction=None, new_tab=False,
+                    requires_confirmation=False)
     defaults.update(kw)
     return bi.BrowserIntent(**defaults)
 
@@ -174,6 +187,21 @@ def test_plan_media_controls():
         expected_first = {"PAUSE_MEDIA": "pause_media", "RESUME_MEDIA": "resume_media", "SKIP_MEDIA": "skip_media"}[intent]
         assert actions[0] == expected_first
         assert actions[-1] == "verify_media_state"
+
+
+def test_plan_switch_tab():
+    plan = bp.build_plan(_intent(intent="SWITCH_TAB", service="spotify"))
+    assert [s["action"] for s in plan] == ["switch_tab", "verify_navigation"]
+
+
+def test_plan_switch_previous_tab():
+    plan = bp.build_plan(_intent(intent="SWITCH_TAB", service="previous"))
+    assert plan[0]["action"] == "switch_tab"
+
+
+def test_plan_close_tab():
+    plan = bp.build_plan(_intent(intent="CLOSE_TAB", service=bi.CURRENT_PAGE))
+    assert [s["action"] for s in plan] == ["close_tab"]
 
 
 def test_plan_search_site_current_page():
@@ -329,7 +357,8 @@ def test_detect_service():
 
 def test_state_contains_no_secrets(agent):
     st = agent.state()
-    assert set(st) == {"browser_open", "current_url", "current_title", "active_service", "persistent_session"}
+    assert "password" not in str(st).lower() and "token" not in str(st).lower()
+    assert "tabs" in st and "queued_actions" in st
 
 
 # --------------------------------------------------------------------------
@@ -409,3 +438,273 @@ def test_service_detect_uses_active_service(monkeypatch):
     monkeypatch.setattr(bsvc.browser_agent, "active_service", "spotify")
     intent = bsvc.BrowserService().detect("Pause")
     assert intent is not None and intent.intent == "PAUSE_MEDIA"
+
+
+# --------------------------------------------------------------------------
+# TabManager (sections 5-7)
+# --------------------------------------------------------------------------
+
+class _FakeSwitchTo:
+    def __init__(self, d):
+        self.d = d
+
+    def window(self, h):
+        self.d.current = h
+
+    def new_window(self, kind="tab"):
+        h = f"h{len(self.d.window_handles) + 1}"
+        self.d.window_handles.append(h)
+        self.d.current = h
+        return h
+
+
+class _FakeTabDriver:
+    def __init__(self):
+        self.window_handles = ["h1", "h2"]
+        self.current = "h1"
+        self.urls = {"h1": "https://open.spotify.com", "h2": "https://www.youtube.com"}
+        self.titles = {"h1": "Spotify - Web Player", "h2": "YouTube"}
+        self.switch_to = _FakeSwitchTo(self)
+        self.opened: list[str] = []
+
+    @property
+    def current_window_handle(self):
+        return self.current
+
+    @property
+    def current_url(self):
+        return self.urls.get(self.current, "")
+
+    @property
+    def title(self):
+        return self.titles.get(self.current, "")
+
+    def get(self, url):
+        self.urls[self.current] = url
+        self.titles[self.current] = url
+        self.opened.append(url)
+
+    def execute_script(self, *a, **k):
+        return "complete"
+
+    def close(self):
+        if len(self.window_handles) <= 1:
+            raise RuntimeError("only one window")
+        self.window_handles.remove(self.current)
+        self.urls.pop(self.current, None)
+        self.titles.pop(self.current, None)
+
+
+def _detect(url):
+    if not url:
+        return None
+    for name in ("spotify", "youtube", "github", "wikipedia"):
+        if name in url:
+            return name
+    return None
+
+
+@pytest.fixture
+def tab_driver():
+    return _FakeTabDriver()
+
+
+def test_tabs_snapshot(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    tabs = m.tabs()
+    assert len(tabs) == 2
+    assert tabs[0] == {"id": "h1", "title": "Spotify - Web Player", "url": "https://open.spotify.com", "active": True, "service": "spotify"}
+    assert tabs[1]["active"] is False and tabs[1]["service"] == "youtube"
+
+
+def test_tab_find_and_switch(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    assert m.find(tab_driver, "youtube")["id"] == "h2"
+    assert m.switch_to_service(tab_driver, "youtube")["id"] == "h2"
+    assert tab_driver.current == "h2"
+    assert m.switch_to_service(tab_driver, "github") is None
+
+
+def test_tab_previous(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    tab_driver.current = "h2"
+    assert m.switch_previous(tab_driver)["id"] == "h1"
+    assert tab_driver.current == "h1"
+
+
+def test_tab_open_new(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    m.open_tab(tab_driver, "https://github.com")
+    assert tab_driver.current == "h3"
+    assert tab_driver.urls["h3"] == "https://github.com"
+    assert len(m.tabs()) == 3
+
+
+def test_tab_close_active(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    tab_driver.current = "h2"
+    closed = m.close_tab(tab_driver, "h2")
+    assert closed["id"] == "h2"
+    assert tab_driver.window_handles == ["h1"]
+    assert tab_driver.current == "h1"
+
+
+def test_tab_close_last_refused(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    tab_driver.window_handles = ["h1"]
+    with pytest.raises(RuntimeError, match="last-tab"):
+        m.close_tab(tab_driver, "h1")
+
+
+def test_tab_manager_detach(tab_driver):
+    m = tm.TabManager(_detect)
+    m.attach(tab_driver)
+    m.detach()
+    assert m.tabs() == []
+
+
+# --------------------------------------------------------------------------
+# Agent: tab-aware plans (sections 5-8)
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def tab_agent(monkeypatch, tab_driver):
+    ag = BrowserAgent()
+    ag.tabs.attach(tab_driver)
+    ag._driver = tab_driver  # mirrors _start_driver behavior
+
+    async def _run(fn, timeout=None):
+        return fn(tab_driver)
+
+    monkeypatch.setattr(ag, "_run", AsyncMock(side_effect=_run))
+    return ag, tab_driver
+
+
+@pytest.mark.asyncio
+async def test_run_plan_switches_to_existing_tab(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(_intent(intent="OPEN_WEBSITE", service="youtube", url="https://www.youtube.com"))
+    assert any("already open" in e["content"] for e in events if e["type"] == "browser_status")
+    assert events[-1]["success"] is True
+    assert d.current == "h2"
+    assert d.opened == []  # no new navigation
+
+
+@pytest.mark.asyncio
+async def test_run_plan_opens_new_tab(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(_intent(intent="OPEN_WEBSITE", service="github", url="https://github.com"))
+    assert any("new tab" in e["content"] for e in events if e["type"] == "browser_status")
+    assert d.current == "h3"
+    assert d.opened == ["https://github.com"]
+    assert any(e["type"] == "tab_event" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_run_plan_force_new_tab_even_when_open(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(
+        _intent(intent="OPEN_WEBSITE", service="youtube", url="https://www.youtube.com", new_tab=True)
+    )
+    assert any("new tab" in e["content"] for e in events if e["type"] == "browser_status")
+    assert d.current == "h3"
+
+
+@pytest.mark.asyncio
+async def test_run_plan_switch_tab(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube"))
+    assert any("Switched to" in e["content"] for e in events if e["type"] == "browser_status")
+    assert events[-1]["success"] is True
+    assert d.current == "h2"
+
+
+@pytest.mark.asyncio
+async def test_run_plan_switch_unknown_tab_fails_gracefully(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="github"))
+    assert events[-1]["success"] is False
+    assert "don't see a github tab" in events[-2]["content"].lower()
+
+
+@pytest.mark.asyncio
+async def test_run_plan_switch_previous(tab_agent):
+    ag, d = tab_agent
+    d.current = "h2"
+    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="previous"))
+    assert events[-1]["success"] is True
+    assert d.current == "h1"
+
+
+@pytest.mark.asyncio
+async def test_run_plan_close_tab(tab_agent):
+    ag, d = tab_agent
+    events = await ag.run_plan(_intent(intent="CLOSE_TAB", service="youtube"))
+    assert any("Closed the" in e["content"] for e in events if e["type"] == "browser_status")
+    assert events[-1]["success"] is True
+    assert d.window_handles == ["h1"]
+
+
+@pytest.mark.asyncio
+async def test_run_plan_close_active_tab(tab_agent):
+    ag, d = tab_agent
+    d.current = "h2"
+    events = await ag.run_plan(_intent(intent="CLOSE_TAB", service=bi.CURRENT_PAGE))
+    assert events[-1]["success"] is True
+    assert d.window_handles == ["h1"]
+
+
+def test_agent_state_includes_tabs_and_queue(tab_agent):
+    ag, d = tab_agent
+    st = ag.state()
+    assert set(st) == {"browser_open", "current_url", "current_title", "active_service",
+                       "persistent_session", "active_tab", "tabs", "current_action", "queued_actions"}
+    assert st["browser_open"] is True
+    assert st["active_tab"] == "h1"
+    assert len(st["tabs"]) == 2
+    assert st["current_action"] is None and st["queued_actions"] == []
+
+
+@pytest.mark.asyncio
+async def test_action_queue_serializes_plans(tab_agent):
+    """Two simultaneous plans must run strictly in order (§10)."""
+    ag, d = tab_agent
+    order = []
+
+    async def _slow_step(intent, action):
+        order.append(action)
+        await asyncio.sleep(0.05)
+        return None
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(ag, "_execute_step", AsyncMock(side_effect=_slow_step))
+    try:
+        a = asyncio.create_task(ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com")))
+        b = asyncio.create_task(ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube")))
+        await asyncio.gather(a, b)
+    finally:
+        monkeypatch.undo()
+    assert order == ["open_website", "verify_navigation", "switch_tab", "verify_navigation"]
+
+
+@pytest.mark.asyncio
+async def test_state_queued_actions_during_plan(tab_agent, monkeypatch):
+    ag, d = tab_agent
+
+    async def _slow_step(intent, action):
+        if action == "open_website":
+            await asyncio.sleep(0.2)
+        return None
+
+    monkeypatch.setattr(ag, "_execute_step", AsyncMock(side_effect=_slow_step))
+    task = asyncio.create_task(ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com")))
+    await asyncio.sleep(0.05)
+    assert ag.state()["current_action"] == "OPEN_WEBSITE"
+    await task
+    assert ag.state()["current_action"] is None

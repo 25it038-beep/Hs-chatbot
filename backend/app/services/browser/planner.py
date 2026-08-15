@@ -9,6 +9,7 @@ from typing import Optional
 from .config import browser_config
 from .intent import (
     CLICK,
+    CLOSE_TAB,
     CONFIRM_ACTION,
     EXTRACT,
     NAVIGATE,
@@ -21,6 +22,7 @@ from .intent import (
     SEARCH_SITE,
     SEARCH_WEB,
     SKIP_MEDIA,
+    SWITCH_TAB,
     TYPE,
     BrowserIntent,
     CURRENT_PAGE,
@@ -73,6 +75,15 @@ def build_plan(intent: BrowserIntent, current_url: Optional[str] = None) -> list
     elif i == PAUSE_MEDIA:
         steps.append(_step("pause_media", "⏸ Pausing..."))
         steps.append(_step("verify_media_state", "Checking player state..."))
+
+    elif i == SWITCH_TAB:
+        target = intent.service if intent.service != "previous" else "the previous tab"
+        steps.append(_step("switch_tab", f"⇄ Switching to {target}..."))
+        steps.append(_step("verify_navigation", "Checking the tab..."))
+
+    elif i == CLOSE_TAB:
+        target = intent.service if intent.service != CURRENT_PAGE else "this tab"
+        steps.append(_step("close_tab", f"🗑 Closing the {target} tab..."))
 
     elif i == RESUME_MEDIA:
         steps.append(_step("resume_media", "▶ Resuming..."))

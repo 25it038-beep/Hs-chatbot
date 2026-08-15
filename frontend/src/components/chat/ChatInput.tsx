@@ -347,6 +347,7 @@ export function ChatInput({
 
           <textarea
             ref={textareaRef}
+            id="hs-command-input"
             value={input}
             onChange={e => {
               const value = e.target.value

@@ -36,6 +36,7 @@ from loguru import logger
 from .config import browser_config as cfg
 from .intent import (
     CLICK,
+    CLOSE_TAB,
     DOWNLOAD,
     EXTRACT,
     NAVIGATE,
@@ -47,11 +48,13 @@ from .intent import (
     SCROLL,
     SEARCH_SITE,
     SKIP_MEDIA,
+    SWITCH_TAB,
     TYPE,
     BrowserIntent,
     CURRENT_PAGE,
 )
 from .planner import build_plan
+from .tab_manager import TabManager
 
 try:
     from selenium import webdriver
@@ -75,6 +78,9 @@ except Exception:  # pragma: no cover
     Keys = None  # type: ignore[assignment]
 
 from app.services.retrieval.extractor import extract_text
+
+# Steps after which a fresh tab snapshot is emitted (sections 5-7, 11).
+_TAB_OBSERVE_ACTIONS = {"open_website", "switch_tab", "close_tab"}
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -178,12 +184,16 @@ class BrowserAgent:
 
     def __init__(self) -> None:
         self._driver = None
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()          # serializes driver ops within a plan
+        self._command_lock = asyncio.Lock()  # serializes whole plans (action queue, §10)
         self._thread_lock = threading.Lock()
         self.current_url: Optional[str] = None
         self.current_title: Optional[str] = None
         self.active_service: Optional[str] = None
         self.last_error: Optional[str] = None
+        self.tabs = TabManager(self._detect_service)
+        self.current_action: Optional[str] = None
+        self._queued_actions: list[str] = []  # display list for /api/browser/state
 
     # ── lifecycle ──
 
@@ -192,13 +202,32 @@ class BrowserAgent:
         return self._driver is not None
 
     def state(self) -> dict:
+        tabs = []
+        if self._driver is not None:
+            try:
+                tabs = self._run_sync_tabs()
+            except Exception:
+                tabs = []
         return {
             "browser_open": self.browser_open,
             "current_url": self.current_url,
             "current_title": self.current_title,
             "active_service": self.active_service,
             "persistent_session": cfg.BROWSER_PERSISTENT_SESSION,
+            "active_tab": next((t["id"] for t in tabs if t.get("active")), None),
+            "tabs": tabs,
+            "current_action": self.current_action,
+            "queued_actions": list(self._queued_actions),
         }
+
+    def _run_sync_tabs(self) -> list[dict]:
+        """Tab snapshot run on the current thread (used by state())."""
+        if self._driver is None:
+            return []
+        try:
+            return self.tabs.tabs(self._driver)
+        except Exception:
+            return []
 
     def _chrome_options(self) -> Options:
         opts = Options()
@@ -223,6 +252,7 @@ class BrowserAgent:
         driver = webdriver.Chrome(options=opts)
         driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
         driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
+        self.tabs.attach(driver)
         return driver
 
     async def _ensure_driver(self):
@@ -270,6 +300,7 @@ class BrowserAgent:
     async def shutdown(self) -> None:
         async with self._lock:
             driver, self._driver = self._driver, None
+            self.tabs.detach()
             if driver is not None:
 
                 def _quit(d):
@@ -316,6 +347,12 @@ class BrowserAgent:
         return None
 
     # ── generic actions (section 18) ──
+
+    @staticmethod
+    def _is_blank_url(url: Optional[str]) -> bool:
+        if not url:
+            return True
+        return url in ("about:blank", "data:,") or url.startswith("chrome://newtab")
 
     def _open_website(self, driver, url: str) -> None:
         if not (url.startswith("http://") or url.startswith("https://")):
@@ -704,16 +741,101 @@ class BrowserAgent:
                     st = await self._run(lambda d: (self._refresh_state(d), self.state())[1])
                     return {"type": "browser_status", "content": f"🌐 You're already on {st.get('current_title') or 'the current page'}."}
                 raise ActionError("I don't know which website to open.", recoverable=True, hint="no-url")
-            await self._run(lambda d: self._open_website(d, url))
+            label = intent.service or url
+            open_new = False
+
+            def _open(d):
+                nonlocal open_new
+                if url and not (url.startswith("http://") or url.startswith("https://")):
+                    raise ActionError("Only http/https URLs can be opened.", recoverable=False)
+                if intent.service and not intent.new_tab:
+                    existing = self.tabs.find(d, intent.service)
+                    if existing is not None:
+                        self.tabs.switch_to_handle(d, existing["id"])
+                        self._refresh_state(d)
+                        return "switched"
+                if not intent.new_tab:
+                    # §7: websites open in a new tab — but reuse the initial
+                    # blank tab Chrome starts with (no tab spam).
+                    active_tab = self.tabs.active(d)
+                    if active_tab and BrowserAgent._is_blank_url(active_tab.get("url")):
+                        self._open_website(d, url)
+                        return "navigated"
+                self.tabs.open_tab(d, url)  # §7: websites open in new tabs
+                self._wait_ready(d)
+                self._refresh_state(d)
+                open_new = True
+                return "new-tab"
+
+            res = await self._run(_open)
+            if res == "switched":
+                return {"type": "browser_status", "content": f"✓ {label} is already open — switched to it."}
+            if res == "new-tab":
+                return {"type": "browser_status", "content": f"🆕 Opened {label} in a new tab."}
             return None
 
         if action == "verify_navigation":
             st = await self._run(lambda d: self._verify_navigation(d))
             return {"type": "browser_status", "content": f"✓ {st.get('current_title') or 'Page'} is open."}
 
+        if action == "switch_tab":
+            target = intent.service or intent.target
+            if target in ("previous", "last"):
+                def _prev(d):
+                    tab = self.tabs.switch_previous(d)
+                    self._refresh_state(d)
+                    return tab
+                tab = await self._run(_prev)
+                if tab is None:
+                    raise ActionError("There's only one tab open.", recoverable=True, hint="one-tab")
+                return {"type": "browser_status", "content": f"⇄ Switched to the previous tab — {self.current_title or 'the page'}."}
+            if target == CURRENT_PAGE:
+                raise ActionError("You're already on the active tab.", recoverable=True, hint="already-active")
+
+            def _sw(d):
+                tab = self.tabs.switch_to_service(d, target)
+                self._refresh_state(d)
+                return tab
+            tab = await self._run(_sw)
+            if tab is None:
+                raise ActionError(f"I don't see a {target} tab open — want me to open one?", recoverable=True, hint="no-tab")
+            return {"type": "browser_status", "content": f"✓ Switched to {self.current_title or target}."}
+
+        if action == "close_tab":
+            target = intent.service or CURRENT_PAGE
+
+            def _cl(d):
+                if target == CURRENT_PAGE:
+                    tab = self.tabs.active(d)
+                else:
+                    tab = self.tabs.find(d, target)
+                if tab is None:
+                    return None
+                try:
+                    closed = self.tabs.close_tab(d, tab["id"])
+                except RuntimeError as e:
+                    if "last-tab" in str(e):
+                        raise ActionError("That's my only tab — I'd have nothing to show.", recoverable=False)
+                    raise
+                self._refresh_state(d)
+                return closed
+            closed = await self._run(_cl)
+            if closed is None:
+                raise ActionError(f"I don't see a {target or 'current'} tab to close.", recoverable=True, hint="no-tab")
+            return {"type": "browser_status", "content": f"🗑 Closed the {closed.get('title') or target} tab."}
+
         if action == "search_site":
             if not intent.query:
                 raise ActionError("What should I search for?", recoverable=True, hint="no-query")
+            if intent.service not in (None, CURRENT_PAGE):
+
+                def _ensure(d):
+                    tab = self.tabs.find(d, intent.service)
+                    if tab is not None and not self.tabs.is_active(d, tab["id"]):
+                        self.tabs.switch_to_handle(d, tab["id"])
+                        self._refresh_state(d)
+
+                await self._run(_ensure)
             await self._run(lambda d: self._search_site(d, intent.query or ""))
             return None
 
@@ -780,30 +902,42 @@ class BrowserAgent:
 
     async def run_plan(self, intent: BrowserIntent) -> list[dict]:
         """Execute the plan; returns a list of event dicts (browser_status /
-        content / image). Never raises for user-facing flows."""
+        content / image / tab_event). Never raises for user-facing flows.
+
+        Whole plans are serialized behind `_command_lock` (action queue,
+        section 10) — two simultaneous chat commands can never corrupt the
+        Selenium session; the second simply waits its turn."""
         events: list[dict] = []
         started = time.perf_counter()
         plan = build_plan(intent, current_url=self.current_url)
         summary = ""
         ok = False
-        try:
-            async with self._lock:
-                for step in plan:
-                    events.append({"type": "browser_status", "content": step["status"]})
-                    result = await self._execute_step(intent, step["action"])
-                    if result is not None:
-                        events.append(result)
-            self.last_error = None
-            ok = True
-            summary = self._summary(intent)
-        except ActionError as e:
-            self.last_error = e.hint or str(e)
-            ok = False
-            summary = e.hint if isinstance(e, AuthRequired) else f"I couldn't complete that: {e}."
-        except Exception as e:  # pragma: no cover
-            self.last_error = str(e)
-            ok = False
-            summary = "Something went wrong while operating the browser."
+        self._queued_actions.append(intent.intent)
+        async with self._command_lock:
+            try:
+                async with self._lock:
+                    self.current_action = intent.intent
+                    for step in plan:
+                        events.append({"type": "browser_status", "content": step["status"]})
+                        result = await self._execute_step(intent, step["action"])
+                        if result is not None:
+                            events.append(result)
+                        if step["action"] in _TAB_OBSERVE_ACTIONS:
+                            events.append({"type": "tab_event", "tabs": self._run_sync_tabs()})
+                self.last_error = None
+                ok = True
+                summary = self._summary(intent)
+            except ActionError as e:
+                self.last_error = e.hint or str(e)
+                ok = False
+                summary = e.hint if isinstance(e, AuthRequired) else f"I couldn't complete that: {e}."
+            except Exception as e:  # pragma: no cover
+                self.last_error = str(e)
+                ok = False
+                summary = "Something went wrong while operating the browser."
+            finally:
+                self.current_action = None
+        self._queued_actions.pop(0) if self._queued_actions else None
         logger.bind(
             intent=intent.intent,
             service=intent.service,
@@ -822,6 +956,10 @@ class BrowserAgent:
             return f"🌐 {s or 'The page'} is open." if s else f"🌐 Opened {intent.url}."
         if i == SEARCH_SITE:
             return f"🔎 Searched {s or 'the site'} for \"{q}\" — results are on screen."
+        if i == SWITCH_TAB:
+            return f"⇄ Switched to {s or 'the previous tab'}." if s != "previous" else "⇄ Switched to the previous tab."
+        if i == CLOSE_TAB:
+            return f"🗑 Closed the {s or 'current'} tab." if s != CURRENT_PAGE else "🗑 Closed the tab."
         if i == PLAY_MEDIA:
             base = f"▶ Playing {q} on {s}." if q else f"▶ Playing on {s}."
             return base

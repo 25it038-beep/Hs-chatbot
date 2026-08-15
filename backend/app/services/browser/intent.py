@@ -39,13 +39,15 @@ SCROLL = "SCROLL"
 EXTRACT = "EXTRACT"
 DOWNLOAD = "DOWNLOAD"
 SCREENSHOT = "SCREENSHOT"
+SWITCH_TAB = "SWITCH_TAB"
+CLOSE_TAB = "CLOSE_TAB"
 OTHER_BROWSER_ACTION = "OTHER_BROWSER_ACTION"
 CONFIRM_ACTION = "CONFIRM_ACTION"
 
 BROWSER_INTENTS = {
     OPEN_WEBSITE, SEARCH_WEB, SEARCH_SITE, PLAY_MEDIA, PAUSE_MEDIA, RESUME_MEDIA,
     SKIP_MEDIA, NAVIGATE, CLICK, TYPE, SCROLL, EXTRACT, DOWNLOAD, SCREENSHOT,
-    OTHER_BROWSER_ACTION, CONFIRM_ACTION,
+    SWITCH_TAB, CLOSE_TAB, OTHER_BROWSER_ACTION, CONFIRM_ACTION,
 }
 
 MEDIA_SERVICES = {"spotify", "youtube", "netflix", "soundcloud", "pandora", "music"}
@@ -63,6 +65,7 @@ class BrowserIntent:
     target: Optional[str] = None         # element description (CLICK/TYPE)
     text: Optional[str] = None           # text to type (TYPE)
     direction: Optional[str] = None      # down/up/top/bottom (SCROLL)
+    new_tab: bool = False                # force a NEW tab (open/search/play)
     requires_confirmation: bool = False
     evidence: list[str] = field(default_factory=list)
 
@@ -75,6 +78,7 @@ class BrowserIntent:
             "target": self.target,
             "text": self.text,
             "direction": self.direction,
+            "new_tab": self.new_tab,
             "requires_confirmation": self.requires_confirmation,
         }
 
@@ -112,7 +116,7 @@ _WEB_SEARCH = re.compile(
 _SITE_SEARCH = re.compile(r"\bsearch\s+(?:on\s+)?([a-z0-9 .-]+?)\s+for\s+(.+)$", re.I)
 _SITE_SEARCH2 = re.compile(r"\b(?:look up|find|search for)\s+(.+?)\s+on\s+([a-z0-9 .-]+?)\s*$", re.I)
 _SITE_SEARCH_CURRENT = re.compile(
-    r"\bsearch\s+(?:on\s+)?this\s+(?:website|site|web page|page)\s+for\s+(.+)$", re.I
+    r"\bsearch\s+(?:on\s+)?this\s+(?:website|site|web page|page|tab)\s+for\s+(.+)$", re.I
 )
 
 _CONFIRM = re.compile(
@@ -134,6 +138,20 @@ _CLICK = re.compile(r"\bclick\s+(?:on\s+|the\s+|the\s+)?(.+?)\s*$", re.I)
 _TYPE = re.compile(r"\b(?:type|enter|put)\s+(.+?)\s+(?:in|into)\s+(?:the\s+)?(.+?)\s*$", re.I)
 _DOWNLOAD = re.compile(r"\bdownload\b", re.I)
 
+# ── Tab management (sections 5-7) ──
+_SWITCH_TO_TAB = re.compile(
+    r"\b(?:switch(?: over)?\s+to|change\s+to|go\s+back\s+to|move\s+to)\s+(.+?)\s*$", re.I
+)
+_PREVIOUS_TAB = re.compile(
+    r"\b(?:previous|last)\s+tab\b|\bswitch\s+back\b|\bgo\s+back\s+to\s+(?:the\s+)?(?:previous|last)\s+(?:tab|one)\b", re.I
+)
+_CLOSE_TAB = re.compile(
+    r"\bclose\s+(?:the\s+)?(.+?)\s+tab\b|\bclose\s+(?:this|that|the|current|active)\s+tab\b|\bclose\s+this\s+one\b", re.I
+)
+_NEW_TAB = re.compile(
+    r"\b(?:in|into)\s+(?:a\s+|an\s+)?(?:new\s+|another\s+|separate\s+)?tab\b", re.I
+)
+
 # query tail cleanup: "search X for Python and play it" → "Python"
 _QUERY_TAIL = re.compile(r"\s+(?:and|then)\s+(?:play|search|open|show|watch).*$", re.I)
 
@@ -148,6 +166,7 @@ def _clean(s: Optional[str]) -> Optional[str]:
     s = re.sub(r"\s+", " ", s).strip(" \t\n\"'.,;!?")
     s = _QUERY_TAIL.sub("", s)
     s = re.sub(r"\s+on\s*$", "", s)          # "believer on" → "believer"
+    s = re.sub(r"\s+on\s+(?:the\s+)?(?:[a-z]+\s+)?tab\s*$", "", s, flags=re.I)  # "music on the spotify tab" → "music"
     s = re.sub(r"^(?:some|a|an|any|the)\s+", "", s)  # "some A.R. Rahman" → "A.R. Rahman"
     return s or None
 
@@ -226,36 +245,57 @@ def classify_browser_intent(message: str, current_service: Optional[str] = None)
             evidence=[text],
         )
 
+    # ── Tab management (sections 5-7): switch / previous / close ──
+    if _PREVIOUS_TAB.search(text):
+        return BrowserIntent(intent=SWITCH_TAB, service="previous", evidence=["switch-prev"])
+    m = _SWITCH_TO_TAB.search(text)
+    if m:
+        target = _clean(m.group(1))
+        if not target or re.search(r"\bprevious\b|\blast tab\b", target):
+            return BrowserIntent(intent=SWITCH_TAB, service="previous", evidence=["switch-prev"])
+        if re.search(r"\bthis\s+(?:tab|one|page)\b", target):
+            return BrowserIntent(intent=SWITCH_TAB, service=CURRENT_PAGE, evidence=["switch-current"])
+        return BrowserIntent(intent=SWITCH_TAB, service=target, evidence=["switch"])
+    m = _CLOSE_TAB.search(text)
+    if m:
+        target = _clean(m.group(1))
+        if not target or re.search(r"\bthis\b|\bthat\b|current|active", text):
+            return BrowserIntent(intent=CLOSE_TAB, service=CURRENT_PAGE, evidence=["close-tab"])
+        return BrowserIntent(intent=CLOSE_TAB, service=target, evidence=["close-tab"])
+
+    new_tab = bool(_NEW_TAB.search(text))
+
     # ── Consequential actions (section 16): never execute without an explicit
     # user confirmation; queue via OPEN_WEBSITE/OTHER and let the service gate.
     if _CONSEQUENTIAL.search(text) and not _VERB_SEARCH.search(text) and not _VERB_PLAY.search(text):
         if service:
             return BrowserIntent(
                 intent=OPEN_WEBSITE, service=service, url=lookup_site(service),
-                requires_confirmation=True, evidence=["consequential-open"],
+                new_tab=new_tab, requires_confirmation=True, evidence=["consequential-open"],
             )
         if _VERB_OPEN.search(text) or url:
             return BrowserIntent(
-                intent=OPEN_WEBSITE, url=url, requires_confirmation=True, evidence=["consequential-open"],
+                intent=OPEN_WEBSITE, url=url, new_tab=new_tab,
+                requires_confirmation=True, evidence=["consequential-open"],
             )
 
     # ── SEARCH_SITE (highest priority among open-style: "open X and search ...") ──
     m = _SITE_SEARCH_CURRENT.search(text)
     if m:
-        return BrowserIntent(intent=SEARCH_SITE, service=CURRENT_PAGE, query=_clean(m.group(1)), evidence=["search-current"])
+        return BrowserIntent(intent=SEARCH_SITE, service=CURRENT_PAGE, query=_clean(m.group(1)), new_tab=new_tab, evidence=["search-current"])
     m = _SITE_SEARCH.search(text)
     if m:
         site = m.group(1).strip().lower()
         if site in browser_config.WEBSITES:
-            return BrowserIntent(intent=SEARCH_SITE, service=site, query=_clean(m.group(2)), evidence=["search-site"])
+            return BrowserIntent(intent=SEARCH_SITE, service=site, query=_clean(m.group(2)), new_tab=new_tab, evidence=["search-site"])
     m = _SITE_SEARCH2.search(text)
     if m:
         query, site = _clean(m.group(1)), m.group(2).strip().lower()
         if site in browser_config.WEBSITES:
-            return BrowserIntent(intent=SEARCH_SITE, service=site, query=query, evidence=["search-site"])
+            return BrowserIntent(intent=SEARCH_SITE, service=site, query=query, new_tab=new_tab, evidence=["search-site"])
     if service and _VERB_SEARCH.search(text) and ("for" in text or "about" in text):
         q = _query_after(_strip_service(text, service), "search") or _query_after(_strip_service(text, service), "look up")
-        return BrowserIntent(intent=SEARCH_SITE, service=service, query=q, evidence=["search-service"])
+        return BrowserIntent(intent=SEARCH_SITE, service=service, query=q, new_tab=new_tab, evidence=["search-service"])
 
     # ── SEARCH_WEB (fast retrieval, not Selenium — section 5/17) ──
     if _WEB_SEARCH.search(text) and not service:
@@ -281,6 +321,7 @@ def classify_browser_intent(message: str, current_service: Optional[str] = None)
             intent=PLAY_MEDIA,
             service=service or (current_service if current_service in MEDIA_SERVICES else "spotify"),
             query=query,
+            new_tab=new_tab,
             requires_confirmation=bool(_CONSEQUENTIAL.search(text)),
             evidence=["play"],
         )
@@ -296,6 +337,7 @@ def classify_browser_intent(message: str, current_service: Optional[str] = None)
             intent=NAVIGATE if (url or bare_domain or pure_open_website) else OPEN_WEBSITE,
             service=service,
             url=target_url,
+            new_tab=new_tab,
             evidence=["open"],
         )
         intent.requires_confirmation = bool(_CONSEQUENTIAL.search(text))

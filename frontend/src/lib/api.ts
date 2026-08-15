@@ -182,6 +182,8 @@ export const api = {
 
   health: () => request<{ status: string }>('/health'),
 
+  get: <T>(path: string) => request<T>(path),
+
   // NVIDIA
   nvidiaChatStream: async (data: {
     message: string

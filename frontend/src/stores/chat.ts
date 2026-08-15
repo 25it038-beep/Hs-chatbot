@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
+import { isTauri, notify } from '@/lib/tauri'
 
 // Detect explicit image requests — typo-tolerant, but only clear intents.
 // General queries that merely mention images ("explain this image") are NOT routed to image generation.
@@ -366,6 +367,10 @@ export const useChat = create<ChatState>((set, get) => {
 
         clearTimeout(timeoutId)
         playCompletionSound()
+        if (isTauri) {
+          const plain = fullContent.replace(/[#*`>\[\]]/g, ' ').replace(/\s+/g, ' ').trim()
+          notify('HSBot is done', plain.slice(0, 140) || 'Your request finished.')
+        }
 
         await get().loadChats()
       } catch (error) {

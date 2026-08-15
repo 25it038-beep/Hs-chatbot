@@ -94,10 +94,23 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - Config knobs: `BROWSER_ENABLED`, `BROWSER_HEADLESS`, `BROWSER_PERSISTENT_SESSION`, `BROWSER_PROFILE_DIR`, `BROWSER_STARTUP_TIMEOUT_S` (60), `BROWSER_PAGE_LOAD_TIMEOUT_S` (20), `BROWSER_EXPLICIT_WAIT_S` (10), `BROWSER_ACTION_TIMEOUT_S` (30), `BROWSER_SEARCH_RESULTS_WAIT_S` (8), `BROWSER_PLAYBACK_VERIFY_S` (6), `MAX_ACTION_RETRIES` (2), `MAX_PLAN_STEPS` (6), `BROWSER_AUTO_CONFIRM`, `BROWSER_TRUSTED_LOCAL`, `BROWSER_SCREENSHOT_MAX_BYTES` (900_000), `WEBSITES` curated map (exact-match only, safe sites; adding a site makes it routable — zomato/swiggy/instagram/whatsapp/telegram/flipkart/ebay added for consequential flows).
 
 
+### Floating Desktop Assistant Overlay (§29)
+- **What**: Tauri 2 desktop shell that embeds the REAL frontend (`frontendDist: ../frontend/dist`, `devUrl: http://localhost:5173`) as a small always-on-top frameless window (380×660, min 320×480, `decorations:false`, `transparent:true`, `alwaysOnTop:true`). Position/size persist via `tauri-plugin-window-state`; window-state plugin restores it. Desktop dir no longer uses its own stub app — `desktop/package.json` dev/build scripts delegate to `npm --prefix ../frontend`.
+- **Global hotkey (§3)**: Rust registers `Ctrl+Space` (`tauri-plugin-global-shortcut`) → `show + unminimize + set_focus + emit "hsai:focus"`; frontend `listenForHotkeyFocus` (`src/lib/tauri.ts`) focuses `#hs-command-input` (the ChatInput textarea id). Close button = **hide** (`CloseRequested` prevent_default + hide) — the app keeps running and returns via hotkey. Windows only for shortcut semantics; safe on other platforms.
+- **Window chrome** (`src/components/desktop/TitleBar.tsx`): `data-tauri-drag-region` drag, pin toggle (always-on-top via `core:window:allow-set-always-on-top`), compact/expand (`setSize` 380×620 ↔ 460×760), minimize, hide. Compact mode hides Sidebar + footer (ChatPage `compact` state).
+- **Multi-tab status (§5/§13)** (`src/components/desktop/BrowserTabs.tsx`): polls `GET /api/browser/state` every 2.5s → tab chips (active highlighted), current action spinner, queued count. Web-only builds render nothing (`isTauri` guard = `__TAURI_INTERNALS__` in window).
+- **Notifications (§14-17)**: `src/lib/tauri.ts notify()` — `tauri-plugin-notification` JS API, fires ONLY when `document.hidden`; called from chat store on stream completion with a 140-char plain-text summary (never raw credentials/logs).
+- **Backend state endpoint**: `backend/app/api/browser.py` `GET /api/browser/state` → `browser_agent.state()` (needs auth header like other routes; include `from app.api import ... browser` in main.py).
+- **Multi-tab backend** (`tab_manager.py` + intent/planner/agent): intents `SWITCH_TAB` ("switch to Spotify", "go back to YouTube", "switch to the previous tab"), `CLOSE_TAB` ("close the GitHub tab"), `new_tab` flag ("open X in a new tab"); TabManager tracks `driver.window_handles` (cap 12) with per-tab {id,title,url,active,service}, previous-tab history (deque 8); agent runs the whole plan under `_command_lock` with `_queued_actions`/`current_action` surfaced in `state()`; `tab_event` chunk emitted after open/switch/close steps; first website open reuses Chrome's initial blank tab (no tab spam); closing the last tab refused (`last-tab`). Tests: `test_browser_agent.py` 135 total (TabManager with fake driver, switch/close/new-tab intents, queue serialization).
+- **Icons**: `desktop/src-tauri/icons/` generated via `npx tauri icon <square-1024-png>` (logo.jpg is 1024×559 — center-crop to square first).
+- **Build/verify**: backend `pytest tests -q` (135), frontend `npx tsc --noEmit` + `npm run build`, desktop `cargo check` in `desktop/src-tauri` (requires `build.rs` with `tauri_build::build()` — was missing, OUT_DIR error). Run desktop: `cd desktop && npm run tauri dev` (needs backend + frontend dev servers).
+
+
 ## Status
-Backend + Frontend both running. All 16 API tests pass. Frontend has "Thinking" pulse indicator while waiting for first streaming token from NVIDIA. Auth-protected CRUD works end-to-end via JWT tokens.
+Backend + Frontend both running. All 135 backend tests pass (16 API + browser agent + tab manager). Frontend has "Thinking" pulse indicator while waiting for first streaming token from NVIDIA. Auth-protected CRUD works end-to-end via JWT tokens. Desktop Tauri overlay compiles (cargo check OK); `tauri dev` smoke pending.
 
 ## Commands
 - **Backend**: `cd backend && uvicorn app.main:app --reload`
 - **Frontend**: `cd frontend && npm run dev`
+- **Desktop dev**: `cd desktop && npm run tauri dev` (Rust shell; backend + frontend dev servers must run first)
 - **Docker**: `docker compose up`

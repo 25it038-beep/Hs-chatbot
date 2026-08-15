@@ -8,6 +8,7 @@ import { IntroVideo, hasSeenIntro } from '@/components/intro/IntroVideo'
 import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { isTauri, listenForHotkeyFocus } from '@/lib/tauri'
 
 // Keep Render backend warm — ping every 4 minutes so it never cold-starts
 function useKeepAlive() {
@@ -74,6 +75,19 @@ export default function App() {
   const { loadChats, loadFolders, loadModels } = useChat()
 
   useKeepAlive() // keep Render backend awake
+
+  // Desktop overlay: global hotkey (Rust registers Ctrl+Space) → focus the
+  // command input the moment the window appears.
+  useEffect(() => {
+    if (!isTauri) return
+    return listenForHotkeyFocus(() => {
+      const el = document.getElementById('hs-command-input') as HTMLTextAreaElement | null
+      if (el) {
+        el.focus()
+        el.scrollIntoView?.()
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (!HAS_CLERK) loadUser()

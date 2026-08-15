@@ -267,6 +267,7 @@ class BrowserAgent:
         elif cfg.BROWSER_PERSISTENT_SESSION:
             os.makedirs(cfg.BROWSER_PROFILE_DIR, exist_ok=True)
             opts.add_argument(f"--user-data-dir={os.path.abspath(cfg.BROWSER_PROFILE_DIR)}")
+            opts.add_argument("--profile-directory=Default")
         opts.page_load_strategy = "eager"
         return opts
 

@@ -43,7 +43,7 @@ export function useHandsFreeVoice(options: HandsFreeOptions = {}) {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const isInterruptedRef = useRef(false)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Wake word detection
   const handleWakeWord = useCallback(() => {

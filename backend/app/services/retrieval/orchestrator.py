@@ -22,9 +22,17 @@ from .imagefilter import filter_relevant
 from .normalize import cache_scope, normalize_query
 from .observability import StageTimer, build_perf
 from .providers import SearchResult, provider_pool
-from .querygen import generate_queries
+from .querygen import generate_queries, generate_video_queries
 from .ranker import dedupe_results, score_results, select_top
 from .reranker import build_evidence
+from .videos import (
+    VideoResult,
+    VideoRetriever,
+    dedupe_videos,
+    filter_videos,
+    format_videos_md,
+    rank_videos,
+)
 
 StatusCallback = Optional[Callable[[str], Awaitable[None]]]
 
@@ -35,6 +43,8 @@ _DEPTH = {"simple": cfg.TOP_RESULTS_SIMPLE, "medium": cfg.TOP_RESULTS_MEDIUM, "c
 class RetrievalResult:
     context: Optional[str]
     images_md: str
+    videos_md: str = ""
+    videos: list[VideoResult] = field(default_factory=list)
     sources: list[dict] = field(default_factory=list)
     perf: dict = field(default_factory=dict)
     from_cache: bool = False
@@ -45,6 +55,7 @@ class RetrievalOrchestrator:
     def __init__(self, pool=None) -> None:
         self._pool = pool if pool is not None else provider_pool
         self._fetcher = PageFetcher()
+        self._videos = VideoRetriever(pool=self._pool)
 
     async def _notify(self, cb: StatusCallback, msg: str) -> None:
         if cb is not None:
@@ -58,6 +69,7 @@ class RetrievalOrchestrator:
         query: str,
         *,
         with_images: bool = False,
+        with_videos: bool = False,
         force_fresh: bool = False,
         status_cb: StatusCallback = None,
         max_results: Optional[int] = None,
@@ -69,6 +81,7 @@ class RetrievalOrchestrator:
         current = route["current"]
         complexity = route["complexity"]
         types = route["types"]
+        video_intent = retrouter.classify_video_intent(query)
         timer.stop("routing")
 
         if not route["needs_search"]:
@@ -99,6 +112,7 @@ class RetrievalOrchestrator:
             return RetrievalResult(
                 context=cached.get("context"),
                 images_md=cached_images,
+                videos_md=cached.get("videos_md") or "",
                 sources=cached.get("sources", []),
                 perf=perf,
                 from_cache=True,
@@ -114,21 +128,27 @@ class RetrievalOrchestrator:
         # ── Parallel search (section 2) ──
         timer.start("search")
         need_news = "news" in types or current
-        need_videos = "videos" in types
+        need_videos = with_videos and video_intent in ("required", "recommended")
         limit = max_results or min(cfg.CANDIDATES_PER_PROVIDER, 30)
 
         results_lists: list[list[SearchResult]] = []
+        video_task = None
         try:
             async with asyncio.timeout(cfg.SEARCH_TIMEOUT_S + 2):
                 search_jobs = [self._pool.text(q, limit, "web") for q in queries]
                 if need_news:
                     search_jobs.append(self._pool.news(queries[0], min(limit, 20)))
-                if need_videos:
-                    search_jobs.append(self._pool.videos(queries[0], min(limit, 15)))
                 results_lists = await asyncio.gather(*search_jobs)
         except (TimeoutError, asyncio.TimeoutError):
             results_lists = []
         timer.stop("search")
+        if need_videos:
+            # Video search runs as its OWN task (parallel with the fetch phase
+            # below) so it never competes with the text providers for the
+            # Tavily/DDGS semaphores (section 26).
+            video_task = asyncio.create_task(
+                self._videos.search(generate_video_queries(query)[0], cfg.VIDEO_CANDIDATES)
+            )
 
         candidates: list[SearchResult] = []
         for idx, rl in enumerate(results_lists):
@@ -141,6 +161,8 @@ class RetrievalOrchestrator:
 
         if not candidates:
             logger.warning("search returned zero candidates for {!r}", query)
+            if video_task is not None:
+                video_task.cancel()
             return RetrievalResult(context=None, images_md="", perf=build_perf(timer), query=query)
 
         # ── Dedupe + rank + select (sections 4, 13, 18) ──
@@ -186,17 +208,42 @@ class RetrievalOrchestrator:
         timer.stop("extraction")
         timer.stop("reranking")
 
+        # ── Videos (section 26): collect the parallel video task results after
+        # the fetch phase so the bursty video search never delays the context.
+        videos_md = ""
+        video_list: list[VideoResult] = []
+        if need_videos and video_task is not None:
+            try:
+                video_rows = await asyncio.wait_for(
+                    asyncio.shield(video_task), timeout=cfg.SEARCH_TIMEOUT_S + 2
+                )
+            except Exception:
+                video_rows = []
+            if video_rows:
+                await self._notify(status_cb, "Finding relevant videos...")
+                video_list = rank_videos(dedupe_videos(filter_videos(video_rows, query)), query)
+                videos_md = format_videos_md(video_list, cfg.MAX_VIDEOS)
+
         # ── Cache write (section 7) ──
-        if context:
+        if context or videos_md:
             await retrieval_cache.set(normalized, scope, {
                 "context": context,
                 "images_md": images_md,
+                "videos_md": videos_md,
                 "sources": sources,
             })
 
         perf = build_perf(timer, extra={"cache_ms": timer.elapsed.get("cache", 0.0)})
         logger.info("retrieval done query={!r} stages={}", query, perf)
-        return RetrievalResult(context=context, images_md=images_md, sources=sources, perf=perf, query=query)
+        return RetrievalResult(
+            context=context,
+            images_md=images_md,
+            videos_md=videos_md,
+            videos=video_list,
+            sources=sources,
+            perf=perf,
+            query=query,
+        )
 
     async def _search_images(self, query: str, queries: list[str], status_cb: StatusCallback) -> str:
         await self._notify(status_cb, "Fetching relevant images...")

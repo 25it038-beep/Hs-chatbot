@@ -92,6 +92,10 @@ class DDGSProvider(SearchProvider):
                     published=(r.get("date") or r.get("published") or ""),
                 )
             )
+            if kind == "videos":
+                results[-1].extra["duration"] = str(r.get("duration") or "").strip()
+                results[-1].extra["thumbnail"] = (r.get("thumbnail") or "").split("?")[0]
+                results[-1].extra["hostname"] = str(r.get("hostname") or "").strip()
             if len(results) >= limit:
                 break
         return results

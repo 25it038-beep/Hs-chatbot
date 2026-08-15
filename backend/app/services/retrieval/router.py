@@ -29,7 +29,16 @@ _IMAGE = re.compile(
     re.I,
 )
 _VIDEO = re.compile(
-    r"\b(videos?|video of|watch |youtube|clip|clips|footage|documentary|tutorial video)\b",
+    r"\b(videos?|video of|watch |youtube|clip|clips|footage|documentary|tutorial video|"
+    r"show (?:me )?a video|show (?:me )?videos)\b",
+    re.I,
+)
+# Procedural / demonstrative queries strongly benefit from a video (section 26).
+_VIDEO_RECOMMENDED = re.compile(
+    r"\b(how do i|how do you|how to|how can i|step[- ]by[- ]step|steps?\b.*(?:do|make|build|install|"
+    r"fix|setup)|walkthrough|tutorial|demonstrat|show me how|learn (?:to|how)|setup|install|configure|"
+    r"repair|troubleshoot|fix\b|build\b|diy\b|recipe|cook\b|bake\b|paint\b|draw\b|play\b.*(?:song|guitar|"
+    r"piano)|workout|yoga|exercise|routine|assembly|unboxing|review\b)\b",
     re.I,
 )
 _DOCS = re.compile(
@@ -94,6 +103,24 @@ def is_news_query(query: str) -> bool:
 
 def is_docs_query(query: str) -> bool:
     return bool(_DOCS.search(query))
+
+
+def classify_video_intent(query: str) -> str:
+    """Video intent level (section 26).
+
+    required    -> the user explicitly asked for a video
+    recommended -> procedural/demonstrative query where a video clearly helps
+    optional    -> general knowledge query that could be enhanced by a video
+    not_needed  -> no search needed at all
+    """
+    q = query.strip().lower()
+    if not q:
+        return "not_needed"
+    if _VIDEO.search(q):
+        return "required"
+    if _VIDEO_RECOMMENDED.search(q):
+        return "recommended"
+    return "optional" if classify(q)["needs_search"] else "not_needed"
 
 
 def classify(query: str) -> dict:

@@ -69,6 +69,10 @@ class RetrievalConfig:
     IMAGE_MIN_KEYWORD_HITS: int = _int("RETRIEVAL_IMAGE_MIN_KEYWORD_HITS", 2)
     MAX_IMAGES: int = _int("RETRIEVAL_MAX_IMAGES", 6)
 
+    # ── Video retrieval (section 26) ──
+    MAX_VIDEOS: int = _int("RETRIEVAL_MAX_VIDEOS", 4)
+    VIDEO_CANDIDATES: int = _int("RETRIEVAL_VIDEO_CANDIDATES", 20)
+
     # ── User agent ──
     USER_AGENT: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

@@ -16,6 +16,7 @@ from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
 from app.services.rag import RAGService
 from app.services.websearch import WebSearchService
+from app.services.retrieval.router import classify_video_intent
 
 
 async def _chat_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
@@ -338,6 +339,17 @@ class ChatService:
                         )
                 else:
                     web_images_md = ""
+                    web_videos_md = ""
+                    video_intent = classify_video_intent(request.message)
+                    with_videos = video_intent in ("required", "recommended")
+                    video_task = None
+                    if video_intent == "optional":
+                        # VIDEO_OPTIONAL (section 26): fetch videos in the
+                        # background so the answer is never blocked; append
+                        # them after the stream when they are ready.
+                        video_task = asyncio.create_task(
+                            WebSearchService().fetch_videos_markdown(request.message)
+                        )
                     if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images"):
                         status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
@@ -347,20 +359,29 @@ class ChatService:
                         force_images = task_decision.get("requires_images") and task != "web_images"
                         retrieval_task = asyncio.create_task(
                             WebSearchService().retrieve_for_chat(
-                                request.message, force_images=force_images, status_cb=_cb
+                                request.message,
+                                force_images=force_images,
+                                with_videos=with_videos,
+                                status_cb=_cb,
                             )
                         )
                         async for ev in _chat_status_events(status_q, retrieval_task):
                             yield ev
                         try:
-                            web_context, web_images_md = retrieval_task.result()
+                            web_context, web_images_md, web_videos_md = retrieval_task.result()
                         except Exception:
-                            web_context, web_images_md = None, ""
+                            web_context, web_images_md, web_videos_md = None, "", ""
                         if force_images:
                             system_prompt = (
                                 f"{system_prompt}\n\nNote: Real images will be shown separately after your "
                                 "answer. Do NOT fabricate image links, markdown images, or placeholders "
                                 "like [Image: ...] anywhere in your response."
+                            )
+                        if with_videos:
+                            system_prompt = (
+                                f"{system_prompt}\n\nNote: Real videos will be shown separately after your "
+                                "answer. Do NOT fabricate video links, YouTube links, or placeholders "
+                                "like [Video: ...] anywhere in your response."
                             )
                         if web_context:
                             system_prompt = f"{system_prompt}\n\n{web_context}"
@@ -378,6 +399,14 @@ class ChatService:
                                 input_tokens = chunk.input_tokens
                                 output_tokens = chunk.output_tokens
                             yield chunk
+                        if video_task is not None:
+                            # Non-blocking: brief grace window, then move on.
+                            try:
+                                web_videos_md = await asyncio.wait_for(
+                                    asyncio.shield(video_task), timeout=3.0
+                                )
+                            except Exception:
+                                web_videos_md = ""
                         if web_images_md:
                             yield StreamChunk(
                                 type="content",
@@ -386,6 +415,14 @@ class ChatService:
                                 provider=provider_name,
                             )
                             full_content += "\n\n" + web_images_md
+                        if web_videos_md:
+                            yield StreamChunk(
+                                type="content",
+                                content="\n\n" + web_videos_md,
+                                model=model or chat.model,
+                                provider=provider_name,
+                            )
+                            full_content += "\n\n" + web_videos_md
                     except Exception as e:
                         if not full_content:
                             error_msg = (

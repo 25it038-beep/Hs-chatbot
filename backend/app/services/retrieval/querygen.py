@@ -12,6 +12,47 @@ _TRAIL = re.compile(
     r"(?:me\s+)?(?:some\s+|relevant\s+|related\s+)?(?:images?|pictures?|photos?|pics?|videos?)\s*[.?!]*$"
 )
 
+_VIDEO_PREFIX = re.compile(
+    r"(?i)^\s*(?:please\s+|pls\s+)?(?:(?:can you|could you|would you)\s+)?"
+    r"(?:show me|show|find|get|search for|give me|recommend|send me|fetch)?\s*"
+    r"(?:a|an|the|some)?\s*(?:video\s+(?:about|of|on)\s+|videos\s+(?:about|of|on)\s+|"
+    r"youtube (?:video\s+)?(?:about|of|on)\s+)?"
+)
+_QUESTION_PREFIX = re.compile(
+    r"(?i)^\s*(?:what|whats|what'?s|what are|what is|how|why|when|where|which|who|whose|"
+    r"can|could|should|would|will|does|do|did|is|are|was|were)\s+"
+    r"(?:(?:do|does|did|is|are|was|were|can|could|should|would|will|to|i|you|we|they|one|it|"
+    r"a|an|the)\s+)*"
+)
+_ARTICLE = re.compile(r"(?i)^\s*(?:an?\s+|the\s+)")
+
+
+def _video_subject(query: str) -> str:
+    base = _TRAIL.sub("", query.strip())
+    base = _VIDEO_PREFIX.sub("", base)
+    base = _QUESTION_PREFIX.sub("", base)
+    base = _ARTICLE.sub("", base)
+    base = re.sub(r"[\s]+", " ", base).strip(" .:;!?")
+    return base
+
+
+def generate_video_queries(query: str) -> list[str]:
+    """Video-optimized queries (section 26): bare subject + tutorial variant.
+
+    DDGS video search is best with a plain subject ('solar panel installation'),
+    so we strip intent/verb scaffolding instead of appending keywords.
+    """
+    subject = _video_subject(query)
+    if not subject:
+        return [query.strip()]
+    variants = [subject, f"{subject} tutorial"]
+    seen: list[str] = []
+    for v in variants:
+        key = v.lower()
+        if key not in seen:
+            seen.append(key)
+    return seen[:2]
+
 
 def generate_queries(query: str, complexity: str) -> list[str]:
     base = _TRAIL.sub("", query.strip())

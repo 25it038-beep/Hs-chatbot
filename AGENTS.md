@@ -63,6 +63,14 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.
 - `llama-3.3-70b` takes ~265s for first token; may timeout (backend timeout currently 300s). Not recommended for default fallback.
 - Wikipedia API + Wikimedia Commons may 403 from this IP after heavy usage (IP-level rate limit); DDGS is bursty — the pipeline degrades gracefully to Tavily results.
+- **SambaNova `DeepSeek-V3.2` can 429 with "high demand"** — the OpenAI-compatible provider now fails fast (retries 0.5s/1.0s, SDK max_retries=1) and streams a visible "Rate limit exceeded" error instead of hanging silently. NVIDIA path unaffected.
+
+### Video retrieval (§26)
+- `router.classify_video_intent()` -> `required | recommended | optional | not_needed`: explicit video words → required; procedural/demonstrative (how-to, tutorial, install, recipe...) → recommended; any knowledge query → optional; no search → not_needed.
+- `retrieval/videos.py`: `VideoRetriever` — primary ddgs video search; fallback = web search (`{subject} video`) filtered to real video-platform hosts (youtube/vimeo/dailymotion/twitch/tiktok/bilibili...). Strict host-gated results preferred; only real URLs, never fabricated. `format_videos_md` caps at `RETRIEVAL_MAX_VIDEOS` (4), markdown `### Videos` list.
+- Orchestrator: video search runs as its OWN task parallel to the fetch phase (never contends for Tavily/DDGS semaphores — an in-gather video job starved text search). Videos cached with the context; separated from text candidates.
+- chat.py: required/recommended → blocking `with_videos=True` (anti-fabrication prompt note); optional → background task, appended after the answer within a 3s grace (non-blocking). Output order: Answer → Sources → Images → Videos.
+- `ddgs.videos` often raises "No results found" from this IP — the host-gated web fallback is the real path; expect 1-4 videos, sometimes none.
 
 
 ## Status

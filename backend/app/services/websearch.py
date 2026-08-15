@@ -43,6 +43,10 @@ def _needs_web_search(query: str) -> bool:
     return classify(query)["needs_search"]
 
 
+async def _noop_videos() -> str:
+    return ""
+
+
 class WebSearchService:
     """Delegates to the retrieval orchestrator. Same public API as before."""
 
@@ -59,6 +63,7 @@ class WebSearchService:
         query: str,
         max_results: Optional[int] = None,
         with_images: bool = False,
+        with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Optional[str]:
         if not query or not query.strip():
@@ -66,6 +71,7 @@ class WebSearchService:
         result = await retrieval_orchestrator.retrieve(
             query,
             with_images=with_images,
+            with_videos=with_videos,
             status_cb=status_cb,
             max_results=max_results or self.max_results,
         )
@@ -75,6 +81,7 @@ class WebSearchService:
         self,
         query: str,
         max_results: Optional[int] = None,
+        with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> tuple[Optional[str], str]:
         if not query or not query.strip():
@@ -82,6 +89,7 @@ class WebSearchService:
         result = await retrieval_orchestrator.retrieve(
             query,
             with_images=True,
+            with_videos=with_videos,
             status_cb=status_cb,
             max_results=max_results or self.max_results,
         )
@@ -108,20 +116,55 @@ class WebSearchService:
         message: str,
         *,
         force_images: bool,
+        with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
-    ) -> tuple[Optional[str], str]:
-        """Run the full chat-path retrieval: (web_context, images_markdown).
+    ) -> tuple[Optional[str], str, str]:
+        """Run the full chat-path retrieval: (web_context, images_markdown, videos_markdown).
 
         force_images=True -> web search (if needed) and image search run in
         parallel; the image subject is extracted from the message.
+        with_videos=True  -> videos run in the same parallel search when the
+        video intent is required/recommended (section 26).
         """
         if force_images:
             img_query = extract_image_subject(message)
             if self.needs_web_search(message):
-                ctx, md = await asyncio.gather(
-                    self.search(message, with_images=False, status_cb=status_cb),
+                ctx, md, vids = await asyncio.gather(
+                    self.search(message, with_images=False, with_videos=with_videos, status_cb=status_cb),
                     self.fetch_images_markdown(img_query, status_cb=status_cb),
+                    self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else _noop_videos(),
                 )
-                return ctx, md
-            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb)
-        return await self.search_with_images(message, status_cb=status_cb)
+                return ctx, md, vids
+            videos_md = await self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else ""
+            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb), videos_md
+        ctx, md, vids = await self._retrieve_via(message, with_images=True, with_videos=with_videos, status_cb=status_cb)
+        return ctx, md, vids
+
+    async def fetch_videos_markdown(
+        self,
+        query: str,
+        max_results: Optional[int] = None,
+        status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> str:
+        """Videos-only retrieval: real video links formatted as markdown (section 26)."""
+        from app.services.retrieval.videos import video_retriever
+
+        if not query or not query.strip():
+            return ""
+        return await video_retriever.retrieve_markdown(query, status_cb)
+
+    async def _retrieve_via(
+        self,
+        query: str,
+        *,
+        with_images: bool,
+        with_videos: bool,
+        status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> tuple[Optional[str], str, str]:
+        result = await retrieval_orchestrator.retrieve(
+            query,
+            with_images=with_images,
+            with_videos=with_videos,
+            status_cb=status_cb,
+        )
+        return result.context, result.images_md, result.videos_md

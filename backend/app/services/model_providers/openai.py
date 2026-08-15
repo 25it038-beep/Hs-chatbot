@@ -6,7 +6,9 @@ from app.config import settings
 from app.services.model_providers.base import ModelProvider, ModelResponse, StreamChunk
 from app.services.nvidia.config import NVIDIA_MODELS
 
-_RATE_LIMIT_SLEEPS = [1.0, 2.0, 4.0]
+# Rate limits are usually persistent (quota) — retry briefly, then fail
+# fast with a visible error instead of hanging the stream for minutes.
+_RATE_LIMIT_SLEEPS = [0.5, 1.0]
 
 _GROQ_BACKUP_MODEL = "llama-3.3-70b-versatile"
 
@@ -60,6 +62,7 @@ class OpenAIProvider(ModelProvider):
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or "",
+            max_retries=1,
         )
 
     def _get_model(self, model: str | None) -> str:

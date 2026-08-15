@@ -42,6 +42,11 @@ _NO_FAKE_IMAGES_NOTE = (
     "links, markdown images, or placeholders like [Image: ...] anywhere in your response."
 )
 
+_NO_FAKE_VIDEOS_NOTE = (
+    "Note: Real videos will be shown separately after your answer. Do NOT fabricate video "
+    "links, YouTube links, or placeholders like [Video: ...] anywhere in your response."
+)
+
 
 async def _retrieval_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
     """Yield 'searching' SSE events from retrieval stage updates until the task finishes."""
@@ -391,6 +396,10 @@ async def nvidia_chat(
 
                 gen_system_prompt = system_prompt
                 web_images_md = ""
+                web_videos_md = ""
+                from app.services.retrieval.router import classify_video_intent
+
+                with_videos = classify_video_intent(request.message) in ("required", "recommended")
                 force_images = bool(decision.get("requires_images")) and task != "web_images"
                 if WebSearchService.needs_web_search(request.message) or force_images:
                     status_q: "asyncio.Queue[str]" = asyncio.Queue()
@@ -400,17 +409,22 @@ async def nvidia_chat(
 
                     task = asyncio.create_task(
                         WebSearchService().retrieve_for_chat(
-                            request.message, force_images=force_images, status_cb=_cb
+                            request.message,
+                            force_images=force_images,
+                            with_videos=with_videos,
+                            status_cb=_cb,
                         )
                     )
                     async for ev in _retrieval_status_events(status_q, task):
                         yield ev
                     try:
-                        web_context, web_images_md = task.result()
+                        web_context, web_images_md, web_videos_md = task.result()
                     except Exception:
-                        web_context, web_images_md = None, ""
+                        web_context, web_images_md, web_videos_md = None, "", ""
                     if force_images:
                         gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
+                    if with_videos:
+                        gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_VIDEOS_NOTE}"
                     if web_context:
                         gen_system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -437,6 +451,9 @@ async def nvidia_chat(
                         if web_images_md:
                             yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
                             full_content += "\n\n" + web_images_md
+                        if web_videos_md:
+                            yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_videos_md})}\n\n"
+                            full_content += "\n\n" + web_videos_md
                         user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
                         assistant_msg = Message(
                             chat_id=request.chat_id,
@@ -522,6 +539,10 @@ async def nvidia_chat(
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
             gen_system_prompt = system_prompt
             web_images_md = ""
+            web_videos_md = ""
+            from app.services.retrieval.router import classify_video_intent
+
+            with_videos = classify_video_intent(request.message) in ("required", "recommended")
             if WebSearchService.needs_web_search(request.message) or force_images:
                 status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
@@ -530,17 +551,22 @@ async def nvidia_chat(
 
                 task = asyncio.create_task(
                     WebSearchService().retrieve_for_chat(
-                        request.message, force_images=force_images, status_cb=_cb
+                        request.message,
+                        force_images=force_images,
+                        with_videos=with_videos,
+                        status_cb=_cb,
                     )
                 )
                 async for ev in _retrieval_status_events(status_q, task):
                     yield ev
                 try:
-                    web_context, web_images_md = task.result()
+                    web_context, web_images_md, web_videos_md = task.result()
                 except Exception:
-                    web_context, web_images_md = None, ""
+                    web_context, web_images_md, web_videos_md = None, "", ""
                 if force_images:
                     gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
+                if with_videos:
+                    gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_VIDEOS_NOTE}"
                 if web_context:
                     gen_system_prompt = f"{system_prompt}\n\n{web_context}"
             try:
@@ -561,6 +587,8 @@ async def nvidia_chat(
                 yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
             if web_images_md:
                 yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
+            if web_videos_md:
+                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_videos_md})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers={

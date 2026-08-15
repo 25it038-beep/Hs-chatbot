@@ -299,6 +299,15 @@ export const useChat = create<ChatState>((set, get) => {
                   }
                 } else if (chunk.type === 'error') {
                   console.error('Stream error:', chunk.content)
+                  const errNote = `\n\n**Error:** ${chunk.content}`
+                  fullContent += errNote
+                  set(state => ({
+                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'writing' },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ streamingContent: fullContent })
+                  }
                 }
               } catch { /* ignore */ }
             }

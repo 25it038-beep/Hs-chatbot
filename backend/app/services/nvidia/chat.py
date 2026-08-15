@@ -1,3 +1,4 @@
+import asyncio
 import time
 import json
 from typing import AsyncGenerator, Optional
@@ -7,6 +8,21 @@ from app.services.nvidia.key_manager import KeyManager
 from app.services.model_providers.base import ModelResponse, StreamChunk
 
 key_manager = KeyManager()
+
+# Shared connection pool: a new httpx client per request meant a fresh
+# TCP+TLS handshake (~100-400ms) on every message. Reusing the client
+# keeps connections warm across requests.
+_client: "Optional[httpx.AsyncClient]" = None
+_client_lock = asyncio.Lock()
+
+
+async def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        async with _client_lock:
+            if _client is None:
+                _client = httpx.AsyncClient(timeout=300.0)
+    return _client
 
 
 class NvidiaChatProvider:
@@ -75,56 +91,55 @@ class NvidiaChatProvider:
             payload["tools"] = tools
 
         headers = self._build_headers(api_key.key)
-
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                if response.status_code in (429, 503, 529):
-                    key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
-                    return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
-                if response.status_code == 401:
-                    key_manager.record_failure(api_key, "unauthorized: 401")
-                    return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
-                if response.status_code == 404:
-                    key_manager.record_failure(api_key, "model_not_found: 404")
-                    return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
-                if response.status_code >= 500:
-                    key_manager.record_failure(api_key, f"server_error: {response.status_code}")
-                    return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
-
-                response.raise_for_status()
-                data = response.json()
-                latency = (time.time() - start) * 1000
-
-                content = data["choices"][0]["message"]["content"] or ""
-                usage = data.get("usage", {})
-
-                key_manager.record_success(api_key, usage.get("total_tokens", 0))
-
-                reasoning_content = None
-                if model_conf.get("supports_thinking") and reasoning:
-                    reasoning_content = data["choices"][0].get("message", {}).get("reasoning_content")
-
-                return ModelResponse(
-                    content=content,
-                    model=model,
-                    provider="nvidia",
-                    reasoning=reasoning_content,
-                    input_tokens=usage.get("prompt_tokens", 0),
-                    output_tokens=usage.get("completion_tokens", 0),
-                    latency_ms=latency,
-                )
-
-            except httpx.TimeoutException:
-                key_manager.record_failure(api_key, "timeout")
+        client = await _get_client()
+        try:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            if response.status_code in (429, 503, 529):
+                key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
                 return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
-            except Exception as e:
-                key_manager.record_failure(api_key, str(e))
-                raise
+            if response.status_code == 401:
+                key_manager.record_failure(api_key, "unauthorized: 401")
+                return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
+            if response.status_code == 404:
+                key_manager.record_failure(api_key, "model_not_found: 404")
+                return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
+            if response.status_code >= 500:
+                key_manager.record_failure(api_key, f"server_error: {response.status_code}")
+                return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
+
+            response.raise_for_status()
+            data = response.json()
+            latency = (time.time() - start) * 1000
+
+            content = data["choices"][0]["message"]["content"] or ""
+            usage = data.get("usage", {})
+
+            key_manager.record_success(api_key, usage.get("total_tokens", 0))
+
+            reasoning_content = None
+            if model_conf.get("supports_thinking") and reasoning:
+                reasoning_content = data["choices"][0].get("message", {}).get("reasoning_content")
+
+            return ModelResponse(
+                content=content,
+                model=model,
+                provider="nvidia",
+                reasoning=reasoning_content,
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+                latency_ms=latency,
+            )
+
+        except httpx.TimeoutException:
+            key_manager.record_failure(api_key, "timeout")
+            return await self._retry_with_fallback(messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools)
+        except Exception as e:
+            key_manager.record_failure(api_key, str(e))
+            raise
 
     async def generate_stream(
         self,
@@ -174,71 +189,71 @@ class NvidiaChatProvider:
         full_content = ""
         full_reasoning = ""
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            try:
-                async with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
-                    if response.status_code in (429, 503, 529):
-                        key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
-                        async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
-                            yield chunk
-                        return
-                    if response.status_code >= 500:
-                        key_manager.record_failure(api_key, f"server_error: {response.status_code}")
-                        async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
-                            yield chunk
-                        return
+        client = await _get_client()
+        try:
+            async with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
+                if response.status_code in (429, 503, 529):
+                    key_manager.record_failure(api_key, f"server_busy: {response.status_code}")
+                    async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
+                        yield chunk
+                    return
+                if response.status_code >= 500:
+                    key_manager.record_failure(api_key, f"server_error: {response.status_code}")
+                    async for chunk in self._fallback_stream(messages, model, system_prompt, temperature, max_tokens):
+                        yield chunk
+                    return
 
-                    async for line in response.aiter_lines():
-                        if not line:
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        raw = line[6:].strip()
+                        if raw == "[DONE]":
                             continue
-                        if line.startswith("data: "):
-                            raw = line[6:].strip()
-                            if raw == "[DONE]":
-                                continue
-                            try:
-                                chunk_data = json.loads(raw)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                reason_text = delta.get("reasoning_content")
-                                if reason_text:
-                                    full_reasoning += reason_text
-                                    yield StreamChunk(
-                                        type="reasoning",
-                                        content=reason_text,
-                                        model=model,
-                                        provider="nvidia",
-                                    )
-                                if delta.get("content"):
-                                    full_content += delta["content"]
-                                    yield StreamChunk(
-                                        type="content",
-                                        content=delta["content"],
-                                        model=model,
-                                        provider="nvidia",
-                                    )
-                                finish_reason = chunk_data.get("choices", [{}])[0].get("finish_reason")
-                                if finish_reason == "tool_calls":
-                                    pass
-                                usage = chunk_data.get("usage", {})
-                                if usage:
-                                    input_tokens = usage.get("prompt_tokens", 0)
-                                    output_tokens = usage.get("completion_tokens", 0)
-                            except json.JSONDecodeError:
-                                continue
+                        try:
+                            chunk_data = json.loads(raw)
+                            delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                            reason_text = delta.get("reasoning_content")
+                            if reason_text:
+                                full_reasoning += reason_text
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=reason_text,
+                                    model=model,
+                                    provider="nvidia",
+                                )
+                            if delta.get("content"):
+                                full_content += delta["content"]
+                                yield StreamChunk(
+                                    type="content",
+                                    content=delta["content"],
+                                    model=model,
+                                    provider="nvidia",
+                                )
+                            finish_reason = chunk_data.get("choices", [{}])[0].get("finish_reason")
+                            if finish_reason == "tool_calls":
+                                pass
+                            usage = chunk_data.get("usage", {})
+                            if usage:
+                                input_tokens = usage.get("prompt_tokens", 0)
+                                output_tokens = usage.get("completion_tokens", 0)
+                        except json.JSONDecodeError:
+                            continue
 
-                    key_manager.record_success(api_key)
-                    yield StreamChunk(
-                        type="done",
-                        model=model,
-                        provider="nvidia",
-                        reasoning=full_reasoning or None,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        done=True,
-                    )
+                key_manager.record_success(api_key)
+                yield StreamChunk(
+                    type="done",
+                    model=model,
+                    provider="nvidia",
+                    reasoning=full_reasoning or None,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    done=True,
+                )
 
-            except Exception as e:
-                key_manager.record_failure(api_key, str(e))
-                yield StreamChunk(type="error", content=str(e), done=True)
+        except Exception as e:
+            key_manager.record_failure(api_key, str(e))
+            yield StreamChunk(type="error", content=str(e), done=True)
 
     async def _retry_with_fallback(self, messages, model, system_prompt, temperature, max_tokens, top_p, json_mode, reasoning, tools):
         from app.services.nvidia.config import TASK_ROUTES
@@ -281,6 +296,15 @@ class NvidiaChatProvider:
                     return
                 except Exception:
                     continue
+        # No fallback succeeded (or none configured) — surface a visible error
+        # instead of silently ending the stream (which looked like an empty reply).
+        yield StreamChunk(
+            type="error",
+            content="NVIDIA is busy right now. Please wait a moment and try again.",
+            model=model,
+            provider="nvidia",
+            done=True,
+        )
 
     def _build_messages(self, messages: list[dict], system_prompt: Optional[str] = None) -> list[dict]:
         result = []

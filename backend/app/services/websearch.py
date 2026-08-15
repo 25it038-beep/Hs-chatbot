@@ -7,6 +7,18 @@ from typing import Optional
 _QUERY_CACHE: dict[str, dict] = {}
 
 
+def extract_image_subject(query: str) -> str:
+    """Strip a trailing 'and show relevant images' clause, keeping the research subject."""
+    q = query.strip()
+    q = re.sub(
+        r"(?i)\s+(?:and|also|plus|then)\s+(?:show|display|include|add|get|find)\s+"
+        r"(?:me\s+)?(?:some\s+|relevant\s+|related\s+)?(?:images?|pictures?|photos?|pics?)\s*[.?!]*$",
+        "",
+        q,
+    )
+    return q.strip() or query.strip()
+
+
 async def _noop() -> list:
     return []
 

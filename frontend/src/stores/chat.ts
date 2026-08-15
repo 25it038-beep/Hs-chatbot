@@ -7,11 +7,11 @@ import { playCompletionSound } from '@/lib/sound'
 // General queries that merely mention images ("explain this image") are NOT routed to image generation.
 const IMAGE_PATTERNS = [
   /\/image\b/, /\/img\b/, /\/draw\b/,
-  /\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*|pic[ture]*|photo|art[work]*|drawing|painting)\b/,
+  /\b(gen+er?at[eio]*|cr[ea]*t[eao]*|make|draw|render|illustrate|paint|sketch)\b.*\b(i[am]*g[e]*s?|pic[ture]*s?|photos?|art[work]*|drawings?|paintings?)\b/,
   /\b(draw|illustrate|paint|sketch)\b\s+(a\s+|an\s+|the\s+|me\s+)?/,
   /text.?to.?image/,
-  /\b(show|display|find|search|get|send|want|give|need)\b.*\b(an |a |the )?(i[am]*g[e]*|pic[ture]*|photo)\b.*\bof\b/,
-  /\b(?:show|display|find|search|get|send|want|give|need|more|some)\b.*\b(i[am]*g[e]*|pic[ture]*|photos?)\s*$/,
+  /\b(show|display|find|search|get|send|want|give|need)\b.*\b(an |a |the )?(i[am]*g[e]*s?|pic[ture]*s?|photos?|examples?)\b.*\bof\b/,
+  /\b(?:show|display|find|search|get|send|want|give|need|more|some)\b.*\b(i[am]*g[e]*s?|pic[ture]*s?|photos?)\s*[.?!]*$/,
 ]
 
 export function isImageRequest(content: string): boolean {

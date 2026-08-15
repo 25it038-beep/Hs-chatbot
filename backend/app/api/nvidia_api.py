@@ -23,7 +23,7 @@ from app.services.nvidia import (
 from app.services.nvidia.key_manager import key_manager
 from app.services.nvidia.config import NVIDIA_MODELS, NVIDIA_BASE_URL
 from app.services.nvidia.web_images import web_image_search
-from app.services.websearch import WebSearchService
+from app.services.websearch import WebSearchService, extract_image_subject
 
 router = APIRouter(prefix="/api/nvidia", tags=["nvidia"])
 
@@ -337,7 +337,10 @@ async def nvidia_chat(
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         if WebSearchService.needs_web_search(request.message):
-            web_context = await WebSearchService().search(request.message, with_images=True)
+            force_images_here = bool(decision.get("requires_images")) and task != "web_images"
+            web_context = await WebSearchService().search(
+                request.message, with_images=not force_images_here
+            )
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -371,7 +374,15 @@ async def nvidia_chat(
                 force_images = bool(decision.get("requires_images")) and task != "web_images"
                 if WebSearchService.needs_web_search(request.message) or force_images:
                     yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
-                    web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                    if force_images:
+                        img_query = extract_image_subject(request.message)
+                        if WebSearchService.needs_web_search(request.message):
+                            web_context = await WebSearchService().search(request.message, with_images=False)
+                        else:
+                            web_context = None
+                        web_images_md = await WebSearchService().fetch_images_markdown(img_query)
+                    else:
+                        web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                     if web_context:
                         gen_system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -461,7 +472,13 @@ async def nvidia_chat(
     force_images = bool(decision.get("requires_images")) and task != "web_images"
 
     if WebSearchService.needs_web_search(request.message) or force_images:
-        web_context = await WebSearchService().search(request.message, with_images=True)
+        if force_images:
+            if WebSearchService.needs_web_search(request.message):
+                web_context = await WebSearchService().search(request.message, with_images=False)
+            else:
+                web_context = None
+        else:
+            web_context = await WebSearchService().search(request.message, with_images=True)
         if web_context:
             system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -472,7 +489,15 @@ async def nvidia_chat(
             web_images_md = ""
             if WebSearchService.needs_web_search(request.message) or force_images:
                 yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
-                web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                if force_images:
+                    img_query = extract_image_subject(request.message)
+                    if WebSearchService.needs_web_search(request.message):
+                        web_context = await WebSearchService().search(request.message, with_images=False)
+                    else:
+                        web_context = None
+                    web_images_md = await WebSearchService().fetch_images_markdown(img_query)
+                else:
+                    web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                 if web_context:
                     gen_system_prompt = f"{system_prompt}\n\n{web_context}"
             try:

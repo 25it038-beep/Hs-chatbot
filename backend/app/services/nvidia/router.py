@@ -360,7 +360,7 @@ class AIRouter:
         d = self.classify(message, context=context)
         if d["requires_image_generation"]:
             return "image_generation"
-        if d["requires_images"]:
+        if d["requires_images"] and not d["requires_web"]:
             return "web_images"
         if d["primary_intent"] in ("image_analysis", "file_analysis"):
             return "vision"

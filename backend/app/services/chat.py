@@ -15,7 +15,7 @@ from app.services.nvidia.router import ai_router
 from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
 from app.services.rag import RAGService
-from app.services.websearch import WebSearchService
+from app.services.websearch import WebSearchService, extract_image_subject
 
 
 class ChatService:
@@ -208,7 +208,7 @@ class ChatService:
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
-        if WebSearchService.needs_web_search(request.message) and not request.stream:
+        if (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
             web_context = await WebSearchService().search(request.message, with_images=True)
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
@@ -231,6 +231,7 @@ class ChatService:
         provider = get_provider(provider_name)
 
         task, _ = ai_router.get_model_for_message(request.message)
+        task_decision = ai_router.classify(request.message)
         is_image_task = task == "image_generation"
 
         model_to_use = model or chat.model
@@ -312,9 +313,17 @@ class ChatService:
                         )
                 else:
                     web_images_md = ""
-                    if WebSearchService.needs_web_search(request.message):
+                    if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images"):
                         yield StreamChunk(type="searching", content="Searching the web for updated data...")
-                        web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                        if task_decision.get("requires_images") and task != "web_images":
+                            img_query = extract_image_subject(request.message)
+                            if WebSearchService.needs_web_search(request.message):
+                                web_context = await WebSearchService().search(request.message, with_images=False)
+                            else:
+                                web_context = None
+                            web_images_md = await WebSearchService().fetch_images_markdown(img_query)
+                        else:
+                            web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                         if web_context:
                             system_prompt = f"{system_prompt}\n\n{web_context}"
                     try:

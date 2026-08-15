@@ -94,7 +94,7 @@ _BARE_DOMAIN_RE = re.compile(
 )
 
 _VERB_OPEN = re.compile(r"\b(?:open|go to|navigate to|launch|take me to|visit|load)\b", re.I)
-_VERB_OPEN_WEBSITE = re.compile(r"\bopen\s+(?:(?:the|this)\s+)?(?:website|web page|page|site|url)\b", re.I)
+_VERB_OPEN_WEBSITE = re.compile(r"\bopen\s+(?:(?:a|an|the|this)\s+)?(?:new\s+)?(?:website|web page|page|site|url|tab|browser|window)\b", re.I)
 _VERB_SEARCH = re.compile(r"\b(?:search|look up|find|look for)\b", re.I)
 _VERB_PLAY = re.compile(r"\b(?:play|put on|start)\b", re.I)
 _VERB_PAUSE = re.compile(r"\b(?:pause|stop)\b", re.I)
@@ -114,7 +114,7 @@ _WEB_SEARCH = re.compile(
     re.I,
 )
 _SITE_SEARCH = re.compile(r"\bsearch\s+(?:on\s+)?([a-z0-9 .-]+?)\s+for\s+(.+)$", re.I)
-_SITE_SEARCH2 = re.compile(r"\b(?:look up|find|search for)\s+(.+?)\s+on\s+([a-z0-9 .-]+?)\s*$", re.I)
+_SITE_SEARCH2 = re.compile(r"\b(?:look up|find|search for|search)\s+(.+?)\s+on\s+([a-z0-9 .-]+?)\s*$", re.I)
 _SITE_SEARCH_CURRENT = re.compile(
     r"\bsearch\s+(?:on\s+)?this\s+(?:website|site|web page|page|tab)\s+for\s+(.+)$", re.I
 )
@@ -149,7 +149,7 @@ _CLOSE_TAB = re.compile(
     r"\bclose\s+(?:the\s+)?(.+?)\s+tab\b|\bclose\s+(?:this|that|the|current|active)\s+tab\b|\bclose\s+this\s+one\b", re.I
 )
 _NEW_TAB = re.compile(
-    r"\b(?:in|into)\s+(?:a\s+|an\s+)?(?:new\s+|another\s+|separate\s+)?tab\b", re.I
+    r"\b(?:(?:in|into|to|for)\s+(?:a\s+|an\s+)?(?:new\s+|another\s+|separate\s+)?tab|new\s+tab)\b", re.I
 )
 
 # query tail cleanup: "search X for Python and play it" → "Python"
@@ -328,11 +328,13 @@ def classify_browser_intent(message: str, current_service: Optional[str] = None)
 
     # ── OPEN_WEBSITE / NAVIGATE ──
     if _VERB_OPEN_WEBSITE.search(text) or (
-        _VERB_OPEN.search(text) and (service or url or _extract_bare_domain(text))
+        _VERB_OPEN.search(text) and (service or url or _extract_bare_domain(text) or new_tab)
     ):
         bare_domain = _extract_bare_domain(text)
         target_url = url or bare_domain or (lookup_site(service) if service else None)
         pure_open_website = bool(_VERB_OPEN_WEBSITE.search(text)) and not service
+        if not target_url and not pure_open_website and not service and new_tab:
+            target_url = "https://www.google.com"
         intent = BrowserIntent(
             intent=NAVIGATE if (url or bare_domain or pure_open_website) else OPEN_WEBSITE,
             service=service,

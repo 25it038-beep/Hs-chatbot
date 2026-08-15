@@ -106,14 +106,20 @@ async def ws_client_loop():
 
 def start_ws_client():
     global _client_task
-    # Only run the WS client when this process is the local Windows desktop agent.
-    # On the cloud (Render), browser_agent_mode='server' — it accepts connections, never dials out.
-    # On the Windows EXE, set BROWSER_AGENT_MODE=client in .env or environment.
-    if settings.browser_agent_mode == "client" and settings.remote_backend_url:
+    import sys
+    import os
+
+    # Auto-detect client mode:
+    # 1. On Render cloud: RENDER or RENDER_SERVICE_ID env var is present → SERVER mode (accepts WS connections).
+    # 2. On user's local machine: PyInstaller EXE (sys.frozen), local dev (app_env=="development"), or explicit BROWSER_AGENT_MODE=client → CLIENT mode (connects to Render WS).
+    is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_INSTANCE_ID"))
+    is_client = (settings.browser_agent_mode == "client" or getattr(sys, "frozen", False) or settings.app_env == "development") and not is_render
+
+    if is_client and settings.remote_backend_url:
         _client_task = asyncio.create_task(ws_client_loop())
         logger.info("WS Client (local agent) started, connecting to %s", settings.remote_backend_url)
     else:
-        logger.info("WS Client disabled (mode=%s). Running as server-side backend.", settings.browser_agent_mode)
+        logger.info("WS Client disabled (is_render=%s, mode=%s). Running as server-side backend.", is_render, settings.browser_agent_mode)
 
 
 def stop_ws_client():

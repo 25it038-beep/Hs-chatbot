@@ -40,3 +40,5 @@ services:
         value: default
       - key: CLOUDFLARE_GATEWAY_DEFAULT_MODEL
         value: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      - key: BROWSER_AGENT_MODE
+        value: server

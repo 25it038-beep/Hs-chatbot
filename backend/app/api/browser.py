@@ -6,14 +6,22 @@ Commands themselves stay inside the chat streaming paths; this endpoint is
 read-only polling (titles/urls of tabs the user's own agent opened).
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import json
+import logging
+from typing import Any
 
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+
+from app.config import settings
 from app.services.browser.agent import browser_agent
 from app.services.browser.ws_manager import ws_manager
-import logging
 
 logger = logging.getLogger("hsbot.api.browser")
 router = APIRouter(prefix="/api/browser", tags=["browser"])
+
+
+def _browser_ws_auth_error() -> dict[str, Any]:
+    return {"type": "browser.result", "success": False, "error": "Unauthorized browser client."}
 
 
 @router.get("/state")
@@ -42,24 +50,40 @@ async def browser_state() -> dict:
 
 @router.websocket("/ws")
 async def browser_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token") or websocket.headers.get("x-browser-token") or websocket.headers.get("authorization", "").replace("Bearer ", "", 1)
+    expected = settings.browser_ws_auth_token
+    if not expected:
+        logger.warning("[WS AUTH] No browser token configured; rejecting browser client.")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    if token != expected:
+        logger.warning("[WS AUTH] Browser WS rejected: invalid token.")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    logger.info("[WS AUTH] Browser WS authenticated; accepting connection.")
     await websocket.accept()
     ws_manager.set_ws(websocket)
     try:
         while True:
             data = await websocket.receive_text()
             try:
-                import json
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
+                    logger.info("[WS HEARTBEAT] pong sent for browser client.")
+                    continue
+                if msg.get("type") == "browser.result":
+                    logger.info("[WS RESULT] Received browser result request_id=%s success=%s", msg.get("request_id"), msg.get("success"))
                     continue
             except Exception:
                 pass
+            logger.info("[WS MESSAGE] Browser client sent message: %s", data[:256])
             ws_manager.handle_message(data)
     except WebSocketDisconnect:
-        pass
+        logger.info("[WS DISCONNECT] Browser WS disconnected normally.")
     except Exception as e:
-        logger.error(f"WebSocket connection error: {e}")
+        logger.error(f"[WS ERROR] WebSocket connection error: {e}")
     finally:
         ws_manager.clear_ws()
 

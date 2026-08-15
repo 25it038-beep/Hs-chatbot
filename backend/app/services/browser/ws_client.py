@@ -10,33 +10,37 @@ logger = logging.getLogger("hsbot.browser.ws_client")
 _client_task: Optional[asyncio.Task] = None
 
 
+def _ws_uri() -> str:
+    base = settings.remote_backend_url.rstrip("/")
+    return base.replace("https://", "wss://").replace("http://", "ws://") + "/api/browser/ws?token=" + settings.browser_ws_auth_token
+
+
 async def ws_client_loop():
     if not settings.remote_backend_url:
-        logger.info("No remote_backend_url configured. WebSocket client disabled.")
+        logger.info("[WS Client] No remote_backend_url configured. WebSocket client disabled.")
         return
 
-    # Convert HTTPS/HTTP to WSS/WS
-    uri = settings.remote_backend_url.replace("https://", "wss://").replace("http://", "ws://") + "/api/browser/ws"
-    logger.info(f"Starting remote browser agent WebSocket client pointing to: {uri}")
+    uri = _ws_uri()
+    logger.info("[WS Client] Starting remote browser agent WebSocket client pointing to: %s", uri)
 
     headers = {
         "User-Agent": "HS-Bot-Desktop/1.0",
-        "Origin": "https://hs-chatbot-2.onrender.com"
+        "Origin": settings.remote_backend_url,
+        "x-browser-token": settings.browser_ws_auth_token,
     }
-    backoff = 2
+    backoff = 1
     while True:
         try:
             async with websockets.connect(
                 uri,
                 additional_headers=headers,
-                ping_interval=20,   # WS-level ping every 20s to keep connection alive through Render's proxy
-                ping_timeout=40,    # wait 40s for pong before declaring connection dead
+                ping_interval=20,
+                ping_timeout=40,
                 open_timeout=20,
             ) as websocket:
-                backoff = 2  # Reset backoff on success
-                logger.info(f"[WS Client] Connected to remote server at {uri}")
+                backoff = 1
+                logger.info("[WS Client] Connected to remote server at %s", uri)
 
-                # Task to send local state updates to the server periodically
                 async def send_state_updates():
                     from app.services.browser.diagnostics import run_browser_diagnostics
                     while True:
@@ -45,15 +49,10 @@ async def ws_client_loop():
                             current_state = browser_agent.state()
                             current_state["chrome"] = "READY" if diag["chrome"] == "FOUND" and diag["driver"] == "READY" else "NOT CONNECTED"
                             current_state["browser_agent"] = "READY" if diag["selenium"] == "READY" and diag["driver"] == "READY" else "FAILED"
-                            # ALWAYS send — not just on change — to keep the Render proxy alive.
-                            # Render's load balancer closes idle WebSocket connections after ~55s.
-                            await websocket.send(json.dumps({
-                                "type": "state_update",
-                                "state": current_state
-                            }))
+                            await websocket.send(json.dumps({"type": "state_update", "state": current_state}))
                         except Exception as e:
-                            logger.error(f"[WS Client] Error sending state update: {e}")
-                        await asyncio.sleep(15)  # every 15s (well within Render's 55s idle timeout)
+                            logger.error("[WS Client] Error sending state update: %s", e)
+                        await asyncio.sleep(15)
 
                 state_task = asyncio.create_task(send_state_updates())
 
@@ -62,14 +61,12 @@ async def ws_client_loop():
                         try:
                             data = json.loads(message_str)
                             mtype = data.get("type")
-                            
+                            logger.info("[WS Client] Received message type=%s payload=%s", mtype, json.dumps(data)[:400])
                             if mtype == "browser_action":
-                                req_id = data.get("req_id")
+                                req_id = data.get("request_id") or data.get("req_id")
                                 action = data.get("action")
-                                
                                 if action == "run_plan":
                                     intent_dict = data.get("intent", {})
-                                    # reconstruct BrowserIntent
                                     intent = BrowserIntent(
                                         intent=intent_dict.get("intent"),
                                         service=intent_dict.get("service"),
@@ -81,32 +78,29 @@ async def ws_client_loop():
                                         new_tab=intent_dict.get("new_tab", False),
                                         requires_confirmation=intent_dict.get("requires_confirmation", False),
                                     )
-                                    
-                                    logger.info(f"[WS Client] Executing local browser action plan for {intent.intent}")
+                                    logger.info("[WS Client] Executing local browser action plan for %s request_id=%s", intent.intent, req_id)
                                     events = await browser_agent.run_plan(intent)
-                                    
-                                    # Send results back
                                     res_payload = {
-                                        "type": "tool_result",
-                                        "req_id": req_id,
+                                        "type": "browser.result",
+                                        "request_id": req_id,
                                         "success": True,
-                                        "events": events
+                                        "data": {"events": events}
                                     }
                                     await websocket.send(json.dumps(res_payload))
+                                    logger.info("[WS Client] Sent browser result for request_id=%s success=%s", req_id, True)
                         except Exception as e:
-                            logger.error(f"[WS Client] Error handling server message: {e}")
+                            logger.error("[WS Client] Error handling server message: %s", e)
                 finally:
                     state_task.cancel()
-                    
         except Exception as e:
             err_str = str(e)
-            # For transient DNS / network errors, don't escalate — retry quickly
             is_dns_error = "getaddrinfo" in err_str or "Name or service not known" in err_str
-            wait = min(backoff, 8) if is_dns_error else backoff
-            logger.error(f"[WS Client] Connection lost or failed: {e}. Retrying in {wait}s...")
+            wait = min(backoff, 30)
+            if is_dns_error:
+                wait = min(max(backoff, 1), 30)
+            logger.error("[WS Client] Connection lost or failed: %s. Retrying in %ss...", e, wait)
             await asyncio.sleep(wait)
-            if not is_dns_error:
-                backoff = min(backoff * 2, 30)
+            backoff = min(max(backoff * 2, 1), 30)
 
 
 def start_ws_client():
@@ -114,17 +108,14 @@ def start_ws_client():
     import sys
     import os
 
-    # Auto-detect client mode:
-    # 1. On Render cloud: RENDER or RENDER_SERVICE_ID env var is present → SERVER mode (accepts WS connections).
-    # 2. On user's local machine: PyInstaller EXE (sys.frozen), local dev (app_env=="development"), or explicit BROWSER_AGENT_MODE=client → CLIENT mode (connects to Render WS).
     is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_INSTANCE_ID"))
     is_client = (settings.browser_agent_mode == "client" or getattr(sys, "frozen", False) or settings.app_env == "development") and not is_render
 
     if is_client and settings.remote_backend_url:
         _client_task = asyncio.create_task(ws_client_loop())
-        logger.info("WS Client (local agent) started, connecting to %s", settings.remote_backend_url)
+        logger.info("[WS Client] Local agent started, mode=client remote_backend_url=%s", settings.remote_backend_url)
     else:
-        logger.info("WS Client disabled (is_render=%s, mode=%s). Running as server-side backend.", is_render, settings.browser_agent_mode)
+        logger.info("[WS Client] disabled (is_render=%s, mode=%s). Running as server-side backend.", is_render, settings.browser_agent_mode)
 
 
 def stop_ws_client():

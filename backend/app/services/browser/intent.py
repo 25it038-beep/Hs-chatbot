@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .config import browser_config
+from .url_utils import normalize_browser_url
 
 # ---------------------------------------------------------------------------
 # Intents
@@ -184,14 +185,16 @@ def lookup_site(service: str) -> Optional[str]:
 
 def _extract_url(text: str) -> Optional[str]:
     m = _URL_RE.search(text)
-    return m.group(0) if m else None
+    if not m:
+        return None
+    return normalize_browser_url(m.group(0))
 
 
 def _extract_bare_domain(text: str) -> Optional[str]:
     m = _BARE_DOMAIN_RE.search(text)
     if not m:
         return None
-    return f"https://{m.group(0).lower()}"
+    return normalize_browser_url(m.group(0).lower())
 
 
 def _extract_service(text: str) -> Optional[str]:
@@ -331,10 +334,13 @@ def classify_browser_intent(message: str, current_service: Optional[str] = None)
         _VERB_OPEN.search(text) and (service or url or _extract_bare_domain(text) or new_tab)
     ):
         bare_domain = _extract_bare_domain(text)
-        target_url = url or bare_domain or (lookup_site(service) if service else None)
+        fallback_service = lookup_site(service) if service else None
+        target_url = url or bare_domain or fallback_service
         pure_open_website = bool(_VERB_OPEN_WEBSITE.search(text)) and not service
         if not target_url and not pure_open_website and not service and new_tab:
             target_url = "https://www.google.com"
+        if target_url and not target_url.startswith("http"):
+            target_url = normalize_browser_url(target_url) or target_url
         intent = BrowserIntent(
             intent=NAVIGATE if (url or bare_domain or pure_open_website) else OPEN_WEBSITE,
             service=service,

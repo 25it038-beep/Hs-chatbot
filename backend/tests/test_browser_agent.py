@@ -28,6 +28,7 @@ from app.services.browser import tab_manager as tm
 from app.services.browser.agent import ActionError, BrowserAgent
 from app.services.browser.config import browser_config as cfg
 from app.services.browser.intent import classify_browser_intent
+from app.services.browser.url_utils import normalize_browser_url, validate_browser_url
 
 
 # --------------------------------------------------------------------------
@@ -148,6 +149,27 @@ def test_confirm_does_not_steal_search():
 def test_clean_query_removes_trailing_on():
     i = classify_browser_intent("Play Believer on Spotify")
     assert i.query == "Believer"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("https://example.com", "https://example.com"),
+        ("http://example.com", "http://example.com"),
+        ("www.example.com", "https://www.example.com"),
+        ("example.com", "https://example.com"),
+        ("github.com", "https://github.com"),
+        ("Open Google", "https://www.google.com"),
+        ("Google", "https://www.google.com"),
+    ],
+)
+def test_normalize_browser_url_handles_domains_and_public_sites(raw, expected):
+    assert normalize_browser_url(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "not a url", "ftp://example.com", "javascript:alert(1)", "http://localhost:3000", "http://127.0.0.1:8000"])
+def test_validate_browser_url_rejects_invalid_or_local_targets(raw):
+    assert validate_browser_url(raw) is False
 
 
 # --------------------------------------------------------------------------

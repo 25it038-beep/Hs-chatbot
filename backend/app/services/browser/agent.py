@@ -78,6 +78,7 @@ except Exception:  # pragma: no cover
     Keys = None  # type: ignore[assignment]
 
 from app.services.retrieval.extractor import extract_text
+from .url_utils import normalize_browser_url, validate_browser_url
 
 # Steps after which a fresh tab snapshot is emitted (sections 5-7, 11).
 _TAB_OBSERVE_ACTIONS = {"open_website", "switch_tab", "close_tab"}
@@ -428,9 +429,10 @@ class BrowserAgent:
         return url in ("about:blank", "data:,") or url.startswith("chrome://newtab")
 
     def _open_website(self, driver, url: str) -> None:
-        if not (url.startswith("http://") or url.startswith("https://")):
-            raise ActionError("Only http/https URLs can be opened.", recoverable=False)
-        driver.get(url)
+        normalized = normalize_browser_url(url)
+        if not normalized or not validate_browser_url(normalized):
+            raise ActionError("Only valid public http/https URLs can be opened.", recoverable=False)
+        driver.get(normalized)
         self._wait_ready(driver)
         self._refresh_state(driver)
 

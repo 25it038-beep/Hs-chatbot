@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50
     remote_backend_url: Optional[str] = "https://hs-chatbot-2.onrender.com"
+    browser_ws_token: str = ""
 
     # Controls browser agent role:
     # 'server' = this process is the cloud backend (Render) — do NOT start a WS client
@@ -90,6 +91,14 @@ class Settings(BaseSettings):
     browser_agent_mode: str = "server"
 
     cors_origins: str = "*"
+
+    @property
+    def browser_ws_auth_token(self) -> str:
+        if self.browser_ws_token:
+            return self.browser_ws_token
+        base = (self.secret_key or "hsbot").strip()
+        import hashlib
+        return hashlib.sha256(f"{base}:browser-ws".encode("utf-8")).hexdigest()[:32]
 
     @property
     def cors_origin_list(self) -> list[str]:

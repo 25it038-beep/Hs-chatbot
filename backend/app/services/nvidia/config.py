@@ -96,14 +96,6 @@ NVIDIA_MODELS = {
         "dimensions": 1024,
         "max_input_length": 512,
     },
-    "nv-embedcode-7b": {
-        "id": "nvidia/nv-embedcode-7b-v1",
-        "name": "NV-EmbedCode 7B",
-        "type": "embeddings",
-        "capabilities": ["embeddings", "code-embeddings"],
-        "dimensions": 1024,
-        "max_input_length": 512,
-    },
 }
 
 # Task routing configuration
@@ -126,7 +118,8 @@ TASK_ROUTES = {
     },
     "image_generation": {
         "default": "flux-1-dev",
-        "fallback": ["flux-1-schnell", "flux-2-klein"],
+        # flux-1-schnell cold-starts very slowly (>90s) — try flux-2-klein first
+        "fallback": ["flux-2-klein", "flux-1-schnell"],
     },
     "web_images": {
         "default": "llama-3.1-70b",
@@ -134,7 +127,8 @@ TASK_ROUTES = {
     },
     "embeddings": {
         "default": "nv-embed-v1",
-        "fallback": ["nv-embedcode-7b"],
+        # nv-embedcode-7b returns HTTP 500 from NVIDIA — disabled until fixed upstream
+        "fallback": [],
     },
 }
 

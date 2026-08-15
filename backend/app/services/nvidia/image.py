@@ -9,9 +9,9 @@ from pydantic import BaseModel
 key_manager = KeyManager()
 
 FLUX_MODELS = {
-    "flux-1-schnell": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell",
     "flux-1-dev": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev",
     "flux-2-klein": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b",
+    "flux-1-schnell": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell",
 }
 
 DEFAULT_IMAGE_MODEL = "flux-1-dev"

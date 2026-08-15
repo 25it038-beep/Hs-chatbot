@@ -6,6 +6,7 @@ total context budget so we never flood the model.
 """
 
 import re
+from typing import Optional
 
 from .config import retrieval_config as cfg
 from .extractor import html_to_passages

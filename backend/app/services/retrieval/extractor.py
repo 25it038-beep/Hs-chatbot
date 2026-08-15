@@ -6,6 +6,7 @@ meaningful text, then splits into overlapping passages. Stdlib only.
 
 import re
 from html.parser import HTMLParser
+from typing import Optional
 
 from .config import retrieval_config as cfg
 

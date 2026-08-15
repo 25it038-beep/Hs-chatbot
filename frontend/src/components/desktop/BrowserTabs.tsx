@@ -24,8 +24,10 @@ interface BrowserState {
  * current action and queued actions (§5, §10, §13). Polls /api/browser/state. */
 export function BrowserTabs() {
   const [state, setState] = useState<BrowserState | null>(null)
+  const [diagnostics, setDiagnostics] = useState<any>(null)
   const [error, setError] = useState(false)
   const timer = useRef<number | null>(null)
+  const diagTimer = useRef<number | null>(null)
 
   useEffect(() => {
     if (!isTauri) return
@@ -42,20 +44,53 @@ export function BrowserTabs() {
       }
     }
 
+    const pollDiagnostics = async () => {
+      try {
+        const res = await api.get<any>('/browser/diagnostics')
+        if (cancelled) return
+        setDiagnostics(res)
+      } catch {
+        if (cancelled) return
+        setDiagnostics({
+          Backend: 'FAILED',
+          WebSocket: 'NOT CONNECTED',
+          'Browser Agent': 'FAILED',
+          Chrome: 'NOT CONNECTED',
+        })
+      }
+    }
+
     poll()
+    pollDiagnostics()
     timer.current = window.setInterval(poll, 2500)
+    diagTimer.current = window.setInterval(pollDiagnostics, 2500)
+    
     return () => {
       cancelled = true
       if (timer.current) window.clearInterval(timer.current)
+      if (diagTimer.current) window.clearInterval(diagTimer.current)
     }
   }, [])
 
   if (!isTauri) return null
   if (!state?.browser_open) {
+    const backendStatus = diagnostics?.Backend || 'FAILED'
+    const wsStatus = diagnostics?.WebSocket || 'NOT CONNECTED'
+    const agentStatus = diagnostics?.['Browser Agent'] || 'FAILED'
+    const chromeStatus = diagnostics?.Chrome || 'NOT CONNECTED'
+
     return (
-      <div className="flex items-center gap-2 px-3 h-7 border-b border-border bg-muted/30 text-[10px] text-muted-foreground/60">
-        <Globe size={10} />
-        {error ? 'Browser status unavailable' : 'Controlled browser not running — try "open Spotify"'}
+      <div className="flex flex-col gap-1 px-3 py-1.5 border-b border-border bg-muted/30 text-[10px] text-muted-foreground/60 select-none">
+        <div className="flex items-center gap-2">
+          <Globe size={10} className="text-muted-foreground/50" />
+          <span>Controlled browser not running — try "open Spotify"</span>
+        </div>
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap mt-0.5 text-[9px] font-mono">
+          <span>Backend: <strong className={backendStatus === 'CONNECTED' ? 'text-green-500' : 'text-red-500'}>{backendStatus}</strong></span>
+          <span>WebSocket: <strong className={wsStatus === 'CONNECTED' ? 'text-green-500' : 'text-red-500'}>{wsStatus}</strong></span>
+          <span>Browser Agent: <strong className={agentStatus === 'READY' ? 'text-green-500' : 'text-red-500'}>{agentStatus}</strong></span>
+          <span>Chrome: <strong className={chromeStatus === 'READY' ? 'text-green-500' : 'text-red-500'}>{chromeStatus}</strong></span>
+        </div>
       </div>
     )
   }

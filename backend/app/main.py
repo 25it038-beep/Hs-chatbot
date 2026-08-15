@@ -40,8 +40,11 @@ os.makedirs("./data", exist_ok=True)
 async def lifespan(app: FastAPI):
     await init_db()
     await start_warmup()
+    from app.services.browser.ws_client import start_ws_client, stop_ws_client
+    start_ws_client()
     yield
     await stop_warmup()
+    stop_ws_client()
     from app.services.retrieval.selenium_fetcher import shutdown as _selenium_shutdown
     from app.services.browser.agent import browser_agent as _browser_agent
 
@@ -54,11 +57,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+class SafeCORSMiddleware(CORSMiddleware):
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "websocket":
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
 cors_origins = settings.cors_origin_list
 
 if "*" in cors_origins:
     app.add_middleware(
-        CORSMiddleware,
+        SafeCORSMiddleware,
         allow_origin_regex=r".*",
         allow_credentials=True,
         allow_methods=["*"],
@@ -66,7 +76,7 @@ if "*" in cors_origins:
     )
 else:
     app.add_middleware(
-        CORSMiddleware,
+        SafeCORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],

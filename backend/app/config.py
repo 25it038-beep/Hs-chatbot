@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./data/uploads"
     max_file_size_mb: int = 50
+    remote_backend_url: Optional[str] = "https://hs-chatbot-2.onrender.com"
 
     cors_origins: str = "*"
 

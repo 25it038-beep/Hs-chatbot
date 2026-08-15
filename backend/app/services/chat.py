@@ -158,6 +158,23 @@ class ChatService:
     async def send_message(
         self, user_id: str, request: ChatRequest
     ) -> AsyncGenerator[StreamChunk, None]:
+        original_message = request.message
+        from app.services.retrieval.url_handler import handle_url_fetching
+        url_context = None
+        url_res = await handle_url_fetching(request.message)
+        if url_res["has_url"]:
+            if not url_res["success"]:
+                yield StreamChunk(
+                    type="error",
+                    content=url_res["error"],
+                    model=request.model or "glm-5.2",
+                    provider=request.provider or "nvidia",
+                    done=True,
+                )
+                return
+            else:
+                request.message = url_res["query"]
+                url_context = url_res["context"]
         chat_id = request.chat_id
         model = request.model
         default_models = {
@@ -206,6 +223,8 @@ class ChatService:
             "Outside of identity questions, be as helpful, thorough, and accurate as possible."
         )
         system_prompt = request.system_prompt or chat.system_prompt or _hs_persona
+        if url_context:
+            system_prompt = f"{system_prompt}\n\n{url_context}"
 
         if user_id:
             rag = RAGService(self.db, user_id)
@@ -268,7 +287,7 @@ class ChatService:
                     final_summary += ev.get("content", "")
             if handled:
                 if final_summary:
-                    self.db.add(Message(chat_id=chat_id, role="user", content=request.message))
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
                     self.db.add(
                         Message(
                             chat_id=chat_id,
@@ -533,7 +552,7 @@ class ChatService:
 
                 if full_content:
                     latency = (time.time() - start) * 1000
-                    user_msg = Message(chat_id=chat_id, role="user", content=request.message)
+                    user_msg = Message(chat_id=chat_id, role="user", content=original_message)
                     assistant_msg = Message(
                         chat_id=chat_id,
                         role="assistant",
@@ -593,7 +612,7 @@ class ChatService:
                         done=True,
                     )
                     return
-            user_msg = Message(chat_id=chat_id, role="user", content=request.message)
+            user_msg = Message(chat_id=chat_id, role="user", content=original_message)
             assistant_msg = Message(
                 chat_id=chat_id,
                 role="assistant",

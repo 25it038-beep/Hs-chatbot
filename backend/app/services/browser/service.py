@@ -89,8 +89,25 @@ class BrowserService:
             yield ev
 
     async def _run_plan(self, intent: bi.BrowserIntent) -> AsyncIterator[dict]:
-        for ev in await browser_agent.run_plan(intent):
-            yield ev
+        from .ws_manager import ws_manager
+        if ws_manager.is_connected():
+            res = await ws_manager.execute_action("run_plan", intent=intent.to_dict())
+            if res.get("success"):
+                for ev in res.get("events", []):
+                    yield ev
+            else:
+                yield {
+                    "type": "browser_status",
+                    "content": f"❌ Action failed: {res.get('error', 'unknown error')}"
+                }
+                yield {
+                    "type": "content",
+                    "content": f"I couldn't complete the request: {res.get('error', 'unknown error')}"
+                }
+                yield {"type": "done", "success": False}
+        else:
+            for ev in await browser_agent.run_plan(intent):
+                yield ev
 
     def clear_pending(self, user_id: str) -> None:
         self._pending.pop(user_id, None)

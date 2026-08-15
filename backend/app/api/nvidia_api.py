@@ -204,6 +204,25 @@ async def nvidia_chat(
     user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
+    original_message = request.message
+    from app.services.retrieval.url_handler import handle_url_fetching
+    url_context = None
+    url_res = await handle_url_fetching(request.message)
+    if url_res["has_url"]:
+        if not url_res["success"]:
+            if request.stream:
+                async def err_generator():
+                    yield f"data: {json.dumps({'type': 'meta', 'model': request.model or 'glm-5.2', 'task': 'chat', 'chat_id': request.chat_id or ''})}\n\n"
+                    yield f"data: {json.dumps({'type': 'error', 'content': url_res['error']})}\n\n"
+                    yield "data: [DONE]\n\n"
+                return StreamingResponse(err_generator(), media_type="text/event-stream", headers={
+                    "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+                })
+            else:
+                raise HTTPException(status_code=400, detail=url_res["error"])
+        else:
+            request.message = url_res["query"]
+            url_context = url_res["context"]
     if request.auto_route:
         # Load recent user messages for context-aware routing ("create an image of it")
         context: list[str] = []
@@ -255,6 +274,8 @@ async def nvidia_chat(
         "No matter what language the user writes in, you ALWAYS answer in English."
     )
     system_prompt = request.system_prompt or _hs_persona
+    if url_context:
+        system_prompt = f"{system_prompt}\n\n{url_context}"
 
     # ── Image generation path ──
     if task == "image_generation":
@@ -498,7 +519,7 @@ async def nvidia_chat(
                         if web_videos_md:
                             yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_videos_md})}\n\n"
                             full_content += "\n\n" + web_videos_md
-                        user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
+                        user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
                         assistant_msg = Message(
                             chat_id=request.chat_id,
                             role="assistant",
@@ -545,7 +566,7 @@ async def nvidia_chat(
             )
             if extra_images_md:
                 response.content = f"{response.content}\n\n{extra_images_md}"
-            user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
+            user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
             assistant_msg = Message(
                 chat_id=request.chat_id,
                 role="assistant",

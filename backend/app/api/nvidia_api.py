@@ -67,6 +67,7 @@ async def _browser_events(browser_service, request, db, chat, user, full_message
             return
         elif etype == "content":
             final_summary += ev.get("content", "")
+            yield f"data: {json.dumps({'type': 'content', 'content': ev.get('content', '')})}\n\n"
     if final_summary:
         user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
         assistant_msg = Message(

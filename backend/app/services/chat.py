@@ -288,6 +288,7 @@ class ChatService:
                     break
                 elif etype == "content":
                     final_summary += ev.get("content", "")
+                    yield StreamChunk(type="content", content=ev.get("content", ""))
             if handled:
                 if final_summary:
                     self.db.add(Message(chat_id=chat_id, role="user", content=original_message))

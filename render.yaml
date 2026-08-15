@@ -19,6 +19,10 @@ services:
         sync: false
       - key: SAMBANOVA_DEFAULT_MODEL
         value: DeepSeek-V3.2
+      - key: TAVILY_API_KEY
+        value: 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
+      - key: TAVILY_FALLBACK_API_KEY
+        value: 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
       - key: NVIDIA_API_KEYS
         value: ""
         sync: false

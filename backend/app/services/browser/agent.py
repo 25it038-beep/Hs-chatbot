@@ -241,7 +241,29 @@ class BrowserAgent:
         opts.add_argument("--no-first-run")
         opts.add_argument("--lang=en-US,en")
         opts.add_argument("--window-size=1440,900")
-        if cfg.BROWSER_PERSISTENT_SESSION:
+
+        user_chrome_dir = os.environ.get("CHROME_USER_DATA_DIR")
+        if not user_chrome_dir and (os.environ.get("USE_SYSTEM_CHROME_PROFILE") == "1" or os.environ.get("USE_LOGGED_IN_CHROME") == "1"):
+            if sys.platform.startswith("win"):
+                local_appdata = os.environ.get("LOCALAPPDATA", "")
+                if local_appdata:
+                    default_win_chrome = os.path.join(local_appdata, "Google", "Chrome", "User Data")
+                    if os.path.isdir(default_win_chrome):
+                        user_chrome_dir = default_win_chrome
+            elif sys.platform.startswith("darwin"):
+                mac_chrome = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+                if os.path.isdir(mac_chrome):
+                    user_chrome_dir = mac_chrome
+            else:
+                linux_chrome = os.path.expanduser("~/.config/google-chrome")
+                if os.path.isdir(linux_chrome):
+                    user_chrome_dir = linux_chrome
+
+        if user_chrome_dir and os.path.exists(user_chrome_dir):
+            opts.add_argument(f"--user-data-dir={os.path.abspath(user_chrome_dir)}")
+            opts.add_argument("--profile-directory=Default")
+            logger.info("Using system Chrome user data dir: {}", user_chrome_dir)
+        elif cfg.BROWSER_PERSISTENT_SESSION:
             os.makedirs(cfg.BROWSER_PROFILE_DIR, exist_ok=True)
             opts.add_argument(f"--user-data-dir={os.path.abspath(cfg.BROWSER_PROFILE_DIR)}")
         opts.page_load_strategy = "eager"
@@ -249,7 +271,28 @@ class BrowserAgent:
 
     def _start_driver(self):  # sync, worker thread
         opts = self._chrome_options()
-        driver = webdriver.Chrome(options=opts)
+        try:
+            driver = webdriver.Chrome(options=opts)
+        except Exception as e:
+            if "already in use" in str(e).lower() or "user data directory" in str(e).lower():
+                logger.warning("System Chrome user data dir locked by running Chrome process. Falling back to persistent profile: {}", cfg.BROWSER_PROFILE_DIR)
+                fallback_opts = Options()
+                if cfg.BROWSER_HEADLESS:
+                    fallback_opts.add_argument("--headless=new")
+                fallback_opts.add_argument("--no-sandbox")
+                fallback_opts.add_argument("--disable-dev-shm-usage")
+                fallback_opts.add_argument("--disable-extensions")
+                fallback_opts.add_argument("--disable-notifications")
+                fallback_opts.add_argument("--disable-default-apps")
+                fallback_opts.add_argument("--no-first-run")
+                fallback_opts.add_argument("--lang=en-US,en")
+                fallback_opts.add_argument("--window-size=1440,900")
+                os.makedirs(cfg.BROWSER_PROFILE_DIR, exist_ok=True)
+                fallback_opts.add_argument(f"--user-data-dir={os.path.abspath(cfg.BROWSER_PROFILE_DIR)}")
+                fallback_opts.page_load_strategy = "eager"
+                driver = webdriver.Chrome(options=fallback_opts)
+            else:
+                raise
         driver.set_page_load_timeout(cfg.BROWSER_PAGE_LOAD_TIMEOUT_S)
         driver.set_script_timeout(cfg.BROWSER_SCRIPT_TIMEOUT_S)
         self.tabs.attach(driver)

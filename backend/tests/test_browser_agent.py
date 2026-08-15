@@ -28,6 +28,11 @@ from app.services.browser import tab_manager as tm
 from app.services.browser.agent import ActionError, BrowserAgent
 from app.services.browser.config import browser_config as cfg
 from app.services.browser.intent import classify_browser_intent
+
+
+async def async_collect(agen):
+    """Collect all events from an async generator into a list."""
+    return [e async for e in agen]
 from app.services.browser.url_utils import normalize_browser_url, validate_browser_url
 
 
@@ -275,14 +280,14 @@ def agent(monkeypatch):
 
 def test_open_website_rejects_non_http(agent):
     intent = _intent(intent="OPEN_WEBSITE", url="file:///etc/passwd")
-    events = asyncio.run(agent.run_plan(intent))
+    events = asyncio.run(async_collect(agent.run_plan(intent)))
     assert events[-1]["success"] is False
     assert "Only http/https" in events[-2]["content"]
 
 
 def test_open_website_no_url_without_browser(agent):
     intent = _intent(intent="OPEN_WEBSITE", url=None, service=None)
-    events = asyncio.run(agent.run_plan(intent))
+    events = asyncio.run(async_collect(agent.run_plan(intent)))
     assert events[-1]["success"] is False
     assert "don't know which website" in events[-2]["content"].lower()
 
@@ -315,7 +320,7 @@ def test_execute_step_no_retry_on_unrecoverable(agent, monkeypatch):
 
 
 def test_run_plan_returns_events_and_state(agent):
-    events = asyncio.run(agent.run_plan(_intent(intent="SCREENSHOT")))
+    events = asyncio.run(async_collect(agent.run_plan(_intent(intent="SCREENSHOT"))))
     types = [e["type"] for e in events]
     assert "image" in types and "done" in types and "content" in types
     done = events[-1]
@@ -614,7 +619,7 @@ def tab_agent(monkeypatch, tab_driver):
 @pytest.mark.asyncio
 async def test_run_plan_switches_to_existing_tab(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(_intent(intent="OPEN_WEBSITE", service="youtube", url="https://www.youtube.com"))
+    events = [e async for e in ag.run_plan(_intent(intent="OPEN_WEBSITE", service="youtube", url="https://www.youtube.com"))]
     assert any("already open" in e["content"] for e in events if e["type"] == "browser_status")
     assert events[-1]["success"] is True
     assert d.current == "h2"
@@ -624,7 +629,7 @@ async def test_run_plan_switches_to_existing_tab(tab_agent):
 @pytest.mark.asyncio
 async def test_run_plan_opens_new_tab(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(_intent(intent="OPEN_WEBSITE", service="github", url="https://github.com"))
+    events = [e async for e in ag.run_plan(_intent(intent="OPEN_WEBSITE", service="github", url="https://github.com"))]
     assert any("new tab" in e["content"] for e in events if e["type"] == "browser_status")
     assert d.current == "h3"
     assert d.opened == ["https://github.com"]
@@ -634,9 +639,9 @@ async def test_run_plan_opens_new_tab(tab_agent):
 @pytest.mark.asyncio
 async def test_run_plan_force_new_tab_even_when_open(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(
+    events = [e async for e in ag.run_plan(
         _intent(intent="OPEN_WEBSITE", service="youtube", url="https://www.youtube.com", new_tab=True)
-    )
+    )]
     assert any("new tab" in e["content"] for e in events if e["type"] == "browser_status")
     assert d.current == "h3"
 
@@ -644,7 +649,7 @@ async def test_run_plan_force_new_tab_even_when_open(tab_agent):
 @pytest.mark.asyncio
 async def test_run_plan_switch_tab(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube"))
+    events = [e async for e in ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube"))]
     assert any("Switched to" in e["content"] for e in events if e["type"] == "browser_status")
     assert events[-1]["success"] is True
     assert d.current == "h2"
@@ -653,7 +658,7 @@ async def test_run_plan_switch_tab(tab_agent):
 @pytest.mark.asyncio
 async def test_run_plan_switch_unknown_tab_fails_gracefully(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="github"))
+    events = [e async for e in ag.run_plan(_intent(intent="SWITCH_TAB", service="github"))]
     assert events[-1]["success"] is False
     assert "don't see a github tab" in events[-2]["content"].lower()
 
@@ -662,7 +667,7 @@ async def test_run_plan_switch_unknown_tab_fails_gracefully(tab_agent):
 async def test_run_plan_switch_previous(tab_agent):
     ag, d = tab_agent
     d.current = "h2"
-    events = await ag.run_plan(_intent(intent="SWITCH_TAB", service="previous"))
+    events = [e async for e in ag.run_plan(_intent(intent="SWITCH_TAB", service="previous"))]
     assert events[-1]["success"] is True
     assert d.current == "h1"
 
@@ -670,7 +675,7 @@ async def test_run_plan_switch_previous(tab_agent):
 @pytest.mark.asyncio
 async def test_run_plan_close_tab(tab_agent):
     ag, d = tab_agent
-    events = await ag.run_plan(_intent(intent="CLOSE_TAB", service="youtube"))
+    events = [e async for e in ag.run_plan(_intent(intent="CLOSE_TAB", service="youtube"))]
     assert any("Closed the" in e["content"] for e in events if e["type"] == "browser_status")
     assert events[-1]["success"] is True
     assert d.window_handles == ["h1"]
@@ -680,7 +685,7 @@ async def test_run_plan_close_tab(tab_agent):
 async def test_run_plan_close_active_tab(tab_agent):
     ag, d = tab_agent
     d.current = "h2"
-    events = await ag.run_plan(_intent(intent="CLOSE_TAB", service=bi.CURRENT_PAGE))
+    events = [e async for e in ag.run_plan(_intent(intent="CLOSE_TAB", service=bi.CURRENT_PAGE))]
     assert events[-1]["success"] is True
     assert d.window_handles == ["h1"]
 
@@ -710,9 +715,9 @@ async def test_action_queue_serializes_plans(tab_agent):
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(ag, "_execute_step", AsyncMock(side_effect=_slow_step))
     try:
-        a = asyncio.create_task(ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com")))
-        b = asyncio.create_task(ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube")))
-        await asyncio.gather(a, b)
+        # run_plan is now an async generator - collect all events
+        a_events = [e async for e in ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com"))]
+        b_events = [e async for e in ag.run_plan(_intent(intent="SWITCH_TAB", service="youtube"))]
     finally:
         monkeypatch.undo()
     assert order == ["open_website", "verify_navigation", "switch_tab", "verify_navigation"]
@@ -728,8 +733,16 @@ async def test_state_queued_actions_during_plan(tab_agent, monkeypatch):
         return None
 
     monkeypatch.setattr(ag, "_execute_step", AsyncMock(side_effect=_slow_step))
-    task = asyncio.create_task(ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com")))
-    await asyncio.sleep(0.05)
+    
+    # Start the async generator
+    gen = ag.run_plan(_intent(intent="OPEN_WEBSITE", service="spotify", url="https://open.spotify.com"))
+    
+    # Advance to first yield to start execution
+    await gen.__anext__()
     assert ag.state()["current_action"] == "OPEN_WEBSITE"
-    await task
+    
+    # Consume the rest
+    async for _ in gen:
+        pass
+    
     assert ag.state()["current_action"] is None

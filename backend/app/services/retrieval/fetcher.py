@@ -14,6 +14,7 @@ import httpx
 from loguru import logger
 
 from .config import retrieval_config as cfg
+from .providers import tavily_extractor
 from .security import is_safe_url
 
 _CLIENT: Optional[httpx.AsyncClient] = None
@@ -131,19 +132,55 @@ async def fetch_page(url: str, retries: Optional[int] = None) -> tuple[Optional[
     return None, url, err
 
 
+_EXTRACT_SKIP = {
+    "blocked",
+    "blocked-scheme",
+    "blocked-redirect",
+    "404",
+    "too-large",
+    "too-many-redirects",
+    "timeout",
+    "deadline",
+    "unsupported-type",
+}
+
+
+def _extract_candidate(err: Optional[str]) -> bool:
+    """Only bot-blocked/malformed failures are worth a Tavily extract retry."""
+    return bool(err) and err not in _EXTRACT_SKIP and not err.startswith("http-5")
+
+
 class PageFetcher:
     def __init__(self, concurrency: Optional[int] = None) -> None:
         self._sem = asyncio.Semaphore(concurrency or cfg.MAX_FETCH_CONCURRENCY)
+        self._extract_left = cfg.TAVILY_EXTRACT_MAX
 
     async def fetch_many(self, urls: list[str], budget_s: Optional[float] = None) -> list[dict]:
         """Fetch in parallel; on deadline, keep finished pages, drop the rest.
 
         Uses asyncio.wait so a slow page can never discard the fast results
-        (section 6: partial results beat no results).
+        (section 6: partial results beat no results). Pages the direct fetch
+        cannot read (bot-blocked / JS-heavy) fall back to Tavily /extract,
+        capped per request so the extract budget is never exhausted.
         """
+        self._extract_left = cfg.TAVILY_EXTRACT_MAX
+
         async def _one(url: str):
             async with self._sem:
                 content, final_url, err = await fetch_page(url)
+                if content is None and cfg.TAVILY_EXTRACT_ENABLED and self._extract_left > 0 and _extract_candidate(err):
+                    self._extract_left -= 1
+                    try:
+                        extracted = await asyncio.wait_for(
+                            tavily_extractor.extract_single(url),
+                            timeout=cfg.TAVILY_EXTRACT_TIMEOUT_S + 2,
+                        )
+                    except asyncio.TimeoutError:
+                        extracted = None
+                    except Exception:
+                        extracted = None
+                    if extracted:
+                        content, final_url, err = extracted, url, None
                 return {"url": url, "final_url": final_url or url, "content": content, "error": err}
 
         tasks = {asyncio.create_task(_one(u)): u for u in urls}

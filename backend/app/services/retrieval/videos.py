@@ -18,23 +18,11 @@ from typing import Optional
 from loguru import logger
 
 from .config import retrieval_config as cfg
-from .providers import SearchResult, provider_pool
+from .providers import VIDEO_SEARCH_DOMAINS, SearchResult, provider_pool
 
 # Hosts whose URLs are reliably a video page (used by the fallback path).
-_VIDEO_HOSTS = (
-    "youtube.com",
-    "www.youtube.com",
-    "youtu.be",
-    "m.youtube.com",
-    "vimeo.com",
-    "player.vimeo.com",
-    "dailymotion.com",
-    "twitch.tv",
-    "tiktok.com",
-    "bilibili.com",
-    "facebook.com/watch",
-    "instagram.com/reel",
-)
+# Shared with providers.TavilyVideoProvider (include_domains).
+_VIDEO_HOSTS = VIDEO_SEARCH_DOMAINS
 
 _HOST_HINT = re.compile(r"^(?:https?://)?(?:www\.)?([^/:]+)")
 _TITLE_CLEAN = re.compile(r"[\u00a0\u200b]+")
@@ -91,12 +79,44 @@ def _query_keywords(query: str) -> set[str]:
     return {k for k in re.split(r"[\s,]+", query.lower()) if len(k) > 3 and not k.startswith(("http", "www"))}
 
 
+def _video_key(url: str) -> str:
+    """Stable identity key per video — never the bare watch path.
+
+    Stripping the query string collapses every YouTube watch URL onto
+    'youtube.com/watch'; keep the platform's video ID instead.
+    """
+    host = _host(url)
+    if "youtube.com" in host or host == "youtu.be":
+        m = re.search(r"[?&](?:v|embed)=([\w-]{6,})", url) or re.search(r"youtu\.be/([\w-]{6,})", url)
+        if m:
+            return f"yt:{m.group(1)}"
+        m = re.search(r"/shorts/([\w-]{6,})", url)
+        if m:
+            return f"yt-shorts:{m.group(1)}"
+    if "vimeo.com" in host:
+        m = re.search(r"vimeo\.com/(?:video/)?(\d+)", url)
+        if m:
+            return f"vim:{m.group(1)}"
+    if "dailymotion.com" in host:
+        m = re.search(r"dailymotion\.com/video/([a-z0-9]+)", url)
+        if m:
+            return f"dm:{m.group(1)}"
+    if "tiktok.com" in host:
+        m = re.search(r"tiktok\.com/@[^/]+/video/(\d+)", url)
+        if m:
+            return f"tt:{m.group(1)}"
+    if "bilibili.com" in host:
+        m = re.search(r"(?:/video/|/BV)([A-Za-z0-9]+)", url)
+        if m:
+            return f"bili:{m.group(1)}"
+    return re.sub(r"^(https?://www\.|https?://)", "", re.split(r"[?#]", url)[0].rstrip("/"))
+
+
 def dedupe_videos(results: list[VideoResult]) -> list[VideoResult]:
     seen: set[str] = set()
     out: list[VideoResult] = []
     for r in results:
-        key = re.split(r"[?#]", r.url)[0].rstrip("/")
-        key = re.sub(r"^(https?://www\.|https?://)", "", key)
+        key = _video_key(r.url)
         if not key or key in seen:
             continue
         seen.add(key)

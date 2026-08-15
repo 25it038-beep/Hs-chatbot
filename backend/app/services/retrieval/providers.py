@@ -1,9 +1,8 @@
 """Search providers (sections 2, 17, 20).
 
-Primary: DuckDuckGo (text / news / images) via ddgs.
-Image: DuckDuckGo images + Wikimedia Commons.
-Fallback chain handled by the orchestrator; every provider is isolated so a
-failure degrades to partial results instead of failing the request.
+Primary: Tavily (text / news / images / videos / extract) + DuckDuckGo
+(text / news / videos / images) + Wikipedia, all isolated so a failure
+degrades to partial results instead of failing the request.
 """
 
 import asyncio
@@ -15,6 +14,20 @@ from typing import Optional
 from loguru import logger
 
 from .config import retrieval_config as cfg
+
+VIDEO_SEARCH_DOMAINS = (
+    "youtube.com",
+    "youtu.be",
+    "m.youtube.com",
+    "vimeo.com",
+    "player.vimeo.com",
+    "dailymotion.com",
+    "twitch.tv",
+    "tiktok.com",
+    "bilibili.com",
+    "facebook.com/watch",
+    "instagram.com/reel",
+)
 
 
 @dataclass
@@ -37,6 +50,71 @@ class SearchProvider:
 
 def _run_sync(fn, *args):
     return asyncio.get_event_loop().run_in_executor(None, fn, *args)
+
+
+class _TavilyKeys:
+    """Process-wide Tavily key state with primary -> fallback rotation.
+
+    Shared by every Tavily provider so one rejected key rotates for all of
+    them at the same time (sections 2, 12, 20).
+    """
+
+    _active: Optional[str] = None
+    _lock = asyncio.Lock()
+
+    async def get(self) -> str:
+        if _TavilyKeys._active is None:
+            async with _TavilyKeys._lock:
+                if _TavilyKeys._active is None:
+                    _TavilyKeys._active = cfg.TAVILY_API_KEY
+        return _TavilyKeys._active
+
+    async def rotate(self) -> str:
+        async with _TavilyKeys._lock:
+            if _TavilyKeys._active == cfg.TAVILY_API_KEY and cfg.TAVILY_FALLBACK_API_KEY:
+                logger.warning("tavily: rotating to fallback API key")
+                _TavilyKeys._active = cfg.TAVILY_FALLBACK_API_KEY
+            return _TavilyKeys._active
+
+
+class TavilyBase(SearchProvider):
+    """Shared Tavily HTTP plumbing: key ring + POST with rotation/retry."""
+
+    SEARCH_URL = "https://api.tavily.com/search"
+    EXTRACT_URL = "https://api.tavily.com/extract"
+
+    def __init__(self) -> None:
+        self._keys = _TavilyKeys()
+
+    async def _post(self, url: str, payload: dict, timeout: float) -> Optional[dict]:
+        import httpx
+
+        key = await self._keys.get()
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code in (401, 403, 429):
+                    if resp.status_code != 429:  # 429 = key fine, limit hit; retry once
+                        logger.warning("tavily key rejected (http {}), rotating", resp.status_code)
+                        key = await self._keys.rotate()
+                        headers["Authorization"] = f"Bearer {key}"
+                        continue
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
+                    logger.warning("tavily rate limited (429) for {!r}", payload.get("query"))
+                    return None
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                logger.warning("tavily request failed ({}): {}", url.split("/")[-1], e)
+                return None
+        return None
+
+    async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
+        raise NotImplementedError
 
 
 class DDGSProvider(SearchProvider):
@@ -196,67 +274,25 @@ class WikimediaImageProvider(SearchProvider):
         return results
 
 
-class TavilyProvider(SearchProvider):
+class TavilyProvider(TavilyBase):
     """Primary text/news provider (sections 2, 12, 20).
 
-    Reliable, scored results with published dates. Two API keys: the primary
-    is used until it is rejected (401/403) or exhausted (429/5xx), then the
-    fallback key takes over for the rest of the process lifetime.
+    Reliable, scored results with published dates. Key rotation and rate-limit
+    retry live in TavilyBase.
     """
 
-    URL = "https://api.tavily.com/search"
-    _active_key: Optional[str] = None
-    _lock = asyncio.Lock()
-
-    async def _get_key(self) -> str:
-        if TavilyProvider._active_key is None:
-            async with TavilyProvider._lock:
-                if TavilyProvider._active_key is None:
-                    TavilyProvider._active_key = cfg.TAVILY_API_KEY
-        return TavilyProvider._active_key
-
-    async def _rotate(self) -> str:
-        async with TavilyProvider._lock:
-            if TavilyProvider._active_key == cfg.TAVILY_API_KEY and cfg.TAVILY_FALLBACK_API_KEY:
-                logger.warning("tavily: rotating to fallback API key")
-                TavilyProvider._active_key = cfg.TAVILY_FALLBACK_API_KEY
-            return TavilyProvider._active_key
-
     async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
-        import httpx
-
-        key = await self._get_key()
         payload = {
             "query": query,
             "max_results": min(limit, cfg.TAVILY_MAX_RESULTS),
-            "search_depth": "basic",
+            "search_depth": cfg.TAVILY_DEPTH,
             "include_answer": False,
         }
         if kind == "news":
             payload["topic"] = "news"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=cfg.TAVILY_TIMEOUT_S) as client:
-                    resp = await client.post(self.URL, json=payload, headers=headers)
-                if resp.status_code in (401, 403, 429):
-                    if resp.status_code != 429:  # 429 = key fine, limit hit; retry once
-                        logger.warning("tavily key rejected (http {}), rotating", resp.status_code)
-                        key = await self._rotate()
-                        headers["Authorization"] = f"Bearer {key}"
-                        continue
-                    if attempt == 0:
-                        await asyncio.sleep(0.5)
-                        continue
-                    logger.warning("tavily rate limited (429) for {!r}", query)
-                    return []
-                resp.raise_for_status()
-                data = resp.json()
-                break
-            except Exception as e:
-                logger.warning("tavily search failed for {!r}: {}", query, e)
-                return []
+        data = await self._post(self.SEARCH_URL, payload, cfg.TAVILY_TIMEOUT_S)
+        if not data:
+            return []
 
         results = []
         for r in data.get("results", []):
@@ -280,6 +316,109 @@ class TavilyProvider(SearchProvider):
         if not results:
             logger.warning("tavily returned zero results for {!r} (kind={})", query, kind)
         return results
+
+
+class TavilyImageProvider(TavilyBase):
+    """Tavily image search (include_images).
+
+    Returns real, query-relevant image URLs from Tavily's index — a reliable
+    complement to DDGS images (bursty) and Wikimedia (keyword-gated titles).
+    """
+
+    async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
+        payload = {
+            "query": query,
+            "max_results": min(limit, cfg.TAVILY_IMAGE_MAX),
+            "search_depth": "basic",
+            "include_answer": False,
+            "include_images": True,
+        }
+        data = await self._post(self.SEARCH_URL, payload, cfg.TAVILY_TIMEOUT_S)
+        if not data:
+            return []
+
+        results = []
+        cap = min(limit, cfg.TAVILY_IMAGE_MAX)
+        for url in data.get("images", [])[:cap]:
+            url = (url or "").split("?")[0]
+            if not url or not re.match(r"^https?://", url):
+                continue
+            results.append(
+                SearchResult(
+                    title=query[:200],
+                    url="",
+                    body="",
+                    source="tavily-images",
+                    kind="images",
+                    image_url=url,
+                )
+            )
+        if not results:
+            logger.warning("tavily returned no images for {!r}", query)
+        return results
+
+
+class TavilyVideoProvider(TavilyBase):
+    """Tavily video search: web results gated to known video platforms.
+
+    ddgs.videos is frequently empty or rate-limited from this IP, so Tavily
+    (with include_domains pinned to video hosts) supplies the real links.
+    """
+
+    async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
+        payload = {
+            "query": query,
+            "max_results": min(limit, cfg.TAVILY_VIDEO_MAX),
+            "search_depth": "basic",
+            "include_answer": False,
+            "include_domains": list(VIDEO_SEARCH_DOMAINS),
+        }
+        data = await self._post(self.SEARCH_URL, payload, cfg.TAVILY_TIMEOUT_S)
+        if not data:
+            return []
+
+        results = []
+        for r in data.get("results", []):
+            url = (r.get("url") or "").strip()
+            title = (r.get("title") or "").strip()
+            content = (r.get("content") or "").strip()
+            if not url or not re.match(r"^https?://", url) or (not title and not content):
+                continue
+            res = SearchResult(
+                title=title[:200],
+                url=url[:500],
+                body=content[:500],
+                source="tavily-videos",
+                kind="videos",
+                published=(r.get("published_date") or ""),
+            )
+            res.extra["tavily_score"] = float(r.get("score") or 0.0)
+            results.append(res)
+            if len(results) >= min(limit, cfg.TAVILY_VIDEO_MAX):
+                break
+        if not results:
+            logger.warning("tavily returned no videos for {!r}", query)
+        return results
+
+
+class TavilyExtractor(TavilyBase):
+    """Tavily /extract — clean content from pages a plain GET cannot read.
+
+    Used by the fetcher as a last-resort fallback for bot-blocked, JS-heavy
+    or malformed pages (403/4xx/5xx/network failures).
+    """
+
+    async def extract_single(self, url: str) -> Optional[str]:
+        data = await self._post(
+            self.EXTRACT_URL,
+            {"urls": [url], "extract_depth": "basic"},
+            cfg.TAVILY_EXTRACT_TIMEOUT_S,
+        )
+        for item in (data or {}).get("results", []):
+            if item.get("url") == url:
+                raw = (item.get("raw_content") or "").strip()
+                return raw[: cfg.MAX_PAGE_BYTES] if raw else None
+        return None
 
 
 class WikipediaProvider(SearchProvider):
@@ -332,7 +471,14 @@ class WikipediaProvider(SearchProvider):
 _TEXT_PROVIDER = DDGSProvider()
 _WIKI_PROVIDER = WikipediaProvider()
 _TAVILY_PROVIDER = TavilyProvider()
-_IMAGE_PROVIDERS: list[SearchProvider] = [DDGSImageProvider(), WikimediaImageProvider()]
+_TAVILY_IMAGE_PROVIDER = TavilyImageProvider()
+_TAVILY_VIDEO_PROVIDER = TavilyVideoProvider()
+_IMAGE_PROVIDERS: list[SearchProvider] = []
+if cfg.TAVILY_IMAGE_ENABLED:
+    _IMAGE_PROVIDERS.append(_TAVILY_IMAGE_PROVIDER)
+_IMAGE_PROVIDERS += [DDGSImageProvider(), WikimediaImageProvider()]
+
+tavily_extractor = TavilyExtractor()
 
 
 class ProviderPool:
@@ -415,7 +561,13 @@ class ProviderPool:
         return await self.text(query, limit, "news")
 
     async def videos(self, query: str, limit: int) -> list[SearchResult]:
-        return await self._run(_TEXT_PROVIDER, self._sem_ddgs, query, limit, "videos")
+        # Tavily (include_domains pinned to video platforms) + DDGS run in
+        # parallel; Tavily is the reliable one from this IP.
+        jobs = [self._run(_TEXT_PROVIDER, self._sem_ddgs, query, limit, "videos")]
+        if cfg.TAVILY_VIDEO_ENABLED:
+            jobs.append(self._run(_TAVILY_VIDEO_PROVIDER, self._sem_tavily, query, limit, "videos"))
+        outs = await asyncio.gather(*jobs)
+        return [r for batch in outs for r in batch]
 
 
 provider_pool = ProviderPool()

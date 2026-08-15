@@ -102,15 +102,15 @@ NVIDIA_MODELS = {
 TASK_ROUTES = {
     "chat": {
         "default": "llama-3.1-70b",
-        "fallback": [],
+        "fallback": ["mistral-large"],
     },
     "coding": {
         "default": "llama-3.1-70b",
-        "fallback": [],
+        "fallback": ["mistral-large"],
     },
     "reasoning": {
         "default": "llama-3.1-70b",
-        "fallback": [],
+        "fallback": ["mistral-large"],
     },
     "vision": {
         "default": "nemotron-vl",

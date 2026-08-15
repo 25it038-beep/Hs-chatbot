@@ -4,7 +4,8 @@ import asyncio
 import os
 import aiofiles
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, WebSocket
+from fastapi.websockets import WebSocketDisconnect
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -308,16 +309,20 @@ async def nvidia_chat(
                             if chunk.type == "content":
                                 yield f"data: {json.dumps(chunk.model_dump())}\n\n"
                     except Exception:
-                        yield f"data: {json.dumps({'type': 'content', 'content': '\n\nHere is your generated image!'})}\n\n"
+                        response_data = json.dumps({'type': 'content', 'content': '\n\nHere is your generated image!'})
+                        yield f"data: {response_data}\n\n"
                     finally:
                         image_note = (
                             "\n\n**Note:** You can only generate images in this chat from here on. "
                             "For other requests, please start a new chat."
                         )
-                        yield f"data: {json.dumps({'type': 'content', 'content': image_note})}\n\n"
+                        response_data = json.dumps({'type': 'content', 'content': image_note})
+                        yield f"data: {response_data}\n\n"
                 except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'Image generation failed: {str(e)}'})}\n\n"
-                    yield f"data: {json.dumps({'type': 'content', 'content': f'I could not generate the image. {str(e)}'})}\n\n"
+                    error_data = json.dumps({'type': 'error', 'content': f'Image generation failed: {str(e)}'})
+                    yield f"data: {error_data}\n\n"
+                    error_msg = f'I could not generate the image. {str(e)}'
+                    yield f"data: {json.dumps({'type': 'content', 'content': error_msg})}\n\n"
                 yield "data: [DONE]\n\n"
             return StreamingResponse(generate_image(), media_type="text/event-stream", headers={
                 "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
@@ -515,10 +520,12 @@ async def nvidia_chat(
                     if full_content:
                         latency = (time.time() - start) * 1000
                         if web_images_md:
-                            yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
+                            images_content = '\n\n' + web_images_md
+                            yield f"data: {json.dumps({'type': 'content', 'content': images_content})}\n\n"
                             full_content += "\n\n" + web_images_md
                         if web_videos_md:
-                            yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_videos_md})}\n\n"
+                            videos_content = '\n\n' + web_videos_md
+                            yield f"data: {json.dumps({'type': 'content', 'content': videos_content})}\n\n"
                             full_content += "\n\n" + web_videos_md
                         user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
                         assistant_msg = Message(
@@ -658,11 +665,14 @@ async def nvidia_chat(
             except (asyncio.CancelledError, GeneratorExit):
                 raise
             except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
+                error_msg = f'Error: {str(e)}'
+                yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
             if web_images_md:
-                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_images_md})}\n\n"
+                images_content = '\n\n' + web_images_md
+                yield f"data: {json.dumps({'type': 'content', 'content': images_content})}\n\n"
             if web_videos_md:
-                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n' + web_videos_md})}\n\n"
+                videos_content = '\n\n' + web_videos_md
+                yield f"data: {json.dumps({'type': 'content', 'content': videos_content})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers={

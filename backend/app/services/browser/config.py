@@ -16,6 +16,16 @@ if os.getenv("BROWSER_HEADLESS"):
 else:
     _HEADLESS = not sys.platform.startswith("win") and not os.environ.get("DISPLAY")
 
+# Default browser profile directory: use local AppData on Windows (avoid OneDrive sync issues)
+_DEFAULT_PROFILE_DIR = os.getenv("BROWSER_PROFILE_DIR")
+if not _DEFAULT_PROFILE_DIR:
+    if sys.platform.startswith("win"):
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        if local_appdata:
+            _DEFAULT_PROFILE_DIR = os.path.join(local_appdata, "HSBot", "browser_profile")
+    if not _DEFAULT_PROFILE_DIR:
+        _DEFAULT_PROFILE_DIR = "./data/browser_profile"
+
 
 def _int(name: str, default: int) -> int:
     try:
@@ -38,7 +48,8 @@ class BrowserConfig:
     BROWSER_PERSISTENT_SESSION: bool = os.getenv("BROWSER_PERSISTENT_SESSION", "1") != "0"
     # Dedicated user-data dir: user logs into services once, session persists
     # across restarts. Passwords are never typed or stored by HS AI itself.
-    BROWSER_PROFILE_DIR: str = os.getenv("BROWSER_PROFILE_DIR", "./data/browser_profile")
+    # On Windows, uses %LOCALAPPDATA% to avoid OneDrive sync interference.
+    BROWSER_PROFILE_DIR: str = _DEFAULT_PROFILE_DIR
     BROWSER_HEADLESS: bool = _HEADLESS
 
     # Timeouts (seconds)

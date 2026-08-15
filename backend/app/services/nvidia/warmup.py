@@ -56,9 +56,10 @@ async def warmup_default_models(provider=None) -> None:
 
 
 async def _keep_warm_loop() -> None:
-    """Periodically ping the fast default chat model to avoid cold-start
-    latency. Fast responses come from SambaNova's DeepSeek-V3.2, so NVIDIA
-    keep-warm is limited to the chat default (GLM) if configured."""
+    """Periodically ping the default chat model so it never idles out.
+    Pings OVERLAP: the next ping fires KEEP_WARM_INTERVAL after the previous
+    one *started* (not after it finished), so a slow cold-start ping cannot
+    create a >60s gap that lets the NVIDIA instance idle out."""
     from app.services.nvidia.config import TASK_ROUTES
     from app.services.nvidia.chat import NvidiaChatProvider
 
@@ -66,7 +67,6 @@ async def _keep_warm_loop() -> None:
     fast = None
     if settings.nvidia_api_keys:
         fast = TASK_ROUTES.get("chat", {}).get("default")
-    consecutive_failures = 0
     while True:
         try:
             if fast:
@@ -75,12 +75,16 @@ async def _keep_warm_loop() -> None:
                 if key is None or key.is_rate_limited or not key.is_active:
                     await asyncio.sleep(KEEP_WARM_INTERVAL)
                     continue
-                await _ping_model(provider, fast)
-                consecutive_failures = 0
+                ping_task = asyncio.create_task(_ping_model(provider, fast))
+                # Give the ping the full interval; if it is still running when
+                # the interval elapses, the next cycle starts a new ping anyway.
+                try:
+                    await asyncio.wait_for(asyncio.shield(ping_task), timeout=KEEP_WARM_INTERVAL)
+                except asyncio.TimeoutError:
+                    pass
         except Exception as e:  # noqa: BLE001
-            consecutive_failures += 1
             logger.warning("Keep-warm cycle error: %s", e)
-        await asyncio.sleep(KEEP_WARM_INTERVAL * (consecutive_failures + 1))
+        await asyncio.sleep(KEEP_WARM_INTERVAL)
 
 
 async def start_warmup() -> None:

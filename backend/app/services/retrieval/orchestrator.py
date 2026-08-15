@@ -210,12 +210,13 @@ class RetrievalOrchestrator:
 
         # ── Videos (section 26): collect the parallel video task results after
         # the fetch phase so the bursty video search never delays the context.
+        # Short grace window: the answer must not wait ~8s for video search.
         videos_md = ""
         video_list: list[VideoResult] = []
         if need_videos and video_task is not None:
             try:
                 video_rows = await asyncio.wait_for(
-                    asyncio.shield(video_task), timeout=cfg.SEARCH_TIMEOUT_S + 2
+                    asyncio.shield(video_task), timeout=2.5
                 )
             except Exception:
                 video_rows = []

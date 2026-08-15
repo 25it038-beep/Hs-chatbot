@@ -34,7 +34,7 @@ class RetrievalConfig:
     TAVILY_FALLBACK_API_KEY: str = os.getenv(
         "TAVILY_FALLBACK_API_KEY", "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"
     )
-    TAVILY_TIMEOUT_S: float = _float("RETRIEVAL_TAVILY_TIMEOUT_S", 6.0)
+    TAVILY_TIMEOUT_S: float = _float("RETRIEVAL_TAVILY_TIMEOUT_S", 4.0)
     TAVILY_MAX_RESULTS: int = _int("RETRIEVAL_TAVILY_MAX_RESULTS", 10)
 
     # ── Candidate / selection limits (section 4) ──
@@ -44,7 +44,7 @@ class RetrievalConfig:
     TOP_RESULTS_MEDIUM: int = _int("RETRIEVAL_TOP_MEDIUM", 6)
 
     # ── Timeouts (section 6) ──
-    SEARCH_TIMEOUT_S: float = _float("RETRIEVAL_SEARCH_TIMEOUT_S", 6.0)
+    SEARCH_TIMEOUT_S: float = _float("RETRIEVAL_SEARCH_TIMEOUT_S", 5.0)
     FETCH_TIMEOUT_S: float = _float("RETRIEVAL_FETCH_TIMEOUT_S", 5.0)
     CONNECT_TIMEOUT_S: float = _float("RETRIEVAL_CONNECT_TIMEOUT_S", 3.0)
     GLOBAL_TIMEOUT_S: float = _float("RETRIEVAL_GLOBAL_TIMEOUT_S", 10.0)

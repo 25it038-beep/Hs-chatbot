@@ -36,6 +36,14 @@ NVIDIA_MODELS = {
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
+    "mistral-large": {
+        "id": "mistralai/mistral-large-2-instruct",
+        "name": "Mistral Large 2",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "json", "tools"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
     # Coding (uses GLM 5.2)
     "glm-coder": {
         "id": "z-ai/glm-5.2",

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from typing import Optional
 import websockets
 from app.config import settings
 from app.services.browser.agent import browser_agent, BrowserIntent

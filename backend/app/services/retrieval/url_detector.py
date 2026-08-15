@@ -1,5 +1,5 @@
 import re
-from typing import list, dict, Optional
+from typing import List, Dict, Optional
 
 URL_PATTERN = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)', re.I)
 

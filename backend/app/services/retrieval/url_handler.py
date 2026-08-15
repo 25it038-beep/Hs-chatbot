@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import Optional, dict, Any
+from typing import Optional, Dict, Any
 from app.services.retrieval.url_detector import extract_url_query
 from app.services.retrieval.fetcher import page_fetcher
 from app.services.retrieval.extractor import extract_text, extract_meta

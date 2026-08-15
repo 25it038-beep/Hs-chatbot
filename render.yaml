@@ -42,3 +42,5 @@ services:
         value: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
       - key: BROWSER_AGENT_MODE
         value: server
+      - key: BROWSER_WS_TOKEN
+        value: hsbot-browser-ws-token

@@ -15,7 +15,22 @@ from app.services.nvidia.router import ai_router
 from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
 from app.services.rag import RAGService
-from app.services.websearch import WebSearchService, extract_image_subject
+from app.services.websearch import WebSearchService
+
+
+async def _chat_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
+    """Yield 'searching' StreamChunks from retrieval stage updates until done."""
+    last = None
+    while True:
+        try:
+            status = await asyncio.wait_for(status_q.get(), timeout=0.15)
+        except asyncio.TimeoutError:
+            if task.done():
+                break
+            continue
+        if status and status != last:
+            last = status
+            yield StreamChunk(type="searching", content=status)
 
 
 class ChatService:
@@ -314,16 +329,29 @@ class ChatService:
                 else:
                     web_images_md = ""
                     if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images"):
-                        yield StreamChunk(type="searching", content="Searching the web for updated data...")
-                        if task_decision.get("requires_images") and task != "web_images":
-                            img_query = extract_image_subject(request.message)
-                            if WebSearchService.needs_web_search(request.message):
-                                web_context = await WebSearchService().search(request.message, with_images=False)
-                            else:
-                                web_context = None
-                            web_images_md = await WebSearchService().fetch_images_markdown(img_query)
-                        else:
-                            web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                        status_q: "asyncio.Queue[str]" = asyncio.Queue()
+
+                        async def _cb(s: str) -> None:
+                            await status_q.put(s)
+
+                        force_images = task_decision.get("requires_images") and task != "web_images"
+                        retrieval_task = asyncio.create_task(
+                            WebSearchService().retrieve_for_chat(
+                                request.message, force_images=force_images, status_cb=_cb
+                            )
+                        )
+                        async for ev in _chat_status_events(status_q, retrieval_task):
+                            yield ev
+                        try:
+                            web_context, web_images_md = retrieval_task.result()
+                        except Exception:
+                            web_context, web_images_md = None, ""
+                        if force_images:
+                            system_prompt = (
+                                f"{system_prompt}\n\nNote: Real images will be shown separately after your "
+                                "answer. Do NOT fabricate image links, markdown images, or placeholders "
+                                "like [Image: ...] anywhere in your response."
+                            )
                         if web_context:
                             system_prompt = f"{system_prompt}\n\n{web_context}"
                     try:

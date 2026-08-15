@@ -37,6 +37,26 @@ _STREAM_HEADERS = {
     "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
 }
 
+_NO_FAKE_IMAGES_NOTE = (
+    "Note: Real images will be shown separately after your answer. Do NOT fabricate image "
+    "links, markdown images, or placeholders like [Image: ...] anywhere in your response."
+)
+
+
+async def _retrieval_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
+    """Yield 'searching' SSE events from retrieval stage updates until the task finishes."""
+    last = None
+    while True:
+        try:
+            status = await asyncio.wait_for(status_q.get(), timeout=0.15)
+        except asyncio.TimeoutError:
+            if task.done():
+                break
+            continue
+        if status and status != last:
+            last = status
+            yield f"data: {json.dumps({'type': 'searching', 'content': status})}\n\n"
+
 
 def _mime_from_path(path: str) -> str:
     ext = os.path.splitext(path)[1].lower()
@@ -373,16 +393,24 @@ async def nvidia_chat(
                 web_images_md = ""
                 force_images = bool(decision.get("requires_images")) and task != "web_images"
                 if WebSearchService.needs_web_search(request.message) or force_images:
-                    yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
+                    status_q: "asyncio.Queue[str]" = asyncio.Queue()
+
+                    async def _cb(s: str) -> None:
+                        await status_q.put(s)
+
+                    task = asyncio.create_task(
+                        WebSearchService().retrieve_for_chat(
+                            request.message, force_images=force_images, status_cb=_cb
+                        )
+                    )
+                    async for ev in _retrieval_status_events(status_q, task):
+                        yield ev
+                    try:
+                        web_context, web_images_md = task.result()
+                    except Exception:
+                        web_context, web_images_md = None, ""
                     if force_images:
-                        img_query = extract_image_subject(request.message)
-                        if WebSearchService.needs_web_search(request.message):
-                            web_context = await WebSearchService().search(request.message, with_images=False)
-                        else:
-                            web_context = None
-                        web_images_md = await WebSearchService().fetch_images_markdown(img_query)
-                    else:
-                        web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                        gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
                     if web_context:
                         gen_system_prompt = f"{system_prompt}\n\n{web_context}"
 
@@ -438,6 +466,11 @@ async def nvidia_chat(
                 "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
             })
         else:
+            extra_images_md = ""
+            if force_images_here:
+                img_query = extract_image_subject(request.message)
+                extra_images_md = await WebSearchService().fetch_images_markdown(img_query)
+                system_prompt = f"{system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
             start = time.time()
             response = await chat_provider.generate(
                 messages=api_messages,
@@ -449,6 +482,8 @@ async def nvidia_chat(
                 json_mode=request.json_mode,
                 reasoning=reasoning,
             )
+            if extra_images_md:
+                response.content = f"{response.content}\n\n{extra_images_md}"
             user_msg = Message(chat_id=request.chat_id, role="user", content=request.message)
             assistant_msg = Message(
                 chat_id=request.chat_id,
@@ -488,16 +523,24 @@ async def nvidia_chat(
             gen_system_prompt = system_prompt
             web_images_md = ""
             if WebSearchService.needs_web_search(request.message) or force_images:
-                yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
+                status_q: "asyncio.Queue[str]" = asyncio.Queue()
+
+                async def _cb(s: str) -> None:
+                    await status_q.put(s)
+
+                task = asyncio.create_task(
+                    WebSearchService().retrieve_for_chat(
+                        request.message, force_images=force_images, status_cb=_cb
+                    )
+                )
+                async for ev in _retrieval_status_events(status_q, task):
+                    yield ev
+                try:
+                    web_context, web_images_md = task.result()
+                except Exception:
+                    web_context, web_images_md = None, ""
                 if force_images:
-                    img_query = extract_image_subject(request.message)
-                    if WebSearchService.needs_web_search(request.message):
-                        web_context = await WebSearchService().search(request.message, with_images=False)
-                    else:
-                        web_context = None
-                    web_images_md = await WebSearchService().fetch_images_markdown(img_query)
-                else:
-                    web_context, web_images_md = await WebSearchService().search_with_images(request.message)
+                    gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
                 if web_context:
                     gen_system_prompt = f"{system_prompt}\n\n{web_context}"
             try:
@@ -525,6 +568,11 @@ async def nvidia_chat(
         })
 
     else:
+        if force_images:
+            extra_images_md = await WebSearchService().fetch_images_markdown(extract_image_subject(request.message))
+            system_prompt = f"{system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
+        else:
+            extra_images_md = ""
         response = await chat_provider.generate(
             messages=messages,
             model=model,
@@ -535,6 +583,8 @@ async def nvidia_chat(
             json_mode=request.json_mode,
             reasoning=reasoning,
         )
+        if extra_images_md:
+            response.content = f"{response.content}\n\n{extra_images_md}"
         return response
 
 

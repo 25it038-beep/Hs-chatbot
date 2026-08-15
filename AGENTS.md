@@ -53,9 +53,16 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - Available models: `DeepSeek-V3.2` (~4s), `Meta-Llama-3.3-70B-Instruct` (~1s), `DeepSeek-V3.1` (~13s), `MiniMax-M2.7` (requires payment, 402), `gemma-4-31B-it` (~14s), `gpt-oss-120b`
 - Frontend routes `provider === "sambanova"` through the generic `/api/chats/messages` stream; NVIDIA path (image gen, coding→thinking) is used when provider is `nvidia`
 
+### Tavily (primary web search provider in the retrieval pipeline)
+- Enabled via `TAVILY_API_KEY` (default: `tvly-dev-3PEQEw-...`) with automatic rotation to `TAVILY_FALLBACK_API_KEY` (default: `tvly-dev-4L9oxb-...`) on 401/403/429
+- Lives in `backend/app/services/retrieval/providers.py` (`TavilyProvider`) — primary text+news provider, runs concurrently with DDGS + Wikipedia fallback (progressive completion: Tavily answered → 1.5s grace for secondaries → cancel stragglers)
+- Returns scored results (`tavily_score` gets a small ranker bonus) + `published_date` for freshness ranking
+- Config knobs: `TAVILY_TIMEOUT_S` (6), `RETRIEVAL_MAX_TAVILY_CONCURRENCY` (2), `RETRIEVAL_TAVILY_MAX_RESULTS` (10); verify key: `POST https://api.tavily.com/search` with `Authorization: Bearer <key>`
+
 ### Known Issues
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.
 - `llama-3.3-70b` takes ~265s for first token; may timeout (backend timeout currently 300s). Not recommended for default fallback.
+- Wikipedia API + Wikimedia Commons may 403 from this IP after heavy usage (IP-level rate limit); DDGS is bursty — the pipeline degrades gracefully to Tavily results.
 
 
 ## Status

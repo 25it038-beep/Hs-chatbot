@@ -63,7 +63,8 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - **First request to a model after backend restart is slow** (model cold start). Subsequent requests are faster.
 - `llama-3.3-70b` takes ~265s for first token; may timeout (backend timeout currently 300s). Not recommended for default fallback.
 - Wikipedia API + Wikimedia Commons may 403 from this IP after heavy usage (IP-level rate limit); DDGS is bursty — the pipeline degrades gracefully to Tavily results.
-- **SambaNova `DeepSeek-V3.2` can 429 with "high demand"** — the OpenAI-compatible provider now fails fast (retries 0.5s/1.0s, SDK max_retries=1) and streams a visible "Rate limit exceeded" error instead of hanging silently. NVIDIA path unaffected.
+- **SambaNova `DeepSeek-V3.2` can 429 with "high demand"** — chat now auto-falls back to NVIDIA `llama-3.1-70b` (visible "SambaNova is busy..." note) so the user never gets an empty response. Fallback model is hardcoded — `NVIDIA_DEFAULT_CHAT_MODEL` must stay a live model id (was once `nemotron-3.5-lightning`, retired → 404).
+- **Deploy verification**: `/api/health` returns `commit` (git short hash); deployed instance must match repo HEAD, otherwise it's a stale Render build (`env: development` = old build).
 
 ### Video retrieval (§26)
 - `router.classify_video_intent()` -> `required | recommended | optional | not_needed`: explicit video words → required; procedural/demonstrative (how-to, tutorial, install, recipe...) → recommended; any knowledge query → optional; no search → not_needed.

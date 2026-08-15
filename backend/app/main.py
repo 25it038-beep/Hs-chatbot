@@ -6,6 +6,7 @@ from app.config import settings
 from app.database import init_db
 from app.api import auth, chats, models, files, nvidia_api
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 from app.services.nvidia.warmup import start_warmup, stop_warmup
 
 os.makedirs(settings.upload_dir, exist_ok=True)
@@ -44,6 +45,7 @@ else:
         allow_headers=["*"],
     )
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth.router)
 app.include_router(chats.router)

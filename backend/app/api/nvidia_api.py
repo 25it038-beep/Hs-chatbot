@@ -144,12 +144,30 @@ async def nvidia_chat(
     db: AsyncSession = Depends(get_db),
 ):
     if request.auto_route:
-        task, auto_model = ai_router.get_model_for_message(request.message)
+        # Load recent user messages for context-aware routing ("create an image of it")
+        context: list[str] = []
+        if request.chat_id:
+            try:
+                recent = (
+                    await db.execute(
+                        select(Message.content)
+                        .where(Message.chat_id == request.chat_id, Message.role == "user")
+                        .order_by(Message.created_at.desc())
+                        .limit(3)
+                    )
+                ).scalars().all()
+                context = list(reversed(recent))
+            except Exception:
+                context = []
+        decision = ai_router.classify(request.message, context=context)
+        task = ai_router.detect_task(request.message, context=context)
+        auto_model = ai_router.get_best_model(task)
         if task == "image_generation":
             model = auto_model or "flux-1-dev"
         else:
             model = auto_model
     else:
+        decision = ai_router.classify(request.message)
         model = request.model or "glm-5.2"
         task = "chat"
 
@@ -350,7 +368,8 @@ async def nvidia_chat(
 
                 gen_system_prompt = system_prompt
                 web_images_md = ""
-                if WebSearchService.needs_web_search(request.message):
+                force_images = bool(decision.get("requires_images")) and task != "web_images"
+                if WebSearchService.needs_web_search(request.message) or force_images:
                     yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
                     web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                     if web_context:
@@ -439,8 +458,9 @@ async def nvidia_chat(
 
     # ── Stateless path (anonymous or no chat_id) ──
     messages = [{"role": "user", "content": request.message}]
+    force_images = bool(decision.get("requires_images")) and task != "web_images"
 
-    if WebSearchService.needs_web_search(request.message):
+    if WebSearchService.needs_web_search(request.message) or force_images:
         web_context = await WebSearchService().search(request.message, with_images=True)
         if web_context:
             system_prompt = f"{system_prompt}\n\n{web_context}"
@@ -450,7 +470,7 @@ async def nvidia_chat(
             yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task})}\n\n"
             gen_system_prompt = system_prompt
             web_images_md = ""
-            if WebSearchService.needs_web_search(request.message):
+            if WebSearchService.needs_web_search(request.message) or force_images:
                 yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching the web for updated data...'})}\n\n"
                 web_context, web_images_md = await WebSearchService().search_with_images(request.message)
                 if web_context:
@@ -585,5 +605,11 @@ async def nvidia_usage():
 
 @router.get("/route")
 async def nvidia_route(message: str = Query(...), preferred_model: Optional[str] = Query(None)):
+    decision = ai_router.classify(message)
     task, model = ai_router.get_model_for_message(message, preferred_model)
-    return {"task": task, "model": model, "available_fallbacks": ai_router.get_fallback_models(task)}
+    return {
+        "task": task,
+        "model": model,
+        "available_fallbacks": ai_router.get_fallback_models(task),
+        **decision,
+    }

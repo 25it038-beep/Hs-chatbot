@@ -243,7 +243,17 @@ class ChatService:
         )
         api_messages.append({"role": "user", "content": request.message})
 
-        provider = get_provider(provider_name)
+        try:
+            provider = get_provider(provider_name)
+        except ValueError as e:
+            yield StreamChunk(
+                type="error",
+                content=f"{e} Set {provider_name.upper()}_API_KEY or switch to another provider.",
+                model=model or chat.model,
+                provider=provider_name,
+                done=True,
+            )
+            return
 
         task, _ = ai_router.get_model_for_message(request.message)
         task_decision = ai_router.classify(request.message)

@@ -74,6 +74,8 @@ from app.services.browser.intent import classify_browser_intent
         ("Close the GitHub tab", "CLOSE_TAB", {"service": "GitHub"}),
         ("Close this tab", "CLOSE_TAB", {"service": bi.CURRENT_PAGE}),
         ("Open GitHub in a new tab", "OPEN_WEBSITE", {"service": "github", "new_tab": True}),
+        ("open a new tab for github", "OPEN_WEBSITE", {"service": "github", "new_tab": True}),
+        ("open new tab youtube", "OPEN_WEBSITE", {"service": "youtube", "new_tab": True}),
         ("Search GitHub for FastAPI in a new tab", "SEARCH_SITE", {"service": "github", "new_tab": True}),
         ("Search this tab for Python", "SEARCH_SITE", {"service": bi.CURRENT_PAGE, "query": "Python"}),
         ("Play music on the Spotify tab", "PLAY_MEDIA", {"service": "spotify", "query": None}),

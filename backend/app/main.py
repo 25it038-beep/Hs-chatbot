@@ -8,6 +8,7 @@ from app.database import init_db
 from app.api import auth, chats, models, files, nvidia_api, browser
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
+from app.middleware.tracing import RequestTracingMiddleware
 from app.services.nvidia.warmup import start_warmup, stop_warmup
 
 
@@ -57,6 +58,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import logging
+_logger = logging.getLogger("hsbot.main")
+
 class SafeCORSMiddleware(CORSMiddleware):
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] == "websocket":
@@ -64,29 +68,20 @@ class SafeCORSMiddleware(CORSMiddleware):
             return
         await super().__call__(scope, receive, send)
 
-cors_origins = settings.cors_origin_list
-
-# Get allowed origins from settings - use specific origins in production, allow all in development
-if "*" in cors_origins or settings.app_env == "development":
-    # In development, allow all origins without credentials for preflight
-    # For actual requests, we'll use a more permissive config
-    app.add_middleware(
-        SafeCORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,  # Must be False when using allow_origins=["*"]
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        SafeCORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# Always use wildcard CORS.
+# Auth is JWT Bearer tokens (not cookies) so allow_credentials=False is correct
+# and allow_origins=["*"] is safe. The previous branch logic caused Render to
+# run with specific allowed origins that excluded the frontend URL.
+app.add_middleware(
+    SafeCORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestTracingMiddleware)
 
 app.include_router(auth.router)
 app.include_router(chats.router)
@@ -106,6 +101,37 @@ async def health():
     }
 
 
+@app.get("/api/health/full")
+async def health_full():
+    """Detailed health check: provider config status and browser WS status. Never exposes keys."""
+    from app.services.browser.ws_manager import ws_manager
+
+    def _provider_status(name: str, key_attr: str) -> dict:
+        configured = bool(getattr(settings, key_attr, None))
+        return {"configured": configured}
+
+    return {
+        "status": "ok",
+        "version": settings.app_version,
+        "env": settings.app_env,
+        "commit": _CURRENT_COMMIT,
+        "providers": {
+            "nvidia": {"configured": bool(settings.nvidia_api_keys)},
+            "sambanova": _provider_status("sambanova", "sambanova_api_key"),
+            "openai": _provider_status("openai", "openai_api_key"),
+            "anthropic": _provider_status("anthropic", "anthropic_api_key"),
+            "gemini": _provider_status("gemini", "google_api_key"),
+            "groq": _provider_status("groq", "groq_api_key"),
+            "openrouter": _provider_status("openrouter", "openrouter_api_key"),
+        },
+        "browser": {
+            "websocket_connected": ws_manager.is_connected(),
+            "agent_mode": settings.browser_agent_mode,
+        },
+    }
+
+
 @app.get("/")
 async def root():
     return {"name": settings.app_name, "version": settings.app_version, "docs": "/docs"}
+

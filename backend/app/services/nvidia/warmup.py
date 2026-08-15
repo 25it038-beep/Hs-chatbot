@@ -16,6 +16,7 @@ KEEP_WARM_INTERVAL = 30.0
 async def _ping_model(provider, model_key: str) -> bool:
     """Send a minimal request so NVIDIA keeps the model warm on later calls.
     Returns True if successful, False otherwise."""
+    import httpx
     try:
         await asyncio.wait_for(
             provider.generate(
@@ -26,12 +27,34 @@ async def _ping_model(provider, model_key: str) -> bool:
             ),
             timeout=60.0,
         )
-        logger.info("Model warmup OK: %s", model_key)
+        logger.info("[WARMUP] Model OK: %s", model_key)
         return True
     except asyncio.TimeoutError:
-        logger.warning("Model warmup timed out: %s", model_key)
+        logger.warning("[WARMUP] model=%s error_type=timeout", model_key)
+    except ValueError as e:
+        err_str = str(e).lower()
+        if "all models exhausted" in err_str:
+            logger.warning("[WARMUP] model=%s error_type=all_models_exhausted detail=%s", model_key, e)
+        elif "no available" in err_str or "api key" in err_str:
+            logger.warning("[WARMUP] model=%s error_type=no_api_key", model_key)
+        else:
+            logger.warning("[WARMUP] model=%s error_type=value_error detail=%s", model_key, e)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code if hasattr(e, 'response') else '?'
+        if status == 401:
+            logger.warning("[WARMUP] model=%s error_type=auth_error http_status=401", model_key)
+        elif status == 404:
+            logger.warning("[WARMUP] model=%s error_type=not_found http_status=404", model_key)
+        elif status == 429:
+            logger.warning("[WARMUP] model=%s error_type=rate_limit http_status=429", model_key)
+        elif status and int(status) >= 500:
+            logger.warning("[WARMUP] model=%s error_type=server_error http_status=%s", model_key, status)
+        else:
+            logger.warning("[WARMUP] model=%s error_type=http_error http_status=%s", model_key, status)
+    except httpx.ConnectError:
+        logger.warning("[WARMUP] model=%s error_type=connection_error", model_key)
     except Exception as e:  # noqa: BLE001
-        logger.warning("Model warmup failed for %s: %s", model_key, e)
+        logger.warning("[WARMUP] model=%s error_type=%s detail=%s", model_key, type(e).__name__, e)
     return False
 
 

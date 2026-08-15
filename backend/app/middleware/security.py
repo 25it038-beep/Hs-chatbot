@@ -21,6 +21,13 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # OPTIONS preflight: let CORS middleware handle it cleanly.
+        # Adding CSP/CORP headers to preflight responses causes Cloudflare/Render
+        # reverse-proxies to reject them as malformed, returning 400 to the browser.
+        if scope.get("method", "").upper() == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
         path = scope.get("path", "")
 
         async def send_wrapper(message: Message) -> None:

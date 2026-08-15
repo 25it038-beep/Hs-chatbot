@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     max_file_size_mb: int = 50
     remote_backend_url: Optional[str] = "https://hs-chatbot-2.onrender.com"
 
+    # Controls browser agent role:
+    # 'server' = this process is the cloud backend (Render) — do NOT start a WS client
+    # 'client' = this process is the local Windows desktop agent — connect to remote_backend_url
+    # Default is 'server' so Render never accidentally connects to itself.
+    browser_agent_mode: str = "server"
+
     cors_origins: str = "*"
 
     @property

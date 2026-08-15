@@ -14,10 +14,14 @@ from app.services.model_providers.base import ModelResponse, StreamChunk
 from app.services.nvidia.router import ai_router
 from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
+import logging
 from app.services.rag import RAGService
 from app.services.websearch import WebSearchService
 from app.services.retrieval.router import classify_video_intent
+from app.services.retrieval.url_handler import handle_url_fetching
 from app.services.browser.service import browser_service
+
+_logger = logging.getLogger("hsbot.chat")
 
 
 async def _chat_status_events(status_q: "asyncio.Queue[str]", task: "asyncio.Task"):
@@ -159,7 +163,6 @@ class ChatService:
         self, user_id: str, request: ChatRequest
     ) -> AsyncGenerator[StreamChunk, None]:
         original_message = request.message
-        from app.services.retrieval.url_handler import handle_url_fetching
         url_context = None
         url_res = await handle_url_fetching(request.message)
         if url_res["has_url"]:
@@ -307,6 +310,7 @@ class ChatService:
         try:
             provider = get_provider(provider_name)
         except ValueError as e:
+            _logger.error("[CHAT] provider=%s error=missing_api_key detail=%s", provider_name, e)
             yield StreamChunk(
                 type="error",
                 content=f"{e} Set {provider_name.upper()}_API_KEY or switch to another provider.",
@@ -319,6 +323,7 @@ class ChatService:
         task, _ = ai_router.get_model_for_message(request.message)
         task_decision = ai_router.classify(request.message)
         is_image_task = task == "image_generation"
+        _logger.info("[CHAT] provider=%s model=%s task=%s stream=%s", provider_name, model or chat.model, task, request.stream)
 
         model_to_use = model or chat.model
         if provider_name == "cloudflare" and task == "coding":

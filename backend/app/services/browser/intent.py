@@ -17,6 +17,7 @@ screenshot/scroll/extract/click/type/download → other-browser
 
 import re
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Optional
 
 from .config import browser_config
@@ -199,9 +200,25 @@ def _extract_bare_domain(text: str) -> Optional[str]:
 
 def _extract_service(text: str) -> Optional[str]:
     matches = _SERVICE_RE.findall(text)
-    if not matches:
+    if matches:
+        return sorted(matches, key=len, reverse=True)[0].lower()
+
+    text_words = re.findall(r"[a-z0-9]+", text.lower())
+    if not text_words:
         return None
-    return sorted(matches, key=len, reverse=True)[0].lower()
+
+    for service in sorted(browser_config.WEBSITES, key=len, reverse=True):
+        service_key = service.lower()
+        if not service_key:
+            continue
+        if re.search(rf"\b{re.escape(service_key)}\b", text, re.I):
+            return service_key
+        for word in text_words:
+            if len(word) <= 3:
+                continue
+            if SequenceMatcher(None, word, service_key).ratio() >= 0.82:
+                return service_key
+    return None
 
 
 def _strip_service(text: str, service: Optional[str]) -> str:

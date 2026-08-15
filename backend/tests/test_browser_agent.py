@@ -39,6 +39,7 @@ from app.services.browser.url_utils import normalize_browser_url, validate_brows
     "message,expected,fields",
     [
         ("Open Spotify", "OPEN_WEBSITE", {"service": "spotify"}),
+        ("Open the spotisfy", "OPEN_WEBSITE", {"service": "spotify"}),
         ("Open Gmail", "OPEN_WEBSITE", {"service": "gmail", "url": "https://mail.google.com"}),
         ("Open the OpenAI website", "OPEN_WEBSITE", {"service": "openai"}),
         ("Go to github.com", "NAVIGATE", {"url": "https://github.com"}),

@@ -8,7 +8,9 @@ logger = logging.getLogger("nvidia.warmup")
 
 _warmup_loop_task: Optional[asyncio.Task] = None
 
-KEEP_WARM_INTERVAL = 240.0
+# NVIDIA serverless models idle out in ~1-2 min; 4-minute pings meant the
+# default model was almost always cold. Every 30s keeps TTFT at ~2-4s.
+KEEP_WARM_INTERVAL = 30.0
 
 
 async def _ping_model(provider, model_key: str) -> None:

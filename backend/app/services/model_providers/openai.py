@@ -8,7 +8,9 @@ from app.services.nvidia.config import NVIDIA_MODELS
 
 # Rate limits are usually persistent (quota) — retry briefly, then fail
 # fast with a visible error instead of hanging the stream for minutes.
-_RATE_LIMIT_SLEEPS = [0.5, 1.0]
+# Fail fast on rate limits: a busy SambaNova key should fall back to
+# NVIDIA within ~1s, not hang for tens of seconds.
+_RATE_LIMIT_SLEEPS = [0.3, 0.6]
 
 _GROQ_BACKUP_MODEL = "llama-3.3-70b-versatile"
 

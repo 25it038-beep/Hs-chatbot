@@ -298,7 +298,7 @@ async def nvidia_chat(
                         )
                         async for chunk in chat_provider.generate_stream(
                             messages=[{"role": "user", "content": caption_prompt}],
-                            model="llama-3.1-70b",
+                            model="nemotron-3.5-lightning",
                             system_prompt="You are HS ChatBot, a helpful image assistant.",
                             temperature=0.7,
                             max_tokens=300,

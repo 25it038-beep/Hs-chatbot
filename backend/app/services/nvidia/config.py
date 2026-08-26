@@ -109,20 +109,20 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "llama-3.1-70b",
-        "fallback": ["mistral-large"],
+        "default": "nemotron-3.5-lightning",
+        "fallback": [],
     },
     "coding": {
-        "default": "llama-3.1-70b",
-        "fallback": ["mistral-large"],
+        "default": "nemotron-3.5-lightning",
+        "fallback": [],
     },
     "reasoning": {
-        "default": "llama-3.1-70b",
-        "fallback": ["mistral-large"],
+        "default": "nemotron-3.5-lightning",
+        "fallback": [],
     },
     "vision": {
-        "default": "nemotron-vl",
-        "fallback": ["llama-3.2-vision"],
+        "default": "llama-3.2-vision",
+        "fallback": [],
     },
     "image_generation": {
         "default": "flux-1-dev",
@@ -130,8 +130,8 @@ TASK_ROUTES = {
         "fallback": ["flux-2-klein", "flux-1-schnell"],
     },
     "web_images": {
-        "default": "llama-3.1-70b",
-        "fallback": ["glm-5.2"],
+        "default": "nemotron-3.5-lightning",
+        "fallback": [],
     },
     "embeddings": {
         "default": "nv-embed-v1",

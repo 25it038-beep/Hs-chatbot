@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     qdrant_collection: str = "hsbot_docs"
 
     nvidia_api_keys: str = "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"
-    nvidia_default_chat_model: str = "llama-3.1-70b"
-    nvidia_default_code_model: str = "glm-coder"
-    nvidia_default_vision_model: str = "nemotron-vl"
-    nvidia_default_image_model: str = "nemotron-vl"
+    nvidia_default_chat_model: str = "nemotron-3.5-lightning"
+    nvidia_default_code_model: str = "nemotron-3.5-lightning"
+    nvidia_default_vision_model: str = "llama-3.2-vision"
+    nvidia_default_image_model: str = "flux-1-dev"
     nvidia_default_embed_model: str = "nv-embed-v1"
 
     # NVIDIA Reliability Configuration
@@ -90,7 +90,30 @@ class Settings(BaseSettings):
     # Default is 'server' so Render never accidentally connects to itself.
     browser_agent_mode: str = "server"
 
+    # Voice automation settings
+    voice_enabled: bool = True
+    voice_service_port: int = 50051
+    voice_wake_word: str = "wake up"
+    voice_confidence_threshold: float = 0.85
+    voice_continuous_timeout: int = 10
+    vad_threshold: float = 0.5
+    speaker_verification_enabled: bool = True
+    anti_spoofing_enabled: bool = True
+    voice_response_enabled: bool = True
+
+    # OS automation (open apps, volume, etc. only works on the user's machine)
+    automation_enabled: bool = True
+
     cors_origins: str = "*"
+
+    @property
+    def is_cloud(self) -> bool:
+        """True when running on Render/cloud (no access to the user's OS)."""
+        return os.environ.get("RENDER") == "true" or os.environ.get("HSBOT_CLOUD") == "true"
+
+    @property
+    def os_automation_available(self) -> bool:
+        return self.automation_enabled and not self.is_cloud
 
     @property
     def browser_ws_auth_token(self) -> str:

@@ -3,6 +3,7 @@ import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
+import { useSettings } from '@/stores/settings'
 
 // Detect explicit image requests — typo-tolerant, but only clear intents.
 // General queries that merely mention images ("explain this image") are NOT routed to image generation.
@@ -18,6 +19,16 @@ const IMAGE_PATTERNS = [
 export function isImageRequest(content: string): boolean {
   const lower = content.toLowerCase()
   return IMAGE_PATTERNS.some(p => p.test(lower))
+}
+
+function looksLikeBrowserCommand(content: string): boolean {
+  const lower = content.trim().toLowerCase()
+  if (!lower) return false
+  const browserPatterns = [
+    /\b(open|visit|go to|navigate to|search|search for|search this|open this|switch to|switch tab|close tab|next tab|previous tab|go back to|pause|resume|play|stop|skip|next|scroll|click|type|take a screenshot|extract the text|extract|download)\b/,
+    /\b(google|youtube|spotify|github|wikipedia|gmail|amazon|zomato|facebook|twitter|x|linkedin|reddit|maps|docs|drive)\b/,
+  ]
+  return browserPatterns.some(p => p.test(lower))
 }
 
 interface VoiceConfig {
@@ -116,7 +127,7 @@ const DEFAULT_VOICE_CONFIG: VoiceConfig = {
   sampleRate: 24000,
   model: 'nvidia/riva-tts-multilingual',
   wakeWord: 'hey hs',
-  wakeWordEnabled: false,
+  wakeWordEnabled: true,
   autoSpeak: true,
   interruptEnabled: true,
   silenceTimeout: 1500,
@@ -188,7 +199,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     },
 
     createChat: async () => {
-      const chat = await api.createChat({ model: 'llama-3.1-70b', provider: 'nvidia' })
+      const chat = await api.createChat({ model: 'nemotron-3.5-lightning', provider: 'nvidia' })
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
@@ -221,8 +232,33 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     },
 
     sendMessage: async (content: string, chatId?: string) => {
-      const { currentChat, chatMessages } = get()
+      const { currentChat, chatMessages, streamingPhase } = get()
       const chat = chatId ? get().chats.find(c => c.id === chatId) : currentChat
+
+      const { browserAutomationPriority } = useSettings.getState()
+      const hasActiveBrowserAutomation = browserAutomationPriority && (
+        Object.values(streamingPhase).includes('browser_action') || (chat ? streamingPhase[chat.id] === 'browser_action' : false)
+      )
+      if (hasActiveBrowserAutomation && !looksLikeBrowserCommand(content)) {
+        const waitMessage = 'Browser automation is running. Please wait for it to finish or send a browser command.'
+        if (chat) {
+          const queued: Message = {
+            id: crypto.randomUUID(),
+            chat_id: chat.id,
+            role: 'assistant',
+            content: waitMessage,
+            token_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            created_at: new Date().toISOString(),
+          }
+          set(state => ({
+            chatMessages: { ...state.chatMessages, [chat.id]: [...(state.chatMessages[chat.id] || []), queued] },
+          }))
+          if (get().currentChat?.id === chat.id) syncDisplay()
+        }
+        return
+      }
 
       if (!chat) {
         const newChat = await get().createChat()
@@ -262,7 +298,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         streamControllers[chat.id] = controller
 
         const provider = chat.provider || 'nvidia'
-        const model = chat.model || 'llama-3.1-70b'
+        const model = chat.model || 'nemotron-3.5-lightning'
 
         // Detect explicit image generation requests (shared helper)
         const isImageRequestForChat = isImageRequest(content)

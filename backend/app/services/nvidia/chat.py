@@ -105,7 +105,11 @@ class NvidiaChatProvider:
             data = response.json()
             latency = (time.time() - start) * 1000
 
-            content = data["choices"][0]["message"]["content"] or ""
+            msg = data["choices"][0]["message"]
+            content = msg.get("content") or ""
+            # Fallback to reasoning_content if content is empty (e.g., muse-glimmer)
+            if not content:
+                content = msg.get("reasoning_content") or ""
             usage = data.get("usage", {})
 
             key_manager.record_success(api_key, usage.get("total_tokens", 0))
@@ -218,11 +222,15 @@ class NvidiaChatProvider:
                                     model=model,
                                     provider="nvidia",
                                 )
-                            if delta.get("content"):
-                                full_content += delta["content"]
+                            content_text = delta.get("content")
+                            # Fallback to reasoning_content as content if content is missing
+                            if not content_text and reason_text:
+                                content_text = reason_text
+                            if content_text:
+                                full_content += content_text
                                 yield StreamChunk(
                                     type="content",
-                                    content=delta["content"],
+                                    content=content_text,
                                     model=model,
                                     provider="nvidia",
                                 )

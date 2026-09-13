@@ -199,7 +199,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     },
 
     createChat: async () => {
-      const chat = await api.createChat({ model: 'llama-3.2-vision', provider: 'nvidia' })
+      const chat = await api.createChat({ model: 'muse-glimmer', provider: 'nvidia' })
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
@@ -298,7 +298,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         streamControllers[chat.id] = controller
 
         const provider = chat.provider || 'nvidia'
-        const model = chat.model || 'llama-3.2-vision'
+        const model = chat.model || 'muse-glimmer'
 
         // Detect explicit image generation requests (shared helper)
         const isImageRequestForChat = isImageRequest(content)

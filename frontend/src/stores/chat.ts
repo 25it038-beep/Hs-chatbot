@@ -362,11 +362,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               try {
                 const chunk = JSON.parse(data)
                 if (chunk.type === 'reasoning' && chunk.content) {
-                  const reasoning = (get().streamingReasoning[chat.id] || '') + chunk.content
-                  set(state => ({
-                    streamingReasoning: { ...state.streamingReasoning, [chat.id]: reasoning },
-                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
-                  }))
+                  // Reasoning is hidden from user
                 } else if (chunk.type === 'searching') {
                   set(state => ({
                     streamingPhase: { ...state.streamingPhase, [chat.id]: 'searching' },

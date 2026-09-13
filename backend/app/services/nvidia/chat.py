@@ -30,28 +30,18 @@ class NvidiaChatProvider:
         self.base_url = NVIDIA_BASE_URL
 
     def _get_model_id(self, model_key: str) -> str:
-        if model_key in (
-            "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
-            "glm-5.2", "z-ai/glm-5.2", "glm-coder", "llama-3.1-70b", "llama-3.3-70b",
-        ):
-            model_key = "nemotron-3.5-lightning"
         model_conf = NVIDIA_MODELS.get(model_key)
         if model_conf:
             return model_conf["id"]
         return model_key
 
     def _get_model_config(self, model_key: str) -> dict:
-        if model_key in (
-            "nemotron-3-ultra-550b", "nvidia/nemotron-3-ultra-550b-a55b",
-            "glm-5.2", "z-ai/glm-5.2", "glm-coder", "llama-3.1-70b", "llama-3.3-70b",
-        ):
-            model_key = "nemotron-3.5-lightning"
         return NVIDIA_MODELS.get(model_key, {})
 
     async def generate(
         self,
         messages: list[dict],
-        model: str = "nemotron-3.5-lightning",
+        model: str = "llama-3.1-70b",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -144,7 +134,7 @@ class NvidiaChatProvider:
     async def generate_stream(
         self,
         messages: list[dict],
-        model: str = "nemotron-3.5-lightning",
+        model: str = "llama-3.1-70b",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,

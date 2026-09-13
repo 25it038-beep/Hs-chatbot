@@ -114,6 +114,10 @@ class KeyManager:
         self._initialized = True
         self.keys: list[APIKey] = []
         self._init_keys()
+        # Safety net: reset health on fresh start so a previously marked UNAVAILABLE key
+        # from a prior process is not permanently dead after deploy.
+        for k in self.keys:
+            k.reset_circuit_breaker()
         self._current_index = 0
 
     def _init_keys(self):

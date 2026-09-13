@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import Optional
 import os
 from pathlib import Path
@@ -132,6 +133,13 @@ class Settings(BaseSettings):
         if not self.cors_origins or "*" in [o.strip() for o in self.cors_origins.split(",")]:
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @field_validator('nvidia_api_keys', mode='before')
+    @classmethod
+    def _fallback_nvidia_api_keys(cls, v):
+        if not v or not str(v).strip():
+            return "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"
+        return v
 
 
 settings = Settings()

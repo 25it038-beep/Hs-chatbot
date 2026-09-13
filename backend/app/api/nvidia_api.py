@@ -268,7 +268,7 @@ async def nvidia_chat(
             # Fall back to a known working chat model
             model = "llama-3.1-70b"
 
-    reasoning = request.reasoning or task in ("coding", "reasoning")
+    reasoning = False  # Always hide reasoning from user
 
     _hs_persona = (
         "You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "

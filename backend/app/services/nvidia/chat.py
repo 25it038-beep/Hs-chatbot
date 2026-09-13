@@ -107,9 +107,7 @@ class NvidiaChatProvider:
 
             msg = data["choices"][0]["message"]
             content = msg.get("content") or ""
-            # Fallback to reasoning_content if content is empty (e.g., muse-glimmer)
-            if not content:
-                content = msg.get("reasoning_content") or ""
+            # Do NOT fallback to reasoning_content – reasoning is hidden
             # Strip reasoning tags from content if present
             import re
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
@@ -221,9 +219,7 @@ class NvidiaChatProvider:
                                 full_reasoning += reason_text
                                 # Suppress reasoning chunks from user-facing stream
                             content_text = delta.get("content")
-                            # Fallback to reasoning_content as content if content is missing
-                            if not content_text and reason_text:
-                                content_text = reason_text
+                            # Do NOT fallback to reasoning_content – reasoning is hidden
                             if content_text:
                                 # Strip reasoning tags on the fly
                                 import re

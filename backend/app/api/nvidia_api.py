@@ -253,6 +253,21 @@ async def nvidia_chat(
         model = request.model or "glm-5.2"
         task = "chat"
 
+    # Sanitize model name – fallback to a verified NVIDIA model if the stored model is retired/invalid
+    valid_models = set(NVIDIA_MODELS.keys()) | {v["id"] for v in NVIDIA_MODELS.values()}
+    if model not in valid_models:
+        # Try mapping by ID
+        mapped = None
+        for k, v in NVIDIA_MODELS.items():
+            if v["id"] == model:
+                mapped = k
+                break
+        if mapped:
+            model = mapped
+        else:
+            # Fall back to a known working chat model
+            model = "llama-3.1-70b"
+
     reasoning = request.reasoning or task in ("coding", "reasoning")
 
     _hs_persona = (

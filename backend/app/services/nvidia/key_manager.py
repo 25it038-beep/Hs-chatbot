@@ -139,7 +139,16 @@ class KeyManager:
                 healthy = [k for k in self.keys if not k.is_rate_limited and k.health_state != ProviderHealthState.UNAVAILABLE]
 
             if not healthy:
-                return None
+                # If all keys are UNAVAILABLE due to circuit breaker, try a hard reset
+                # to allow recovery when the underlying issue (e.g., bad model name) is fixed.
+                now = time.time()
+                for k in self.keys:
+                    # Reset keys that have been unavailable for at least the circuit breaker cooldown
+                    if k.health_state == ProviderHealthState.UNAVAILABLE and (now - k.last_health_check) > settings.nvidia_circuit_breaker_cooldown:
+                        k.reset_circuit_breaker()
+                healthy = [k for k in self.keys if k.is_active and not k.is_rate_limited and k.health_state != ProviderHealthState.UNAVAILABLE]
+                if not healthy:
+                    return None
 
             healthy.sort(key=lambda k: (k.health_score, -k.last_used), reverse=True)
             chosen = healthy[0]

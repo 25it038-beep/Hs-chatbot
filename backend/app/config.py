@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "hsbot_docs"
 
-    nvidia_api_keys: str = "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"
+    nvidia_api_keys: str = "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"
     nvidia_default_chat_model: str = "nemotron-3.5-lightning"
     nvidia_default_code_model: str = "nemotron-3.5-lightning"
     nvidia_default_vision_model: str = "llama-3.2-vision"

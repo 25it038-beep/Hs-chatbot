@@ -90,7 +90,8 @@ class RetrievalOrchestrator:
         normalized = normalize_query(query)
         scope = "news" if "news" in types and current else cache_scope(query)
         timer.start("cache")
-        cached = None if force_fresh or current else await retrieval_cache.get(normalized, scope)
+        # Always fetch live data – never serve stale cache
+        cached = None
         timer.stop("cache")
 
         if cached and cached.get("context") is not None:
@@ -224,14 +225,10 @@ class RetrievalOrchestrator:
                 video_list = rank_videos(dedupe_videos(filter_videos(video_rows, query)), query)
                 videos_md = format_videos_md(video_list, cfg.MAX_VIDEOS)
 
-        # ── Cache write (section 7) ──
-        if context or videos_md:
-            await retrieval_cache.set(normalized, scope, {
-                "context": context,
-                "images_md": images_md,
-                "videos_md": videos_md,
-                "sources": sources,
-            })
+        # ── Cache write disabled for live data ──
+        # Cache is intentionally not used to ensure always-fresh results
+        # if context or videos_md:
+        #     await retrieval_cache.set(normalized, scope, {...})
 
         perf = build_perf(timer, extra={"cache_ms": timer.elapsed.get("cache", 0.0)})
         logger.info("retrieval done query={!r} stages={}", query, perf)

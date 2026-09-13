@@ -10,11 +10,13 @@ from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.services.rag import RAGService
 from app.services.nvidia.chat import NvidiaChatProvider
+from app.services.nvidia.vision import NvidiaVisionProvider
 from app.config import settings
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 chat_provider = NvidiaChatProvider()
+vision_provider = NvidiaVisionProvider()
 
 
 class FileResponse(BaseModel):
@@ -69,7 +71,22 @@ async def upload_file(
 
     RAGService.cache_file(current_user.id, file.filename or "unknown", file_path, result["text"], file_id)
 
-    analysis = await analyze_file_text(result["text"], file.filename or "unknown") if analyze else None
+    content_type = file.content_type or "application/octet-stream"
+    if analyze:
+        if content_type.startswith("image/"):
+            try:
+                resp = await vision_provider.analyze(
+                    image_data=content,
+                    prompt="Analyze this image in detail. Describe the scene, objects, people, text visible, and notable elements.",
+                    mime_type=content_type,
+                )
+                analysis = resp.content or None
+            except Exception:
+                analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+        else:
+            analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+    else:
+        analysis = None
 
     return FileResponse(
         id=file_id,
@@ -103,7 +120,22 @@ async def upload_multiple_files(
             await f.write(content)
         rag = RAGService(db, current_user.id)
         result = await rag.process_file(file_path, file.filename or "unknown", file_id)
-        analysis = await analyze_file_text(result["text"], file.filename or "unknown") if analyze else None
+        content_type = file.content_type or "application/octet-stream"
+        if analyze:
+            if content_type.startswith("image/"):
+                try:
+                    resp = await vision_provider.analyze(
+                        image_data=content,
+                        prompt="Analyze this image in detail. Describe the scene, objects, people, text visible, and notable elements.",
+                        mime_type=content_type,
+                    )
+                    analysis = resp.content or None
+                except Exception:
+                    analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+            else:
+                analysis = await analyze_file_text(result["text"], file.filename or "unknown")
+        else:
+            analysis = None
         results.append(FileResponse(
             id=file_id,
             filename=file.filename or "unknown",

@@ -6,7 +6,7 @@ import { ChatInput } from './ChatInput'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   MessageSquare, ArrowDown, Code, Brain, FileText,
-  Globe, Paperclip, Slash, Wand2,
+  Globe, Paperclip, Slash, Wand2, X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FileInfo, Message } from '@/types'
@@ -77,6 +77,7 @@ export function ChatContainer() {
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
   const [editingMessage, setEditingMessage] = React.useState<Message | null>(null)
+  const [attachedFiles, setAttachedFiles] = React.useState<FileInfo[]>([])
 
   useEffect(() => {
     setEditingMessage(null)
@@ -134,9 +135,13 @@ export function ChatContainer() {
       await createChat()
     }
     let filename = file.name
+    let uploadRes: FileInfo | null = null
     try {
-      const uploadRes = await api.uploadFile(file) as FileInfo
+      uploadRes = await api.uploadFile(file) as FileInfo
       filename = uploadRes.filename || file.name
+      if (uploadRes) {
+        setAttachedFiles(prev => [...prev, uploadRes])
+      }
     } catch {
       // upload failed — fall back to raw filename; chat will report if file is missing
     }
@@ -293,6 +298,32 @@ export function ChatContainer() {
         >
           <ArrowDown size={14} />
         </button>
+      )}
+
+      {attachedFiles.length > 0 && (
+        <div className="max-w-3xl mx-auto px-3 md:px-6 pb-2">
+          <div className="flex flex-wrap gap-2">
+            {attachedFiles.map((f) => (
+              <div key={f.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/70 border border-border text-xs">
+                <FileText size={12} />
+                <span className="truncate max-w-[200px]">{f.filename}</span>
+                <span className="text-muted-foreground">{f.chunk_count} chunks</span>
+                <button
+                  onClick={() => setAttachedFiles(prev => prev.filter(x => x.id !== f.id))}
+                  className="ml-1 hover:text-destructive"
+                  aria-label="Remove"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {attachedFiles[attachedFiles.length - 1]?.analysis && (
+            <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap bg-muted/40 rounded-lg p-2 border border-border">
+              Analysis ready for {attachedFiles[attachedFiles.length - 1].filename}
+            </div>
+          )}
+        </div>
       )}
 
       <ChatInput

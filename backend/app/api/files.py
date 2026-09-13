@@ -35,7 +35,7 @@ async def analyze_file_text(text: str, filename: str) -> Optional[str]:
     try:
         response = await chat_provider.generate(
             messages=messages,
-            model="llama-3.1-70b",
+            model="muse-glimmer",
             system_prompt="You are a thorough document analyst. Provide a clear, structured analysis report.",
             max_tokens=2048,
         )
@@ -47,7 +47,7 @@ async def analyze_file_text(text: str, filename: str) -> Optional[str]:
 @router.post("/upload", response_model=FileResponse)
 async def upload_file(
     file: UploadFile = File(...),
-    analyze: bool = Form(False),
+    analyze: bool = Form(True),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -85,7 +85,7 @@ async def upload_file(
 @router.post("/upload-multiple")
 async def upload_multiple_files(
     files: list[UploadFile] = File(...),
-    analyze: bool = Form(False),
+    analyze: bool = Form(True),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

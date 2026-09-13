@@ -216,12 +216,7 @@ class NvidiaChatProvider:
                             reason_text = delta.get("reasoning_content")
                             if reason_text:
                                 full_reasoning += reason_text
-                                yield StreamChunk(
-                                    type="reasoning",
-                                    content=reason_text,
-                                    model=model,
-                                    provider="nvidia",
-                                )
+                                # Suppress reasoning chunks from user-facing stream
                             content_text = delta.get("content")
                             # Fallback to reasoning_content as content if content is missing
                             if not content_text and reason_text:

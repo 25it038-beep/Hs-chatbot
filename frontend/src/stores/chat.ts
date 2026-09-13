@@ -198,12 +198,18 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       syncDisplay()
     },
 
-    createChat: async () => {
+    createChat: async (continueFromLast = false) => {
       const chat = await api.createChat({ model: 'muse-glimmer', provider: 'nvidia' })
+      let initialMessages: Message[] = []
+      if (continueFromLast && state.chats.length > 0) {
+        const lastChat = state.chats[0]
+        const lastMsgs = state.chatMessages[lastChat.id] || []
+        initialMessages = lastMsgs.slice(-6)
+      }
       set(state => ({
         chats: [chat, ...state.chats],
         currentChat: chat,
-        chatMessages: { ...state.chatMessages, [chat.id]: [] },
+        chatMessages: { ...state.chatMessages, [chat.id]: initialMessages },
       }))
       syncDisplay()
       return chat

@@ -163,7 +163,7 @@ def rank_videos(results: list[VideoResult], query: str) -> list[VideoResult]:
 
 
 def format_videos_md(results: list[VideoResult], limit: Optional[int] = None) -> str:
-    """Structured markdown list. Empty string when there are no real videos."""
+    """Structured markdown list with thumbnail previews. Empty string when there are no real videos."""
     cap = limit or cfg.MAX_VIDEOS
     if not results:
         return ""
@@ -177,7 +177,17 @@ def format_videos_md(results: list[VideoResult], limit: Optional[int] = None) ->
         label = r.title
         if meta:
             label = f"{r.title} — {', '.join(meta)}"
-        parts.append(f"- [{label}]({r.url})")
+        # Add thumbnail preview for YouTube videos
+        thumb_md = ""
+        host = (r.host or "").lower()
+        if "youtube.com" in host or host == "youtu.be":
+            # Extract video ID
+            m = re.search(r"[?&](?:v|embed)=([\w-]{6,})", r.url) or re.search(r"youtu\.be/([\w-]{6,})", r.url) or re.search(r"/shorts/([\w-]{6,})", r.url)
+            if m:
+                vid = m.group(1)
+                thumb_url = f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"
+                thumb_md = f"![{r.title}]({thumb_url})\n"
+        parts.append(f"{thumb_md}- [{label}]({r.url})")
     return "\n".join(parts)
 
 

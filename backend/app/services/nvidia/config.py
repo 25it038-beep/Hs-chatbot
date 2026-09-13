@@ -113,11 +113,11 @@ TASK_ROUTES = {
         "fallback": [],
     },
     "coding": {
-        "default": "glm-5.2",
+        "default": "llama-3.2-vision",
         "fallback": [],
     },
     "reasoning": {
-        "default": "glm-5.2",
+        "default": "llama-3.2-vision",
         "fallback": [],
     },
     "vision": {

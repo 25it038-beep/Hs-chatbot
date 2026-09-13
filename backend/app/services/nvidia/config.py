@@ -109,7 +109,7 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "llama-3.1-70b",
+        "default": "llama-3.2-vision",
         "fallback": [],
     },
     "coding": {
@@ -130,7 +130,7 @@ TASK_ROUTES = {
         "fallback": ["flux-2-klein", "flux-1-schnell"],
     },
     "web_images": {
-        "default": "llama-3.1-70b",
+        "default": "llama-3.2-vision",
         "fallback": [],
     },
     "embeddings": {

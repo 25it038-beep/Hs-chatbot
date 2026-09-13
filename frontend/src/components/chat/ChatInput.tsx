@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, Loader2, X, Pencil } from 'lucide-react'
+import { Send, Paperclip, Square, Mic, Loader2, X, Pencil, Camera } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
@@ -211,6 +211,36 @@ export function ChatInput({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const handleScreenshot = async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      alert('Screen capture not supported in this browser')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+      const track = stream.getVideoTracks()[0]
+      const imageCapture = new (window as any).ImageCapture(track)
+      const bitmap = await imageCapture.grabFrame()
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')
+      ctx?.drawImage(bitmap, 0, 0)
+      track.stop()
+      canvas.toBlob(async (blob) => {
+        if (!blob) return
+        const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' })
+        setPendingFile(file)
+        if (onSendWithFile) {
+          await onSendWithFile(file, input)
+          setInput('')
+        }
+      }, 'image/png')
+    } catch (err) {
+      console.error('Screenshot failed', err)
+    }
+  }
+
   useEffect(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
@@ -343,6 +373,16 @@ export function ChatInput({
             aria-label="Attach a file"
           >
             {sending ? <Loader2 size={17} className="animate-spin" /> : <Paperclip size={17} />}
+          </button>
+
+          <button
+            onClick={handleScreenshot}
+            disabled={sending || streaming || isEditing}
+            className="flex-shrink-0 p-2 text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center"
+            title="Capture screen"
+            aria-label="Capture screen"
+          >
+            <Camera size={17} />
           </button>
 
           <textarea

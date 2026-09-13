@@ -110,6 +110,9 @@ class NvidiaChatProvider:
             # Fallback to reasoning_content if content is empty (e.g., muse-glimmer)
             if not content:
                 content = msg.get("reasoning_content") or ""
+            # Strip reasoning tags from content if present
+            import re
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
             usage = data.get("usage", {})
 
             key_manager.record_success(api_key, usage.get("total_tokens", 0))
@@ -222,6 +225,9 @@ class NvidiaChatProvider:
                             if not content_text and reason_text:
                                 content_text = reason_text
                             if content_text:
+                                # Strip reasoning tags on the fly
+                                import re
+                                content_text = re.sub(r"<think>.*?</think>", "", content_text, flags=re.DOTALL)
                                 full_content += content_text
                                 yield StreamChunk(
                                     type="content",

@@ -4,12 +4,14 @@ import {
   Mic,
   MicOff,
   PhoneOff,
-  Volume2,
-  VolumeX,
+  Send,
   Languages,
   Sparkles,
   AlertCircle,
   Radio,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { VoiceOrb } from '@/components/voice/VoiceOrb'
@@ -35,21 +37,27 @@ export function LiveConversationModal({
   onClose,
   onMessageSaved,
 }: LiveConversationModalProps) {
-  const [status, setStatus] = useState<RealtimeStatus>('listening')
+  const [status, setStatus] = useState<RealtimeStatus>('connecting')
+  const [isConnected, setIsConnected] = useState<boolean>(false)
+  const [endpointName, setEndpointName] = useState<string>('')
   const [audioLevel, setAudioLevel] = useState<number>(0)
   const [userTranscript, setUserTranscript] = useState<string>('')
   const [aiResponse, setAiResponse] = useState<string>('')
   const [isMuted, setIsMuted] = useState<boolean>(false)
   const [language, setLanguage] = useState<string>('en-US')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [textInput, setTextInput] = useState<string>('')
 
   const clientRef = useRef<RealtimeVoiceClient | null>(null)
   const lastUserTextRef = useRef<string>('')
   const currentAiAccumulatorRef = useRef<string>('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   // Map RealtimeStatus to VoiceOrb's VOICE_STATES
   const getOrbState = (st: RealtimeStatus): string => {
     switch (st) {
+      case 'connecting':
+        return VOICE_STATES.PROCESSING
       case 'listening':
         return VOICE_STATES.LISTENING
       case 'processing':
@@ -65,18 +73,16 @@ export function LiveConversationModal({
     }
   }
 
-  useEffect(() => {
-    if (!isOpen) {
-      if (clientRef.current) {
-        clientRef.current.stop()
-        clientRef.current = null
-      }
-      return
+  const startSession = () => {
+    if (clientRef.current) {
+      clientRef.current.stop()
+      clientRef.current = null
     }
 
     setErrorMessage(null)
     setUserTranscript('')
     setAiResponse('')
+    setIsConnected(false)
     lastUserTextRef.current = ''
     currentAiAccumulatorRef.current = ''
 
@@ -85,6 +91,17 @@ export function LiveConversationModal({
       {
         onStatusChange: (newStatus) => {
           setStatus(newStatus)
+        },
+        onConnectionChange: (connected, endpoint) => {
+          setIsConnected(connected)
+          if (endpoint) {
+            const clean = endpoint.includes('render')
+              ? 'Render Cloud'
+              : endpoint.includes('localhost')
+              ? 'Local Server'
+              : endpoint.replace(/^https?:\/\//, '')
+            setEndpointName(clean)
+          }
         },
         onUserTranscript: (text, isFinal) => {
           setUserTranscript(text)
@@ -116,9 +133,21 @@ export function LiveConversationModal({
 
     clientRef.current = client
     client.start()
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (clientRef.current) {
+        clientRef.current.stop()
+        clientRef.current = null
+      }
+      return
+    }
+
+    startSession()
 
     return () => {
-      client.stop()
+      clientRef.current?.stop()
       clientRef.current = null
     }
   }, [isOpen, conversationId])
@@ -138,6 +167,17 @@ export function LiveConversationModal({
     clientRef.current?.interrupt()
   }
 
+  const handleSendText = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const trimmed = textInput.trim()
+    if (!trimmed) return
+
+    if (clientRef.current) {
+      clientRef.current.sendUtterance(trimmed)
+      setTextInput('')
+    }
+  }
+
   const handleClose = () => {
     clientRef.current?.stop()
     clientRef.current = null
@@ -147,24 +187,45 @@ export function LiveConversationModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md transition-all p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md transition-all p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="relative flex flex-col items-center justify-between w-full max-w-2xl h-[580px] bg-card/95 border border-border/80 rounded-3xl shadow-2xl overflow-hidden p-6 sm:p-8"
+        className="relative flex flex-col items-center justify-between w-full max-w-2xl h-[620px] bg-card/95 border border-border/80 rounded-3xl shadow-2xl overflow-hidden p-6 sm:p-7"
       >
         {/* Top Header */}
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2.5">
             <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              {isConnected ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </>
+              ) : (
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500 animate-pulse"></span>
+              )}
             </span>
-            <span className="font-semibold text-sm tracking-wide text-foreground flex items-center gap-1.5">
-              <Radio size={14} className="text-primary animate-pulse" />
-              HSBot LIVE
-            </span>
+            <div className="flex flex-col">
+              <span className="font-semibold text-sm tracking-wide text-foreground flex items-center gap-1.5">
+                <Radio size={14} className="text-primary animate-pulse" />
+                HSBot LIVE
+              </span>
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                {isConnected ? (
+                  <>
+                    <Wifi size={10} className="text-emerald-500" />
+                    Connected ({endpointName || 'Cloud'})
+                  </>
+                ) : (
+                  <>
+                    <WifiOff size={10} className="text-amber-500" />
+                    Connecting to voice server...
+                  </>
+                )}
+              </span>
+            </div>
           </div>
 
           {/* Language Selector */}
@@ -193,27 +254,31 @@ export function LiveConversationModal({
             audioLevel={audioLevel}
             isHandsFree={true}
             wakeWordDetected={false}
-            wsConnected={true}
+            wsConnected={isConnected}
             onToggle={() => {}}
             onInterrupt={handleManualInterrupt}
-            className="w-48 h-48 sm:w-56 sm:h-56"
+            className="w-44 h-44 sm:w-52 sm:h-52"
           />
 
           {/* Status Label */}
-          <div className="mt-4 flex items-center gap-2 text-xs sm:text-sm font-medium">
+          <div className="mt-3.5 flex items-center gap-2 text-xs sm:text-sm font-medium">
             {status === 'speaking' ? (
               <span className="text-primary flex items-center gap-1.5 animate-pulse">
                 <Sparkles size={14} /> HSBot is speaking... (Speak to interrupt)
               </span>
             ) : status === 'processing' ? (
-              <span className="text-amber-500 flex items-center gap-1.5">
-                Thinking & fetching...
+              <span className="text-amber-500 flex items-center gap-1.5 animate-pulse">
+                Thinking & replying...
+              </span>
+            ) : status === 'connecting' ? (
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                <RefreshCw size={13} className="animate-spin" /> Connecting live session...
               </span>
             ) : status === 'interrupted' ? (
               <span className="text-rose-500 font-medium">Interrupted — listening to you</span>
             ) : isMuted ? (
               <span className="text-muted-foreground flex items-center gap-1">
-                <MicOff size={14} /> Microphone muted
+                <MicOff size={14} /> Microphone muted (type below to chat)
               </span>
             ) : (
               <span className="text-emerald-500 flex items-center gap-1.5">
@@ -222,19 +287,28 @@ export function LiveConversationModal({
             )}
           </div>
 
-          {/* Error notification if any */}
+          {/* Diagnostic or Permission Banner */}
           {errorMessage && (
-            <div className="mt-2 text-xs text-destructive flex items-center gap-1.5 bg-destructive/10 px-3 py-1 rounded-md max-w-md text-center">
-              <AlertCircle size={13} />
-              {errorMessage}
+            <div className="mt-2 text-xs text-destructive flex items-center justify-between gap-2 bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded-lg max-w-lg text-center">
+              <span className="flex items-center gap-1.5 text-left">
+                <AlertCircle size={13} className="shrink-0" />
+                {errorMessage}
+              </span>
+              <button
+                type="button"
+                onClick={startSession}
+                className="text-[11px] underline font-medium hover:opacity-80 shrink-0 ml-1"
+              >
+                Retry
+              </button>
             </div>
           )}
         </div>
 
         {/* Real-time Subtitles / Utterance Feed */}
-        <div className="w-full bg-muted/40 border border-border/50 rounded-2xl p-3.5 sm:p-4 min-h-[90px] max-h-[110px] overflow-y-auto mb-4 text-left flex flex-col justify-end">
+        <div className="w-full bg-muted/40 border border-border/50 rounded-2xl p-3.5 sm:p-4 min-h-[90px] max-h-[110px] overflow-y-auto mb-3 text-left flex flex-col justify-end">
           {userTranscript && (
-            <div className="text-xs text-muted-foreground/80 mb-1 line-clamp-2">
+            <div className="text-xs text-muted-foreground/90 mb-1 line-clamp-2">
               <span className="font-semibold text-primary/90 mr-1.5">You:</span>
               {userTranscript}
             </div>
@@ -246,14 +320,35 @@ export function LiveConversationModal({
             </div>
           ) : (
             !userTranscript && (
-              <p className="text-xs text-muted-foreground/50 italic text-center py-2">
-                Speak naturally. Ask for time, weather, knowledge, or anything. You can interrupt anytime.
+              <p className="text-xs text-muted-foreground/60 italic text-center py-2">
+                Speak naturally or type below. Ask for time, weather, or any question.
               </p>
             )
           )}
         </div>
 
-        {/* Bottom Controls */}
+        {/* Live Utterance Type & Push Bar */}
+        <form onSubmit={handleSendText} className="w-full flex items-center gap-2 mb-3">
+          <input
+            ref={inputRef}
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a quick message or ask in real-time..."
+            className="flex-1 bg-muted/50 border border-border/60 rounded-full px-4 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden focus:ring-1 focus:ring-primary"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!textInput.trim()}
+            className="rounded-full h-8 px-3 text-xs gap-1.5 shadow-xs"
+          >
+            <Send size={12} />
+            <span>Send</span>
+          </Button>
+        </form>
+
+        {/* Bottom Action Controls */}
         <div className="flex items-center justify-center gap-4 w-full">
           <Button
             type="button"
@@ -290,7 +385,7 @@ export function LiveConversationModal({
             className="rounded-full px-6 h-11 flex items-center gap-2 text-xs font-semibold shadow-md active:scale-95 transition-all"
           >
             <PhoneOff size={16} />
-            End Conversation
+            End Session
           </Button>
         </div>
       </motion.div>

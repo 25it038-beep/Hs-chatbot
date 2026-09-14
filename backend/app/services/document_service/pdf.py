@@ -18,9 +18,12 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, KeepTogether, HRFlowable
 )
+import logging
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
+
+logger = logging.getLogger("hsbot.document.pdf")
 
 from app.services.document_service.design_system import (
     DesignSpec, ColorPalette, PALETTES, hex_to_rgb, infer_design_spec
@@ -105,7 +108,7 @@ def _build_cover_flowables(
     )
     tag_table = Table(
         [[Paragraph("EXECUTIVE PROJECT REPORT", tag_style)]],
-        colWidths=[504],
+        colWidths=[492],
     )
     tag_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(palette["card_bg"] if palette["card_bg"] != "#FFFFFF" else "#F1F5F9")),
@@ -180,7 +183,7 @@ def _build_cover_flowables(
         [Paragraph("Security Level:", meta_title_style), Paragraph("Standard Operational Access", meta_val_style)],
     ]
 
-    meta_table = Table(meta_rows, colWidths=[120, 384])
+    meta_table = Table(meta_rows, colWidths=[110, 382])
     meta_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(palette["card_bg"] if palette["card_bg"] != "#FFFFFF" else "#F8FAFC")),
         ('LEFTPADDING', (0, 0), (-1, -1), 14),
@@ -200,6 +203,10 @@ def _build_cover_flowables(
 
 def _build_callout_box(text: str, palette: Dict[str, str], styles) -> Table:
     """Builds a styled callout box with a thick left accent bar."""
+    clean = _clean_text(str(text).strip())
+    # Guard against vertical cell overflow: callouts are concise quotes, cap at 350 chars
+    if len(clean) > 350:
+        clean = clean[:347] + "..."
     callout_style = ParagraphStyle(
         name="CalloutText",
         parent=styles["Normal"],
@@ -208,8 +215,8 @@ def _build_callout_box(text: str, palette: Dict[str, str], styles) -> Table:
         leading=15,
         textColor=colors.HexColor(palette["primary"]),
     )
-    p = Paragraph(_clean_text(text), callout_style)
-    tbl = Table([[p]], colWidths=[504])
+    p = Paragraph(clean, callout_style)
+    tbl = Table([[p]], colWidths=[492])
     tbl.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(palette["card_bg"] if palette["card_bg"] != "#FFFFFF" else "#F8FAFC")),
         ('LEFTPADDING', (0, 0), (-1, -1), 14),
@@ -226,7 +233,7 @@ def _build_kpi_table(kpis: List[Dict], palette: Dict[str, str], styles) -> Table
     """Renders a grid of 3-4 KPI metrics with large numbers and labels."""
     display_kpis = kpis[:4]
     count = len(display_kpis)
-    col_w = 504 / count
+    col_w = 492.0 / count
 
     val_style = ParagraphStyle(
         name="KPIVal",
@@ -307,7 +314,7 @@ def _build_workflow_table(steps: List[Dict], palette: Dict[str, str], styles) ->
         desc = Paragraph(_clean_text(desc_text), step_desc_style)
         rows.append([badge, title, desc])
 
-    tbl = Table(rows, colWidths=[70, 140, 294])
+    tbl = Table(rows, colWidths=[65, 135, 292])
     tbl.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(palette["card_bg"] if palette["card_bg"] != "#FFFFFF" else "#F8FAFC")),
         ('LEFTPADDING', (0, 0), (-1, -1), 10),
@@ -450,7 +457,7 @@ def generate_pdf(
                 Paragraph(_clean_text(h_text), body_style),
                 Paragraph("Section Detailed Overview", bullet_style),
             ])
-        toc_table = Table(toc_rows, colWidths=[40, 260, 204])
+        toc_table = Table(toc_rows, colWidths=[40, 252, 200])
         toc_table.setStyle(TableStyle([
             ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor(palette["border"])),
             ('TOPPADDING', (0, 0), (-1, -1), 6),
@@ -533,7 +540,7 @@ def generate_pdf(
                 flowables.append(Paragraph(f"• {_clean_text(str(itm))}", bullet_style))
             flowables.append(Spacer(1, 6))
 
-        # Formatted Data Table
+        # Formatted Data Table (without rigid KeepTogether to allow graceful page breaks)
         if table_data and isinstance(table_data, list) and len(table_data) > 0:
             flowables.append(Spacer(1, 6))
             formatted_table = []
@@ -545,7 +552,7 @@ def generate_pdf(
                 formatted_table.append(row_cells)
 
             col_count = len(table_data[0])
-            col_width = 504.0 / col_count
+            col_width = 492.0 / col_count
             t = Table(formatted_table, colWidths=[col_width] * col_count)
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(palette["primary"])),
@@ -556,18 +563,107 @@ def generate_pdf(
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor(palette["border"])),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor(palette["card_bg"] if palette["card_bg"] != "#FFFFFF" else "#F8FAFC"), colors.white]),
             ]))
-            flowables.append(KeepTogether([t]))
+            flowables.append(t)
             flowables.append(Spacer(1, 12))
 
         if page_break_after and sec_idx < len(sections):
             flowables.append(PageBreak())
 
-    # Build Document with NumberedCanvas
+    # Build Document with NumberedCanvas and resilient fallback
     def _on_first_page(canv, _):
         canv._doc_title = title
 
-    doc.build(flowables, canvasmaker=NumberedCanvas, onFirstPage=_on_first_page)
+    try:
+        doc.build(flowables, canvasmaker=NumberedCanvas, onFirstPage=_on_first_page)
+    except Exception as build_err:
+        logger.warning("[PDF] doc.build failed with rich layout (%s), falling back to resilient flowables layout", build_err)
+        resilient_flowables = _build_resilient_flowables(
+            title=title,
+            subtitle=subtitle,
+            author=author,
+            sections=sections,
+            palette=palette,
+            styles=styles,
+        )
+        doc2 = SimpleDocTemplate(
+            output_path,
+            pagesize=LETTER,
+            leftMargin=54,
+            rightMargin=54,
+            topMargin=54,
+            bottomMargin=54,
+        )
+        doc2.build(resilient_flowables, canvasmaker=NumberedCanvas, onFirstPage=_on_first_page)
+
     return output_path
+
+
+def _build_resilient_flowables(
+    title: str,
+    subtitle: Optional[str],
+    author: Optional[str],
+    sections: List[Dict],
+    palette: Dict[str, str],
+    styles,
+) -> List[Any]:
+    """Fallback flowable generator that guarantees document compilation without un-splittable elements."""
+    flowables = []
+    h1 = ParagraphStyle(
+        name="ResilientH1", parent=styles["Heading1"],
+        fontName="Helvetica-Bold", fontSize=22, leading=26,
+        textColor=colors.HexColor(palette.get("primary", "#0F172A")),
+        spaceBefore=14, spaceAfter=8, keepWithNext=True,
+    )
+    h2 = ParagraphStyle(
+        name="ResilientH2", parent=styles["Heading2"],
+        fontName="Helvetica-Bold", fontSize=14, leading=18,
+        textColor=colors.HexColor(palette.get("secondary", "#334155")),
+        spaceBefore=12, spaceAfter=6, keepWithNext=True,
+    )
+    body = ParagraphStyle(
+        name="ResilientBody", parent=styles["Normal"],
+        fontName="Helvetica", fontSize=10, leading=15,
+        textColor=colors.HexColor(palette.get("text", "#1E293B")),
+        spaceAfter=8,
+    )
+    bullet = ParagraphStyle(
+        name="ResilientBullet", parent=styles["Normal"],
+        fontName="Helvetica", fontSize=10, leading=14,
+        textColor=colors.HexColor(palette.get("text", "#1E293B")),
+        leftIndent=14, spaceAfter=4,
+    )
+    callout_style = ParagraphStyle(
+        name="ResilientCallout", parent=styles["Normal"],
+        fontName="Helvetica-Oblique", fontSize=10, leading=14,
+        textColor=colors.HexColor(palette.get("accent", "#2563EB")),
+        leftIndent=12, spaceBefore=4, spaceAfter=8,
+    )
+
+    flowables.append(Paragraph(_clean_text(title), h1))
+    if subtitle:
+        flowables.append(Paragraph(_clean_text(subtitle), h2))
+    flowables.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor(palette.get("accent", "#2563EB")), spaceAfter=14))
+
+    for sec in sections:
+        heading = sec.get("heading", "")
+        if heading:
+            flowables.append(Paragraph(_clean_text(heading), h2))
+            flowables.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor(palette.get("border", "#CBD5E1")), spaceAfter=8))
+        content = sec.get("content", "")
+        if content:
+            for para in str(content).split("\n\n"):
+                cp = para.strip()
+                if cp:
+                    flowables.append(Paragraph(_clean_text(cp), body))
+        callout = sec.get("callout")
+        if callout:
+            clean_co = _clean_text(str(callout).strip())
+            flowables.append(Paragraph(f"<b>Key Takeaway:</b> {clean_co[:300]}", callout_style))
+        for itm in sec.get("items", []):
+            flowables.append(Paragraph(f"• {_clean_text(str(itm))}", bullet))
+        flowables.append(Spacer(1, 10))
+
+    return flowables
 
 
 def generate_simple_pdf(text: str, output_path: str, title: str = "Document") -> str:

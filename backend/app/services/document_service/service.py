@@ -170,11 +170,12 @@ class DocumentService:
                 count_unit = count_match.group(2)
 
         # Extract topic/subject
-        topic = msg
         strip_pattern = r'^(?:please\s+)?(?:create|make|generate|build|write|produce|prepare|export|save|convert|turn(?:\s+this)?(?:\s+into)?)\s+(?:a|an|the|my)?\s*(?:\d+\s*(?:-| )*(?:page|slide|sheet)s?\s*)?(?:pdf|word\s+doc(?:ument)?|docx?|powerpoint|pptx?|presentation|excel|xlsx?|spreadsheet|csv|markdown|md|report|resume|expense\s+tracker)?\s*(?:about|on|explaining|for|of|with)?\s*'
         clean_topic = re.sub(strip_pattern, '', msg, flags=re.IGNORECASE).strip()
         if clean_topic:
-            topic = clean_topic
+            first_line = clean_topic.splitlines()[0].strip()
+            first_clause = re.split(r'[:;.\n]', first_line)[0].strip()
+            topic = (first_clause or first_line)[:80].strip() or "Document"
         else:
             topic = "Document"
 
@@ -646,8 +647,8 @@ class DocumentService:
 
     def _generate_fallback_content(self, intent: DocumentIntent) -> Any:
         """Generates rich, topic-specific multi-layout content when LLM is unavailable."""
-        topic = intent.topic
-        title = intent.title
+        topic = (intent.topic or "System Architecture").strip()[:80]
+        title = intent.title or topic
         fmt = intent.format
         count = intent.count
 
@@ -667,7 +668,7 @@ class DocumentService:
                             "Our technical evaluation establishes clear baselines across latency, fault tolerance, resource efficiency, and user experience. "
                             "Through methodical architectural separation, the solution achieves unprecedented performance."
                         ),
-                        "callout": f"Key Finding: Implementation of automated pipeline validation reduces regression risk by 84% while accelerating time-to-market for {topic}.",
+                        "callout": f"Key Finding: Implementation of automated pipeline validation reduces regression risk by 84% while accelerating time-to-market for {topic}."[:250],
                         "kpis": [
                             {"metric": "99.95%", "label": "System SLA"},
                             {"metric": "< 1.2s", "label": "Median Latency"},

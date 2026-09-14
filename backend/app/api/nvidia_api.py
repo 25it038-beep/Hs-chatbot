@@ -208,6 +208,8 @@ async def nvidia_chat(
 ):
     original_message = request.message
     from app.services.retrieval.url_handler import handle_url_fetching
+    from app.services.live_router import classify_live_intent
+    from app.services.time_service import get_current_time as time_now, get_time_for_location
     url_context = None
     url_res = await handle_url_fetching(request.message)
     if url_res["has_url"]:
@@ -225,6 +227,27 @@ async def nvidia_chat(
         else:
             request.message = url_res["query"]
             url_context = url_res["context"]
+    # Live intent router – intercept before any retrieval/LLM
+    intent, location = classify_live_intent(request.message)
+    if intent in ("TIME", "TIMEZONE"):
+        try:
+            if intent == "TIME":
+                data = time_now()
+                content = f"🕐 {data['time']}\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
+            else:
+                loc = location or "UTC"
+                data = await get_time_for_location(loc)
+                content = f"🕐 The current time in {loc.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
+            if request.stream:
+                async def live_gen():
+                    yield f"data: {json.dumps({'type':'meta','model':request.model or 'glm-5.2','task':'chat','chat_id':request.chat_id or ''})}\n\n"
+                    yield f"data: {json.dumps({'type':'content','content':content})}\n\n"
+                    yield "data: [DONE]\n\n"
+                return StreamingResponse(live_gen(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+            else:
+                return JSONResponse({"content": content})
+        except Exception:
+            pass
     if request.auto_route:
         # Load recent user messages for context-aware routing ("create an image of it")
         context: list[str] = []

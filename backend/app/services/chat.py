@@ -27,7 +27,6 @@ from app.services.tools.weather_tool import WeatherService
 from app.services.live_router import classify_live_intent
 from app.services.time_service import get_current_time as time_now, get_time_for_timezone, get_time_for_location
 from app.services.weather_service import WeatherService as WeatherServiceNew
-from app.services.location_service import LocationService
 
 _logger = logging.getLogger("hsbot.chat")
 

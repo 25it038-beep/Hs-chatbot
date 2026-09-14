@@ -6,11 +6,21 @@ from app.services.document_service.xlsx import generate_xlsx, generate_simple_xl
 from app.services.document_service.csv import generate_csv
 from app.services.document_service.markdown import generate_markdown, generate_simple_markdown
 from app.services.document_service.validator import validate_file_structure
+from app.services.document_service.verifier import (
+    DocumentVerificationService,
+    document_verifier,
+    StructuredRequirements,
+    VerificationResult,
+)
 
 __all__ = [
     "DocumentService",
     "document_service",
     "DocumentIntent",
+    "DocumentVerificationService",
+    "document_verifier",
+    "StructuredRequirements",
+    "VerificationResult",
     "generate_pdf",
     "generate_simple_pdf",
     "generate_docx",

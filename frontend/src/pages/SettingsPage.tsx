@@ -7,9 +7,10 @@ import { useAmbient } from '@/stores/ambient'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { X, Sun, Moon, Monitor, LogOut, Trash2, Sparkles, Check, Loader2 } from 'lucide-react'
+import { X, Sun, Moon, Monitor, LogOut, Trash2, Sparkles, Check, Loader2, Download } from 'lucide-react'
 import { LocationSettings } from '@/components/settings/LocationSettings'
 import { motion, AnimatePresence } from 'framer-motion'
+import { isTauri } from '@/lib/tauri'
 
 const themes = [
   { id: 'light', label: 'Light', icon: Sun },
@@ -147,6 +148,52 @@ export function SettingsPage() {
                 <section className="space-y-3">
                   <h3 className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider mb-3 ml-1">Location</h3>
                   <LocationSettings />
+                </section>
+
+                <Separator className="opacity-30" />
+
+                <section className="space-y-3">
+                  <h3 className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider mb-3 ml-1">
+                    Desktop App
+                  </h3>
+                  <div className="p-3.5 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                        <Monitor size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-semibold text-foreground">HSBot for Windows</h4>
+                        <p className="text-[11px] text-muted-foreground">Floating overlay • Global hotkey</p>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-muted-foreground/90 space-y-1.5 pl-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                        <span>Summon with <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[10px] border border-border text-foreground">Ctrl + Space</kbd></span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                        <span>Multi-tab browser automation & playback control</span>
+                      </div>
+                    </div>
+
+                    {!isTauri ? (
+                      <a
+                        href="/downloads/HSBot_1.0.0_x64-setup.exe"
+                        download="HSBot_1.0.0_x64-setup.exe"
+                        className="inline-flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-xs shadow-soft hover:opacity-95 transition-all"
+                      >
+                        <Download size={13} />
+                        <span>Download Windows Setup (4.25 MB)</span>
+                      </a>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-green-500 font-medium pt-1">
+                        <Check size={13} />
+                        <span>Running in Desktop Overlay Mode</span>
+                      </div>
+                    )}
+                  </div>
                 </section>
 
                 <Separator className="opacity-30" />

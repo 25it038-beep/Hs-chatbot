@@ -295,5 +295,9 @@ export const api = {
     document.body.removeChild(a)
     window.URL.revokeObjectURL(url)
   },
+
+  getFilePreview: (fileId: string) => {
+    return request<import('@/types').DocumentPreviewResponse>(`/files/${fileId}/preview`)
+  },
 }
 

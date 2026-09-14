@@ -371,8 +371,8 @@ class AutomationEngine:
             # URL-like target ("open youtube.com") → browser, not folder.
             if "." in folder_path and " " not in folder_path and "\\" not in folder_path and "/" not in folder_path:
                 return await browser_controller.execute(IntentType.OPEN_URL, folder_path, {"url": folder_path})
-            if not os.path.isdir(os.path.expanduser(folder_path)):
-                # Not a literal path — try ambiguity resolution
+            if not os.path.isabs(os.path.expanduser(folder_path)) or not os.path.isdir(os.path.expanduser(folder_path)):
+                # Not a literal absolute path — try ambiguity resolution
                 return await self._open_folder_with_ambiguity(folder_path)
             return folder_controller.open_folder(folder_path)
 

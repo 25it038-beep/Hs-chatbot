@@ -29,6 +29,13 @@ async def init_db():
     import app.models  # noqa: F401 - ensure all ORM models are registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Safe auto-migration for newly added columns
+        for col in ("preview_data", "design_spec", "content_data", "verification_result"):
+            try:
+                from sqlalchemy import text
+                await conn.execute(text(f"ALTER TABLE generated_files ADD COLUMN {col} TEXT"))
+            except Exception:
+                pass
 
     async with async_session() as session:
         try:

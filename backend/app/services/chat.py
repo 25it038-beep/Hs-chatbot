@@ -244,15 +244,52 @@ class ChatService:
 
         # Document generation intent detection
         from app.services.document_service import document_service
+        from app.models.file import GeneratedFile
         doc_intent = document_service.detect_intent(request.message)
+        if doc_intent:
+            structured_content = None
+            design_spec = None
+
+            if doc_intent.is_redesign:
+                stmt = select(GeneratedFile).where(GeneratedFile.conversation_id == str(chat_id)).order_by(desc(GeneratedFile.created_at))
+                res = await self.db.execute(stmt)
+                prev_file = res.scalars().first()
+                if prev_file:
+                    _logger.info("[CHAT] redesign request for previous file id=%s", prev_file.id)
+                    doc_intent.format = prev_file.filename.split('.')[-1].lower()
+                    base_name = prev_file.filename.rsplit('.', 1)[0]
+                    clean_base = re.sub(r'_v\d+$', '', base_name)
+                    doc_intent.filename = f"{clean_base}_v2.{doc_intent.format}"
+                    doc_intent.title = clean_base.replace('_', ' ')
+                    if prev_file.content_data:
+                        try:
+                            structured_content = json.loads(prev_file.content_data)
+                        except Exception:
+                            structured_content = None
+                    if prev_file.design_spec:
+                        try:
+                            from app.services.document_service.design_system import infer_design_spec
+                            design_spec = infer_design_spec(
+                                topic=doc_intent.title,
+                                doc_format=doc_intent.format,
+                                user_prompt=doc_intent.redesign_instruction or request.message,
+                            )
+                        except Exception:
+                            design_spec = None
+                else:
+                    # No previous file in this conversation; not a redesign
+                    doc_intent = None
+
         if doc_intent:
             _logger.info("[CHAT] document request detected")
             _logger.info("[CHAT] requested format: %s", doc_intent.format)
-            yield StreamChunk(type="searching", content=f"Generating {doc_intent.format.upper()} document...")
+            yield StreamChunk(type="searching", content=f"Designing {doc_intent.format.upper()} and synthesizing structure...")
+            yield StreamChunk(type="searching", content="Running AI quality verification & physical inspection...")
             
             try:
                 _logger.info("[CHAT] generating content")
-                structured_content = await document_service.synthesize_content(doc_intent)
+                if not structured_content:
+                    structured_content = await document_service.synthesize_content(doc_intent)
                 
                 file_info = await document_service.generate_file(
                     fmt=doc_intent.format,
@@ -262,6 +299,8 @@ class ChatService:
                     conversation_id=str(chat_id),
                     user_id=str(user_id),
                     db=self.db,
+                    design_spec=design_spec,
+                    user_prompt=request.message,
                 )
 
                 attachment = {
@@ -270,9 +309,17 @@ class ChatService:
                     "type": file_info["mime_type"],
                     "size": file_info["file_size"],
                     "download_url": file_info["download_url"],
+                    "verification": file_info.get("verification"),
                 }
 
-                msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+                verification = file_info.get("verification")
+                if verification and verification.get("passed"):
+                    score = verification.get("overall_score", 100)
+                    checks_passed = len([c for c in verification.get("checks", []) if c.get("status") == "PASSED"])
+                    total_checks = len(verification.get("checks", []))
+                    msg_content = f"Done — your {doc_intent.format.upper()} is ready (Quality Verified: {score}%, {checks_passed}/{total_checks} checks passed)."
+                else:
+                    msg_content = f"Done — your {doc_intent.format.upper()} is ready."
 
                 # Save user message and assistant message with attachments in database
                 self.db.add(Message(chat_id=chat_id, role="user", content=original_message))

@@ -10,9 +10,9 @@ from app.utils.security import hash_password, create_access_token
 
 @pytest.mark.asyncio
 async def test_nvidia_chat_pdf_generation_and_download():
-    # Setup DB
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Setup DB with migrations
+    from app.database import init_db
+    await init_db()
 
     # Ensure test user exists
     async with async_session() as session:
@@ -177,3 +177,41 @@ async def test_normal_chat_does_not_create_file():
                     assert chunk.get("type") != "file_created"
                     assert chunk.get("file") is None
                 except: pass
+
+
+@pytest.mark.asyncio
+async def test_preview_api_endpoint():
+    from app.database import init_db
+    await init_db()
+
+    token = create_access_token({"sub": "test-doc-user-1"})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        chat_resp = await client.post("/api/chats", json={"title": "New Chat", "model": "llama-3.1-70b", "provider": "nvidia"}, headers=headers)
+        chat_id = chat_resp.json()["id"]
+
+        # Generate a presentation
+        res = await client.post("/api/nvidia/chat", json={
+            "message": "Create a 4-slide PowerPoint about quantum encryption",
+            "chat_id": chat_id,
+            "stream": False,
+        }, headers=headers)
+        assert res.status_code == 200
+        file_id = res.json()["attachments"][0]["id"]
+
+        # Call preview endpoint
+        preview_resp = await client.get(f"/api/files/{file_id}/preview", headers=headers)
+        assert preview_resp.status_code == 200
+        p_data = preview_resp.json()
+        assert p_data["file_id"] == file_id
+        assert p_data["format"] == "pptx"
+        assert "design_spec" in p_data
+        assert "preview" in p_data
+        assert "slides" in p_data["preview"]
+        assert len(p_data["preview"]["slides"]) >= 4
+        assert "verification" in p_data
+        if p_data.get("verification"):
+            assert p_data["verification"]["overall_score"] >= 80
+            assert p_data["verification"]["passed"] is True

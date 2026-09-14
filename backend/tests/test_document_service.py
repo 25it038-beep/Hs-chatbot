@@ -188,8 +188,8 @@ class TestDocumentGenerators:
 @pytest.mark.asyncio
 class TestDocumentServicePipeline:
     async def test_full_pipeline_with_database(self):
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        from app.database import init_db
+        await init_db()
 
         async with async_session() as session:
             intent = DocumentService.detect_intent("Create a PDF about artificial intelligence")
@@ -220,3 +220,141 @@ class TestDocumentServicePipeline:
             assert record.filename == intent.filename
             assert record.storage_path == result["path"]
             assert record.mime_type == "application/pdf"
+            assert record.preview_data is not None
+            assert record.design_spec is not None
+
+
+class TestDesignSystem:
+    def test_palette_inference_hackathon(self):
+        from app.services.document_service.design_system import infer_design_spec
+        spec = infer_design_spec("AI Cybersecurity Project", "pptx", "create a hackathon presentation")
+        assert spec.template == "hackathon"
+        assert spec.palette_name == "midnight_tech"
+        assert spec.is_dark is True
+
+    def test_palette_inference_dark_theme(self):
+        from app.services.document_service.design_system import infer_design_spec
+        spec = infer_design_spec("Cloud Architecture", "pptx", "use dark theme")
+        assert spec.is_dark is True
+        assert spec.palette["primary"] == "#0B1020"
+
+    def test_palette_inference_blue_corporate(self):
+        from app.services.document_service.design_system import infer_design_spec
+        spec = infer_design_spec("Quarterly Business Review", "pdf", "make it corporate blue")
+        assert spec.palette_name == "executive_blue"
+        assert spec.palette["accent"] == "#2563EB"
+
+    def test_palette_inference_emerald(self):
+        from app.services.document_service.design_system import infer_design_spec
+        spec = infer_design_spec("Renewable Energy Report", "pdf", "use emerald theme")
+        assert spec.palette_name == "emerald_intelligence"
+
+    def test_palette_inference_minimal(self):
+        from app.services.document_service.design_system import infer_design_spec
+        spec = infer_design_spec("Clean Portfolio", "pptx", "minimal monochrome style")
+        assert spec.palette_name == "minimal_monochrome"
+
+
+class TestPresentationLayouts:
+    def test_workflow_layout_with_arrows(self):
+        from app.services.document_service.pptx import generate_pptx
+        p_path = os.path.join(TEST_DIR, "workflow_deck.pptx")
+        slides = [{
+            "title": "Data Pipeline Workflow",
+            "layout": "process",
+            "steps": [
+                {"title": "Ingestion", "description": "Kafka stream consumer"},
+                {"title": "Processing", "description": "Spark transformation"},
+                {"title": "AI Inference", "description": "NVIDIA NIM inference"},
+                {"title": "Storage", "description": "PostgreSQL persistent store"},
+            ]
+        }]
+        out = generate_pptx("Pipeline Architecture", slides, p_path)
+        assert os.path.exists(out)
+        assert validate_pptx(out) is True
+
+    def test_kpis_layout(self):
+        from app.services.document_service.pptx import generate_pptx
+        p_path = os.path.join(TEST_DIR, "kpi_deck.pptx")
+        slides = [{
+            "title": "System Performance Metrics",
+            "layout": "kpis",
+            "kpis": [
+                {"metric": "99.99%", "label": "Reliability"},
+                {"metric": "< 5ms", "label": "P99 Latency"},
+                {"metric": "100k", "label": "Active Users"},
+                {"metric": "Zero", "label": "Security Incidents"},
+            ]
+        }]
+        out = generate_pptx("Performance Review", slides, p_path)
+        assert os.path.exists(out)
+        assert validate_pptx(out) is True
+
+    def test_architecture_layout(self):
+        from app.services.document_service.pptx import generate_pptx
+        p_path = os.path.join(TEST_DIR, "arch_deck.pptx")
+        slides = [{
+            "title": "HSBot Multi-Layer Architecture",
+            "layout": "architecture",
+            "layers": [
+                {"name": "Client Layer", "components": "React 19, Tauri 2 Overlay"},
+                {"name": "Gateway Layer", "components": "FastAPI, Rate Limiter"},
+                {"name": "AI Core Layer", "components": "NVIDIA NIM, SambaNova"},
+                {"name": "Storage Layer", "components": "SQLite, Qdrant Vector DB"},
+            ]
+        }]
+        out = generate_pptx("System Architecture", slides, p_path)
+        assert os.path.exists(out)
+        assert validate_pptx(out) is True
+
+    def test_three_card_layout(self):
+        from app.services.document_service.pptx import generate_pptx
+        p_path = os.path.join(TEST_DIR, "cards_deck.pptx")
+        slides = [{
+            "title": "Strategic Growth Pillars",
+            "layout": "cards",
+            "cards": [
+                {"title": "Pillar 1: Autonomy", "points": ["Full agentic workflows", "Self-healing tools"]},
+                {"title": "Pillar 2: Performance", "points": ["Sub-second token latency", "Cold-start warming"]},
+                {"title": "Pillar 3: Experience", "points": ["Native desktop shell", "Instant live previews"]},
+            ]
+        }]
+        out = generate_pptx("Strategic Pillars", slides, p_path)
+        assert os.path.exists(out)
+        assert validate_pptx(out) is True
+
+    def test_chart_layout(self):
+        from app.services.document_service.pptx import generate_pptx
+        p_path = os.path.join(TEST_DIR, "chart_deck.pptx")
+        slides = [{
+            "title": "Quarterly Performance Growth",
+            "layout": "chart",
+            "chart_data": {
+                "categories": ["Q1", "Q2", "Q3", "Q4"],
+                "series": [
+                    {"name": "Projected", "values": (10.0, 20.0, 30.0, 40.0)},
+                    {"name": "Actual", "values": (12.5, 24.0, 38.0, 52.0)},
+                ]
+            }
+        }]
+        out = generate_pptx("Growth Chart", slides, p_path)
+        assert os.path.exists(out)
+        assert validate_pptx(out) is True
+
+
+class TestRedesignIntent:
+    def test_redesign_intent_dark_theme(self):
+        intent = DocumentService.detect_intent("make it dark theme")
+        assert intent is not None
+        assert intent.is_redesign is True
+        assert "dark theme" in intent.redesign_instruction.lower()
+
+    def test_redesign_intent_minimal(self):
+        intent = DocumentService.detect_intent("redesign with minimal style")
+        assert intent is not None
+        assert intent.is_redesign is True
+
+    def test_redesign_intent_blue(self):
+        intent = DocumentService.detect_intent("use blue theme")
+        assert intent is not None
+        assert intent.is_redesign is True

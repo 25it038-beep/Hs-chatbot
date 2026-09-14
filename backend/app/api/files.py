@@ -190,3 +190,53 @@ async def download_file(
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+
+@router.get("/{file_id}/preview")
+async def preview_file(
+    file_id: str,
+    user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns structured preview and design specification data for a generated document."""
+    import json
+    stmt = select(GeneratedFile).where(GeneratedFile.id == file_id)
+    res = await db.execute(stmt)
+    file_record = res.scalar_one_or_none()
+
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    preview_json = {}
+    if file_record.preview_data:
+        try:
+            preview_json = json.loads(file_record.preview_data)
+        except Exception:
+            pass
+
+    design_json = {}
+    if file_record.design_spec:
+        try:
+            design_json = json.loads(file_record.design_spec)
+        except Exception:
+            pass
+
+    verification_json = {}
+    if getattr(file_record, "verification_result", None):
+        try:
+            verification_json = json.loads(file_record.verification_result)
+        except Exception:
+            pass
+
+    ext = file_record.filename.split('.')[-1].lower() if file_record.filename else "file"
+
+    return {
+        "file_id": file_record.id,
+        "filename": file_record.filename,
+        "format": ext,
+        "size": file_record.file_size,
+        "download_url": f"/api/files/{file_record.id}/download",
+        "design_spec": design_json,
+        "preview": preview_json,
+        "verification": verification_json,
+    }
+

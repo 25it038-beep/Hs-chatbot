@@ -1,10 +1,13 @@
+import React, { useState } from 'react'
 import { useSettings } from '@/stores/settings'
 import { useTheme } from 'next-themes'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft
+  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download
 } from 'lucide-react'
+import { isTauri } from '@/lib/tauri'
+import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 
 const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 
@@ -30,54 +33,75 @@ function ClerkUserAvatar() {
 export function Header() {
   const { sidebarOpen, toggleSidebar, toggleSettings } = useSettings()
   const { theme, setTheme } = useTheme()
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const current = THEME_META[(theme as ThemeOption) in THEME_META ? (theme as ThemeOption) : 'system']
   const ThemeIcon = current.icon
 
   return (
-    <header className="flex items-center justify-between px-3 md:px-5 h-12 border-b border-border bg-background relative z-10">
-      <div className="flex items-center gap-1.5 min-w-0">
-        {!sidebarOpen && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-muted-foreground/70 hover:text-foreground flex-shrink-0"
-            onClick={toggleSidebar}
-            aria-label="Open sidebar"
-          >
-            <PanelLeft size={16} />
-          </Button>
-        )}
-        {!sidebarOpen && (
-          <span className="flex items-center gap-2 px-1 text-sm font-medium flex-shrink-0">
-            <img src="/logo.jpg" alt="HSBot logo" className="w-5 h-5 rounded object-cover" />
-            <span className="tracking-tight font-semibold text-sm">HSBot</span>
+    <>
+      <header className="flex items-center justify-between px-3 md:px-5 h-12 border-b border-border bg-background relative z-10">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {!sidebarOpen && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground/70 hover:text-foreground flex-shrink-0"
+              onClick={toggleSidebar}
+              aria-label="Open sidebar"
+            >
+              <PanelLeft size={16} />
+            </Button>
+          )}
+          {!sidebarOpen && (
+            <span className="flex items-center gap-2 px-1 text-sm font-medium flex-shrink-0">
+              <img src="/logo.jpg" alt="HSBot logo" className="w-5 h-5 rounded object-cover" />
+              <span className="tracking-tight font-semibold text-sm">HSBot</span>
+            </span>
+          )}
+          <span className="hidden xs:inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 bg-muted/60 px-2 py-0.5 rounded-full border border-border">
+            <Sparkles size={9} />
+            <span className="truncate">Auto-Router</span>
           </span>
-        )}
-        <span className="hidden xs:inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 bg-muted/60 px-2 py-0.5 rounded-full border border-border">
-          <Sparkles size={9} />
-          <span className="truncate">Auto-Router</span>
-        </span>
-      </div>
+        </div>
 
-      <div className="flex items-center gap-1 flex-shrink-0">
-        {HAS_CLERK && <ClerkUserAvatar />}
-        <Button
-          variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
-          onClick={() => setTheme(current.next)}
-          title={`${current.label} — switch to ${THEME_META[current.next].label}`}
-          aria-label={`Theme: ${current.label}. Click to switch theme`}
-        >
-          <ThemeIcon size={15} />
-        </Button>
-        <Button
-          variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
-          onClick={toggleSettings}
-          title="Settings"
-          aria-label="Open settings"
-        >
-          <Settings size={15} />
-        </Button>
-      </div>
-    </header>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {!isTauri && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 rounded-lg border-primary/30 bg-primary/5 hover:bg-primary/15 text-primary text-xs font-medium px-2.5"
+              onClick={() => setDownloadModalOpen(true)}
+              title="Download HSBot Desktop Assistant for Windows (.exe)"
+            >
+              <Monitor size={13} />
+              <span className="hidden sm:inline">Windows App</span>
+              <Download size={11} className="opacity-70" />
+            </Button>
+          )}
+          {HAS_CLERK && <ClerkUserAvatar />}
+          <Button
+            variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
+            onClick={() => setTheme(current.next)}
+            title={`${current.label} — switch to ${THEME_META[current.next].label}`}
+            aria-label={`Theme: ${current.label}. Click to switch theme`}
+          >
+            <ThemeIcon size={15} />
+          </Button>
+          <Button
+            variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
+            onClick={toggleSettings}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <Settings size={15} />
+          </Button>
+        </div>
+      </header>
+
+      <WindowsDownloadModal
+        open={downloadModalOpen}
+        onOpenChange={setDownloadModalOpen}
+      />
+    </>
   )
 }

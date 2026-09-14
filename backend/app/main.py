@@ -1,7 +1,8 @@
 import os
 import subprocess
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
@@ -135,4 +136,25 @@ async def health_full():
 @app.get("/")
 async def root():
     return {"name": settings.app_name, "version": settings.app_version, "docs": "/docs"}
+
+
+@app.get("/api/download/windows")
+@app.get("/api/download/hsbot-setup.exe")
+@app.get("/api/download/desktop")
+async def download_windows_setup():
+    """Download the HSBot Windows Desktop setup installer."""
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "..", "..", "desktop", "src-tauri", "target", "release", "bundle", "nsis", "HSBot_1.0.0_x64-setup.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "downloads", "HSBot_1.0.0_x64-setup.exe"),
+    ]
+    for p in candidates:
+        abs_p = os.path.abspath(p)
+        if os.path.exists(abs_p):
+            return FileResponse(
+                path=abs_p,
+                filename="HSBot_1.0.0_x64-setup.exe",
+                media_type="application/vnd.microsoft.portable-executable",
+            )
+    raise HTTPException(status_code=404, detail="Desktop setup executable not found")
+
 

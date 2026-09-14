@@ -6,12 +6,13 @@ import { ChatInput } from './ChatInput'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   MessageSquare, ArrowDown, Code, Brain, FileText,
-  Globe, Paperclip, Slash, Wand2, X,
+  Globe, Paperclip, Slash, Wand2, X, Monitor, Download,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FileInfo, Message } from '@/types'
 import { isImageRequest } from '@/stores/chat'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
+import { isTauri } from '@/lib/tauri'
 
 const SUGGESTIONS = [
   {
@@ -220,6 +221,21 @@ export function ChatContainer() {
                 )
               })}
             </div>
+
+            {!isTauri && (
+              <div className="flex items-center justify-center mt-6">
+                <a
+                  href="/downloads/HSBot_1.0.0_x64-setup.exe"
+                  download="HSBot_1.0.0_x64-setup.exe"
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/80 bg-card/60 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-all duration-150 shadow-xs group"
+                  title="Download HSBot for Windows (.exe)"
+                >
+                  <Monitor size={12} className="text-primary" />
+                  <span>Get HSBot for Windows (Floating Overlay • Ctrl+Space)</span>
+                  <Download size={11} className="opacity-60 group-hover:opacity-100 transition-opacity" />
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>

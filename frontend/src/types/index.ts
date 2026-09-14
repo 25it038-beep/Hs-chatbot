@@ -36,12 +36,92 @@ export interface ChatFolder {
   created_at: string
 }
 
+export interface SlidePreview {
+  slide_number: number
+  title: string
+  layout: string
+  preview_points?: string[]
+  kpis?: Array<{ metric: string; label: string; subtext?: string }>
+  steps?: Array<{ title: string; description?: string }>
+  cards?: Array<{ title: string; points?: string[] }>
+}
+
+export interface SectionPreview {
+  section_number: number
+  heading: string
+  has_kpis?: boolean
+  has_callout?: boolean
+  has_workflow?: boolean
+  has_table?: boolean
+  preview_text?: string
+}
+
+export interface SheetPreview {
+  sheet_name: string
+  headers: string[]
+  sample_rows: string[][]
+  row_count: number
+}
+
+export interface DocumentPreviewData {
+  title: string
+  format: string
+  palette?: {
+    primary: string
+    secondary: string
+    accent: string
+    highlight: string
+    background: string
+    text: string
+    card_bg: string
+    border: string
+  }
+  template?: string
+  is_dark?: boolean
+  slides?: SlidePreview[]
+  sections?: SectionPreview[]
+  sheets?: SheetPreview[]
+  total_count?: number
+}
+
+export interface DocumentVerificationCheck {
+  name: string
+  status: 'PASSED' | 'FAILED' | 'WARNING'
+  details: string
+}
+
+export interface DocumentVerificationData {
+  passed: boolean
+  overall_score: number
+  quantity_score: number
+  content_score: number
+  structure_score: number
+  visual_score: number
+  checks: DocumentVerificationCheck[]
+  issues: string[]
+  fix_instructions: string[]
+  verified_checklist: string[]
+}
+
+export interface DocumentPreviewResponse {
+  file_id: string
+  filename: string
+  format: string
+  size: number
+  download_url: string
+  design_spec?: Record<string, any>
+  preview?: DocumentPreviewData
+  verification?: DocumentVerificationData
+}
+
 export interface Attachment {
   id: string
   name: string
   type: string
   size: number
   download_url: string
+  preview?: DocumentPreviewData
+  verification?: DocumentVerificationData
 }
 
 export interface Message {

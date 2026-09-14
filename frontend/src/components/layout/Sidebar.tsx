@@ -8,8 +8,10 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import {
   Plus, MessageSquare, Trash2, Pin, Folder, Settings as SettingsIcon,
-  Search, PanelLeftClose, PanelLeft, X, Check,
+  Search, PanelLeftClose, PanelLeft, X, Check, Monitor, Download,
 } from 'lucide-react'
+import { isTauri } from '@/lib/tauri'
+import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 
 type DateGroup = 'Today' | 'Yesterday' | 'Previous 7 days' | 'Older'
 
@@ -46,6 +48,7 @@ export function Sidebar() {
   const [search, setSearch] = React.useState('')
   const [activeFolder, setActiveFolder] = React.useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null)
+  const [downloadModalOpen, setDownloadModalOpen] = React.useState(false)
 
   const sortedChats = React.useMemo(
     () => [...chats].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
@@ -273,6 +276,24 @@ export function Sidebar() {
         </ScrollArea>
 
         <div className="border-t border-border mt-auto">
+          {!isTauri && (
+            <div className="p-2 pb-0">
+              <button
+                onClick={() => setDownloadModalOpen(true)}
+                className="w-full flex items-center gap-2.5 p-2 rounded-xl bg-primary/5 hover:bg-primary/10 border border-primary/20 text-left transition-all group cursor-pointer"
+                title="Download HSBot for Windows (.exe)"
+              >
+                <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors flex-shrink-0">
+                  <Monitor size={14} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-semibold text-foreground leading-tight">HSBot Windows</div>
+                  <div className="text-[10px] text-muted-foreground truncate">Floating overlay • Ctrl+Space</div>
+                </div>
+                <Download size={13} className="text-muted-foreground group-hover:text-foreground flex-shrink-0" />
+              </button>
+            </div>
+          )}
           <div className="p-2">
             <Button
               variant="ghost"
@@ -300,6 +321,11 @@ export function Sidebar() {
           )}
         </div>
       </div>
+
+      <WindowsDownloadModal
+        open={downloadModalOpen}
+        onOpenChange={setDownloadModalOpen}
+      />
 
       {!sidebarOpen && (
         <button

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, Loader2, X, Pencil, Camera } from 'lucide-react'
+import { Send, Paperclip, Square, Mic, Loader2, X, Pencil, Camera, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
@@ -20,6 +20,7 @@ interface ChatInputProps {
   editing?: { id: string; content: string } | null
   onEditSubmit?: (messageId: string, content: string) => void
   onCancelEdit?: () => void
+  onStartLive?: () => void
 }
 
 export function ChatInput({
@@ -33,6 +34,7 @@ export function ChatInput({
   editing,
   onEditSubmit,
   onCancelEdit,
+  onStartLive,
 }: ChatInputProps) {
   const [input, setInput] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -415,6 +417,24 @@ export function ChatInput({
           />
 
           <div className="flex items-center gap-1 flex-shrink-0">
+            {onStartLive && !isEditing && (
+              <button
+                type="button"
+                onClick={onStartLive}
+                disabled={streaming}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 active:scale-95 border border-emerald-500/20',
+                  'disabled:opacity-40 disabled:pointer-events-none'
+                )}
+                title="Start continuous real-time voice conversation"
+                aria-label="Start continuous real-time voice conversation"
+              >
+                <Radio size={13} className="animate-pulse text-emerald-500" />
+                <span className="hidden sm:inline">Live</span>
+              </button>
+            )}
+
             <button
               onClick={handleMicClick}
               disabled={streaming || !speechSupported || isEditing}

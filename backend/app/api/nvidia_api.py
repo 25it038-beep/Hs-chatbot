@@ -206,6 +206,7 @@ class EmbedRequest(BaseModel):
 
 
 @router.post("/chat")
+@router.post("/chat/stream")
 async def nvidia_chat(
     request: ChatRequest,
     user: Optional[User] = Depends(get_optional_user),

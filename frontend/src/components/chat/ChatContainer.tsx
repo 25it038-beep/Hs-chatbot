@@ -6,13 +6,14 @@ import { ChatInput } from './ChatInput'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   MessageSquare, ArrowDown, Code, Brain, FileText,
-  Globe, Paperclip, Slash, Wand2, X, Monitor, Download,
+  Globe, Paperclip, Slash, Wand2, X, Monitor, Download, Radio,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FileInfo, Message } from '@/types'
 import { isImageRequest } from '@/stores/chat'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 import { isTauri } from '@/lib/tauri'
+import { LiveConversationModal } from './LiveConversationModal'
 
 const SUGGESTIONS = [
   {
@@ -79,10 +80,45 @@ export function ChatContainer() {
   const [isAtBottom, setIsAtBottom] = React.useState(true)
   const [editingMessage, setEditingMessage] = React.useState<Message | null>(null)
   const [attachedFiles, setAttachedFiles] = React.useState<FileInfo[]>([])
+  const [isLiveOpen, setIsLiveOpen] = React.useState(false)
 
-  useEffect(() => {
-    setEditingMessage(null)
-  }, [currentChat?.id])
+  const handleStartLive = async () => {
+    if (!currentChat) {
+      await createChat()
+    }
+    setIsLiveOpen(true)
+  }
+
+  const handleLiveMessageSaved = async (userText: string, assistantText: string) => {
+    if (!currentChat) return
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      chat_id: currentChat.id,
+      role: 'user',
+      content: userText,
+      token_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      created_at: new Date().toISOString(),
+    }
+    const assistantMsg: Message = {
+      id: crypto.randomUUID(),
+      chat_id: currentChat.id,
+      role: 'assistant',
+      content: assistantText,
+      token_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      created_at: new Date().toISOString(),
+    }
+    useChat.setState(state => ({
+      chatMessages: {
+        ...state.chatMessages,
+        [currentChat.id]: [...(state.chatMessages[currentChat.id] || []), userMsg, assistantMsg],
+      },
+      messages: [...state.messages, userMsg, assistantMsg],
+    }))
+  }
 
   const scrollToBottom = (smooth = true) => {
     if (scrollRef.current) {
@@ -189,9 +225,18 @@ export function ChatContainer() {
               editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
               onEditSubmit={handleEditSubmit}
               onCancelEdit={handleCancelEdit}
+              onStartLive={handleStartLive}
             />
 
             <div className="flex items-center justify-center gap-2 flex-wrap mt-4">
+              <button
+                onClick={handleStartLive}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-all duration-150 active:scale-[0.98] shadow-xs"
+              >
+                <Radio size={12} className="text-emerald-500 animate-pulse" />
+                <span>Start Live Voice Mode</span>
+              </button>
+
               {SUGGESTIONS.map((item) => {
                 const Icon = item.icon
                 return (
@@ -353,6 +398,14 @@ export function ChatContainer() {
         editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
         onEditSubmit={handleEditSubmit}
         onCancelEdit={handleCancelEdit}
+        onStartLive={handleStartLive}
+      />
+
+      <LiveConversationModal
+        isOpen={isLiveOpen}
+        conversationId={currentChat?.id || 'new'}
+        onClose={() => setIsLiveOpen(false)}
+        onMessageSaved={handleLiveMessageSaved}
       />
     </div>
   )

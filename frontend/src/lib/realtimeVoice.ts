@@ -571,7 +571,7 @@ export class RealtimeVoiceClient {
 
     const textToSpeak = this.speechQueue.join('')
     const hasBoundary = /[.!?\n]/.test(textToSpeak)
-    if (!hasBoundary && textToSpeak.length < 60) {
+    if (!hasBoundary && textToSpeak.length < 25) {
       return
     }
 
@@ -594,7 +594,7 @@ export class RealtimeVoiceClient {
 
     const utterance = new SpeechSynthesisUtterance(cleanText)
     utterance.lang = this.language
-    utterance.rate = 1.05
+    utterance.rate = 1.45
     utterance.pitch = 1.0
 
     // Voice selection matching target language

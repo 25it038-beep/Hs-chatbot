@@ -1,6 +1,7 @@
 import time
 import asyncio
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,6 +242,69 @@ class ChatService:
         if url_context:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
+        # Document generation intent detection
+        doc_format = None
+        doc_match = re.search(r'\b(create|make|generate|export|save|convert)\b.*?\b(pdf|word|doc|docx|powerpoint|ppt|pptx|excel|xlsx|csv|markdown|md|presentation|report|resume)\b', request.message, re.IGNORECASE)
+        if doc_match:
+            fmt_raw = doc_match.group(2).lower()
+            fmt_map = {
+                'pdf': 'pdf',
+                'word': 'docx', 'doc': 'docx', 'docx': 'docx',
+                'powerpoint': 'pptx', 'ppt': 'pptx', 'pptx': 'pptx', 'presentation': 'pptx',
+                'excel': 'xlsx', 'xlsx': 'xlsx',
+                'csv': 'csv',
+                'markdown': 'md', 'md': 'md',
+                'report': 'pdf',
+                'resume': 'pdf',
+            }
+            doc_format = fmt_map.get(fmt_raw, 'pdf')
+            _logger.info("document_intent_detected format=%s message=%s", doc_format, request.message)
+        
+        # If document generation intent detected, handle it immediately
+        if doc_format:
+            from app.services.workspace.files import get_chat_workspace_dir
+            import os
+            workspace = get_chat_workspace_dir(str(user_id), str(chat_id))
+            os.makedirs(workspace, exist_ok=True)
+            file_id = str(uuid.uuid4())
+            ext_map = {'pdf':'pdf','docx':'docx','pptx':'pptx','xlsx':'xlsx','csv':'csv','md':'md'}
+            filename = f"{file_id}.{ext_map.get(doc_format, 'pdf')}"
+            path = os.path.join(workspace, filename)
+            # Simple content generation
+            content = f"Document generated for request: {request.message}"
+            title = request.message[:80]
+            try:
+                if doc_format == 'pdf':
+                    from app.services.document_service.pdf import generate_simple_pdf
+                    generate_simple_pdf(content, path, title)
+                elif doc_format == 'docx':
+                    from app.services.document_service.docx import generate_simple_docx
+                    generate_simple_docx(title, content, path)
+                elif doc_format == 'pptx':
+                    from app.services.document_service.pptx import generate_simple_pptx
+                    generate_simple_pptx(title, [content], path)
+                elif doc_format == 'xlsx':
+                    from app.services.document_service.xlsx import generate_simple_xlsx
+                    generate_simple_xlsx(title, [['Content'], [content]], path)
+                elif doc_format == 'csv':
+                    from app.services.document_service.csv import generate_csv
+                    generate_csv([['Content'], [content]], path)
+                elif doc_format == 'md':
+                    from app.services.document_service.markdown import generate_simple_markdown
+                    generate_simple_markdown(title, content, path)
+                else:
+                    generate_simple_pdf(content, path, title)
+                # Return file card response
+                msg = f"Done — your {doc_format.upper()} has been generated."
+                yield StreamChunk(type="content", content=msg, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=False)
+                yield StreamChunk(type="file", content={"id": file_id, "filename": filename, "format": doc_format, "chat_id": str(chat_id), "path": path}, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=False)
+                yield StreamChunk(type="content", content="", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                return
+            except Exception as e:
+                _logger.error("document_generation_failed error=%s", e)
+                yield StreamChunk(type="error", content="Document generation failed. Please try again.", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                return
+
         # Live intent router – must run BEFORE RAG / web search
         intent, location = classify_live_intent(request.message)
         _logger.info("live_intent_detected intent=%s query=%s", intent, request.message)
@@ -249,7 +313,14 @@ class ChatService:
             try:
                 if intent == "TIME":
                     _logger.info("live_tool_started tool=get_current_time")
-                    data = time_now()
+                    if request.timezone:
+                        try:
+                            data = get_time_for_timezone(request.timezone)
+                            _logger.info("live_tool_completed tool=get_current_time timezone=%s", data['timezone'])
+                        except Exception:
+                            data = time_now()
+                    else:
+                        data = time_now()
                     live_tool_result = f"🕐 Current time: {data['time']}\n{data['day']}, {data['date']}\nTimezone: {data['timezone']} {data['utc_offset']}"
                     _logger.info("live_tool_completed tool=get_current_time timezone=%s", data['timezone'])
                 elif intent == "TIMEZONE":
@@ -259,6 +330,9 @@ class ChatService:
                         data = await get_time_for_location(location)
                         live_tool_result = f"🕐 The current time in {location.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
                         _logger.info("live_tool_completed tool=get_time_for_location location=%s", location)
+                    elif request.timezone:
+                        data = get_time_for_timezone(request.timezone)
+                        live_tool_result = f"🕐 Current time: {data['time']}\n{data['day']}, {data['date']}\nTimezone: {data['timezone']} {data['utc_offset']}"
                     else:
                         data = time_now()
                         live_tool_result = f"🕐 Current time: {data['time']}\n{data['day']}, {data['date']}\nTimezone: {data['timezone']}"

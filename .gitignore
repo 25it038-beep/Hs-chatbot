@@ -14,6 +14,7 @@ __pycache__/
 dist/
 build/
 *.exe
+!frontend/public/downloads/*.exe
 *.msi
 *.dmg
 *.AppImage

@@ -93,6 +93,10 @@ interface ChatState {
   unsendMessages: (fromMessageId: string) => void
   editAndResend: (messageId: string, newContent: string) => Promise<void>
 
+  // Live Conversation State
+  isLiveOpen: boolean
+  setLiveOpen: (open: boolean) => void
+
   // Voice actions
   setVoiceStatus: (status: VoiceState['status']) => void
   setVoiceTranscript: (transcript: string) => void
@@ -170,6 +174,9 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     streamingPhase: {},
     streamingReasoning: {},
 
+
+    isLiveOpen: false,
+    setLiveOpen: (open: boolean) => set({ isLiveOpen: open }),
 
     voice: DEFAULT_VOICE_STATE,
 

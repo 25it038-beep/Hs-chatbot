@@ -73,20 +73,33 @@ function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => 
 }
 
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend } = useChat()
+  const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend, isLiveOpen, setLiveOpen } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
   const [editingMessage, setEditingMessage] = React.useState<Message | null>(null)
   const [attachedFiles, setAttachedFiles] = React.useState<FileInfo[]>([])
-  const [isLiveOpen, setIsLiveOpen] = React.useState(false)
+  const liveConvIdRef = React.useRef<string>('')
 
-  const handleStartLive = async () => {
+  if (!liveConvIdRef.current) {
+    liveConvIdRef.current = currentChat?.id || `live_${Date.now()}`
+  }
+  if (currentChat?.id) {
+    liveConvIdRef.current = currentChat.id
+  }
+
+  const handleStartLive = () => {
+    setLiveOpen(true)
     if (!currentChat) {
-      await createChat()
+      createChat()
+        .then((chat) => {
+          if (chat?.id) liveConvIdRef.current = chat.id
+        })
+        .catch((err) => {
+          console.warn('Background createChat note:', err)
+        })
     }
-    setIsLiveOpen(true)
   }
 
   const handleLiveMessageSaved = async (userText: string, assistantText: string) => {
@@ -403,8 +416,8 @@ export function ChatContainer() {
 
       <LiveConversationModal
         isOpen={isLiveOpen}
-        conversationId={currentChat?.id || 'new'}
-        onClose={() => setIsLiveOpen(false)}
+        conversationId={currentChat?.id || liveConvIdRef.current}
+        onClose={() => setLiveOpen(false)}
         onMessageSaved={handleLiveMessageSaved}
       />
     </div>

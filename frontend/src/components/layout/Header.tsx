@@ -4,9 +4,10 @@ import { useTheme } from 'next-themes'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download
+  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio
 } from 'lucide-react'
 import { isTauri } from '@/lib/tauri'
+import { useChat } from '@/stores/chat'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 
 const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
@@ -32,6 +33,7 @@ function ClerkUserAvatar() {
 
 export function Header() {
   const { sidebarOpen, toggleSidebar, toggleSettings } = useSettings()
+  const { setLiveOpen } = useChat()
   const { theme, setTheme } = useTheme()
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const current = THEME_META[(theme as ThemeOption) in THEME_META ? (theme as ThemeOption) : 'system']
@@ -65,6 +67,17 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 rounded-lg border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold px-2.5 shadow-xs transition-all active:scale-95"
+            onClick={() => setLiveOpen(true)}
+            title="Start Live Voice Conversation"
+          >
+            <Radio size={13} className="text-emerald-500 animate-pulse" />
+            <span>Live Voice</span>
+          </Button>
+
           {!isTauri && (
             <Button
               variant="outline"

@@ -11,7 +11,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.clerk.accounts.dev; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://hs-chatbot.onrender.com https://hs-ai-studio.onrender.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.clerk.accounts.dev wss://*.clerk.accounts.dev https://*.clerk.com; media-src 'self'; frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:"
+          "value": "default-src 'self'; script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.clerk.accounts.dev; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://hs-chatbot.onrender.com https://hs-chatbot-2.onrender.com https://hs-ai-studio.onrender.com wss://hs-chatbot-2.onrender.com wss://hs-chatbot.onrender.com wss://hs-ai-studio.onrender.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.clerk.accounts.dev wss://*.clerk.accounts.dev https://*.clerk.com; media-src 'self' blob: data:; frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:"
         },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "X-Frame-Options", "value": "DENY" },

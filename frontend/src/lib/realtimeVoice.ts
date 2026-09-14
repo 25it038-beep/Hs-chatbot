@@ -120,15 +120,24 @@ export class RealtimeVoiceClient {
     this.isDestroyed = false
     this.setStatus('connecting')
 
+    // Unlock speechSynthesis on user gesture
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.resume()
+      } catch {}
+    }
+
     try {
       // 1. Connect WebSocket to live server (with auto-fallback)
       this.connectWebSocket()
 
-      // 2. Initialize Microphone Audio Stream & AnalyserNode for visualizer
-      await this.initMicrophone()
-
-      // 3. Initialize Speech Recognition
+      // 2. Initialize Speech Recognition immediately
       this.initSpeechRecognition()
+
+      // 3. Initialize Microphone Audio Stream for visualizer in background (does not block speech recognition)
+      this.initMicrophone().catch((err) => {
+        console.warn('[RealtimeVoice] Audio visualizer setup note:', err)
+      })
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       console.warn('[RealtimeVoice] Note during session initialization:', errorMsg)
@@ -387,10 +396,16 @@ export class RealtimeVoiceClient {
       recognition.onend = () => {
         this.isRecognizing = false
         if (this.recognitionShouldRestart && !this.isDestroyed) {
-          try {
-            recognition.start()
-            this.isRecognizing = true
-          } catch {}
+          setTimeout(() => {
+            if (this.recognitionShouldRestart && !this.isDestroyed && !this.isRecognizing) {
+              try {
+                recognition.start()
+                this.isRecognizing = true
+              } catch (startErr) {
+                console.warn('[RealtimeVoice] Speech recognition restart note:', startErr)
+              }
+            }
+          }, 150)
         }
       }
 

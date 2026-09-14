@@ -294,11 +294,10 @@ class ChatService:
                     generate_simple_markdown(title, content, path)
                 else:
                     generate_simple_pdf(content, path, title)
-                # Return file card response
-                msg = f"Done — your {doc_format.upper()} has been generated."
-                yield StreamChunk(type="content", content=msg, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=False)
-                yield StreamChunk(type="file", content={"id": file_id, "filename": filename, "format": doc_format, "chat_id": str(chat_id), "path": path}, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=False)
-                yield StreamChunk(type="content", content="", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                # Return file card response with download link
+                download_url = f"/api/documents/download?chat_id={chat_id}&filename={filename}"
+                msg = f"Done — your {doc_format.upper()} has been generated.\n\n📄 {filename}\nDownload: {download_url}"
+                yield StreamChunk(type="content", content=msg, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
                 return
             except Exception as e:
                 _logger.error("document_generation_failed error=%s", e)

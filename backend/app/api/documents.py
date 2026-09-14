@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from app.middleware.auth import get_current_user
@@ -85,3 +86,11 @@ async def list_files(chat_id: str, current_user: User = Depends(get_current_user
                 "path": fp
             })
     return {"files": files}
+
+@router.get("/download")
+async def download_file(chat_id: str, filename: str, current_user: User = Depends(get_current_user)):
+    workspace = get_chat_workspace_dir(str(current_user.id), chat_id)
+    fp = os.path.join(workspace, filename)
+    if not os.path.isfile(fp):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=fp, filename=filename)

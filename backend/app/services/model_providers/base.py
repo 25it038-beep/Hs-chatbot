@@ -21,6 +21,9 @@ class StreamChunk(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     done: bool = False
+    file: dict | None = None
+    attachments: list[dict] | None = None
+
 
 
 class ModelProvider(Protocol):

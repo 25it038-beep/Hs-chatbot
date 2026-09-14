@@ -124,11 +124,60 @@ export function MarkdownRenderer({ content, className, allowImages = true }: Mar
             <td className="border-b border-border/20 px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm">{children}</td>
           ),
           hr: () => <hr className="my-4 sm:my-6 border-border/30" />,
-          a: ({ href, children }) => (
-            <a href={href} className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity break-all" target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            if (!href) return <span>{children}</span>;
+            const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/.test(href);
+            if (isYouTube) {
+              const match = href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+              const videoId = match?.[1];
+              if (videoId) {
+                return (
+                  <div className="my-4">
+                    <div className="aspect-video w-full max-w-3xl rounded-xl overflow-hidden border border-border/50 shadow-lg">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${videoId}`}
+                        title={String(children || 'YouTube video')}
+                        className="w-full h-full"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                    <a href={href} className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity break-all text-sm mt-2 inline-block" target="_blank" rel="noreferrer">
+                      {children || href}
+                    </a>
+                  </div>
+                );
+              }
+            }
+            const isVimeo = /vimeo\.com\/(\d+)/.test(href);
+            if (isVimeo) {
+              const match = href.match(/vimeo\.com\/(\d+)/);
+              const videoId = match?.[1];
+              if (videoId) {
+                return (
+                  <div className="my-4">
+                    <div className="aspect-video w-full max-w-3xl rounded-xl overflow-hidden border border-border/50 shadow-lg">
+                      <iframe
+                        src={`https://player.vimeo.com/video/${videoId}`}
+                        title={String(children || 'Vimeo video')}
+                        className="w-full h-full"
+                        allow="autoplay; fullscreen; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                    <a href={href} className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity break-all text-sm mt-2 inline-block" target="_blank" rel="noreferrer">
+                      {children || href}
+                    </a>
+                  </div>
+                );
+              }
+            }
+            return (
+              <a href={href} className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity break-all" target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
           img: ({ src, alt }) => (
             !allowImages
               ? (

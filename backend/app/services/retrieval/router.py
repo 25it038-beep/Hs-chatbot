@@ -62,6 +62,16 @@ _MAPS = re.compile(
     r"address of|find (?:a|an|the)?\s*(\w+ ){0,3}(store|shop|restaurant|hospital|bank|school)\b)\b",
     re.I,
 )
+_MUSIC = re.compile(
+    r"\b(song|lyrics|track|album|artist|playlist|listen to|play (?:song|track|music|the )|"
+    r"spotify|youtube music|mp3|record label|band|concert|tour dates)\b",
+    re.I,
+)
+_REGION = re.compile(
+    r"\b(in|at|near|around|from)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b|"
+    r"\b(city|state|country|region|province|district)\b",
+    re.I,
+)
 _SEARCH_VERBS = re.compile(
     r"^(search (?:the )?web (?:for )?|find (?:information|sources)? (?:about|on|for)|"
     r"look (?:it )?up|research\b|compare\b|give me (?:sources|documentation|links)|"
@@ -125,26 +135,41 @@ def classify_video_intent(query: str) -> str:
 
 def classify(query: str) -> dict:
     """Return {'types': [...], 'complexity': ..., 'current': bool, 'needs_search': bool}."""
-    q = query.strip().lower()
-    types: list[str] = []
+    q = query.strip()
     if not q:
         return {"types": [], "complexity": "none", "current": False, "needs_search": False}
 
-    current = is_current_info(q)
-    if is_news_query(q):
-        types.append("news")
-    if _IMAGE.search(q):
-        types.append("images")
-    if _VIDEO.search(q):
-        types.append("videos")
-    if _DOCS.search(q):
-        types.append("docs")
-    if _ACADEMIC.search(q):
-        types.append("academic")
-    if _PRODUCT.search(q):
-        types.append("products")
-    if _MAPS.search(q):
-        types.append("maps")
+    # Process whole prompt sentence-by-sentence to capture multi-part requests
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', q) if s.strip()]
+    # Use lowercased version for pattern matching
+    q_low = q.lower()
+    types_set = set()
+    current_any = False
+    # Aggregate signals across all sentences
+    for sent in sentences:
+        sent_low = sent.lower()
+        if is_current_info(sent_low):
+            current_any = True
+        if is_news_query(sent_low):
+            types_set.add("news")
+        if _IMAGE.search(sent_low):
+            types_set.add("images")
+        if _VIDEO.search(sent_low):
+            types_set.add("videos")
+        if _DOCS.search(sent_low):
+            types_set.add("docs")
+        if _ACADEMIC.search(sent_low):
+            types_set.add("academic")
+        if _PRODUCT.search(sent_low):
+            types_set.add("products")
+        if _MAPS.search(sent_low):
+            types_set.add("maps")
+        if _MUSIC.search(sent_low):
+            types_set.add("music")
+        if _REGION.search(sent_low) and not _MAPS.search(sent_low):
+            types_set.add("region")
+    current = current_any or is_current_info(q_low)
+    types = list(types_set)
 
     needs_search = bool(
         q.startswith(("/search", "/web", "/news"))

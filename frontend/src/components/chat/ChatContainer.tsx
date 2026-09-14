@@ -71,7 +71,7 @@ function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => 
 }
 
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend } = useChat()
+  const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
@@ -140,7 +140,8 @@ export function ChatContainer() {
       uploadRes = await api.uploadFile(file) as FileInfo
       filename = uploadRes.filename || file.name
       if (uploadRes) {
-        setAttachedFiles(prev => [...prev, uploadRes])
+        const uploadedFile: FileInfo = uploadRes
+        setAttachedFiles(prev => [...prev, uploadedFile])
       }
     } catch {
       // upload failed — fall back to raw filename; chat will report if file is missing
@@ -256,13 +257,14 @@ export function ChatContainer() {
               />
             )
           })}
-          {streaming && streamingContent && (
+          {streaming && (streamingContent || (streamingAttachments && streamingAttachments.length > 0)) && (
             <ChatMessage
               message={{
                 id: 'streaming',
                 chat_id: currentChat?.id || '',
                 role: 'assistant',
                 content: streamingContent,
+                attachments: streamingAttachments,
                 token_count: 0,
                 input_tokens: 0,
                 output_tokens: 0,
@@ -318,11 +320,12 @@ export function ChatContainer() {
               </div>
             ))}
           </div>
-          {attachedFiles[attachedFiles.length - 1]?.analysis && (
-            <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap bg-muted/40 rounded-lg p-2 border border-border">
-              Analysis ready for {attachedFiles[attachedFiles.length - 1].filename}
+          {attachedFiles.map((f) => f.analysis && (
+            <div key={`analysis-${f.id}`} className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap bg-muted/40 rounded-lg p-2 border border-border">
+              <strong>{f.filename}</strong> analysis:
+              <div className="mt-1">{f.analysis.slice(0, 600)}{f.analysis.length > 600 ? '...' : ''}</div>
             </div>
-          )}
+          ))}
         </div>
       )}
 

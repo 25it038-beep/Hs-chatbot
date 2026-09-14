@@ -45,6 +45,12 @@ class RetrievalConfig:
     TAVILY_EXTRACT_MAX: int = _int("RETRIEVAL_TAVILY_EXTRACT_MAX", 3)
     TAVILY_EXTRACT_TIMEOUT_S: float = _float("RETRIEVAL_TAVILY_EXTRACT_TIMEOUT_S", 8.0)
 
+    # ── Brave Search (enhancement) ──
+    BRAVE_API_KEY: str = os.getenv("BRAVE_API_KEY", "")
+    BRAVE_ENABLED: bool = os.getenv("RETRIEVAL_BRAVE_ENABLED", "0") != "0"
+    BRAVE_TIMEOUT_S: float = _float("RETRIEVAL_BRAVE_TIMEOUT_S", 4.0)
+    BRAVE_MAX_RESULTS: int = _int("RETRIEVAL_BRAVE_MAX_RESULTS", 10)
+
     # ── Candidate / selection limits (section 4) ──
     CANDIDATES_PER_PROVIDER: int = _int("RETRIEVAL_CANDIDATES", 25)
     TOP_RESULTS_MAX: int = _int("RETRIEVAL_TOP_MAX", 10)

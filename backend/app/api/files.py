@@ -1,13 +1,16 @@
 import os
 import uuid
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import FileResponse as FastApiFileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
 from app.database import get_db
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, get_optional_user
 from app.models.user import User
+from app.models.file import GeneratedFile
 from app.services.rag import RAGService
 from app.services.nvidia.chat import NvidiaChatProvider
 from app.services.nvidia.vision import NvidiaVisionProvider
@@ -146,3 +149,44 @@ async def upload_multiple_files(
             analysis=analysis,
         ))
     return {"files": results}
+
+
+@router.get("/{file_id}/download")
+async def download_file(
+    file_id: str,
+    token: Optional[str] = Query(None),
+    user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Downloads a file by file_id as a real binary FileResponse."""
+    # Look up in GeneratedFile table
+    stmt = select(GeneratedFile).where(GeneratedFile.id == file_id)
+    res = await db.execute(stmt)
+    file_record = res.scalar_one_or_none()
+
+    file_path = None
+    filename = "download"
+    media_type = "application/octet-stream"
+
+    if file_record:
+        file_path = file_record.storage_path
+        filename = file_record.filename
+        media_type = file_record.mime_type
+    else:
+        # Fallback check in upload_dir or storage dir
+        for fname in os.listdir(settings.upload_dir):
+            if fname.startswith(file_id):
+                file_path = os.path.join(settings.upload_dir, fname)
+                filename = fname
+                break
+
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FastApiFileResponse(
+        path=file_path,
+        filename=filename,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+

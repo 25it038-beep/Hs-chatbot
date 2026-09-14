@@ -282,11 +282,18 @@ class TavilyProvider(TavilyBase):
     """
 
     async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
+        # Adaptive search depth: use advanced for complex/verbose queries
+        ql = query.lower()
+        complex_signals = ("compare", "versus", "vs ", "difference", "analysis", "research", "explain", "how to", "step by step", "why")
+        is_complex = kind != "news" and (len(query) > 60 or any(sig in ql for sig in complex_signals))
+        depth = cfg.TAVILY_DEPTH
+        if is_complex:
+            depth = "advanced"
         payload = {
             "query": query,
             "max_results": min(limit, cfg.TAVILY_MAX_RESULTS),
-            "search_depth": cfg.TAVILY_DEPTH,
-            "include_answer": False,
+            "search_depth": depth,
+            "include_answer": not is_complex,
         }
         if kind == "news":
             payload["topic"] = "news"
@@ -468,8 +475,73 @@ class WikipediaProvider(SearchProvider):
         return results
 
 
+class BraveSearchProvider(SearchProvider):
+    """Brave Search Web/News provider — optional tertiary source for diversity.
+
+    Enabled via RETRIEVAL_BRAVE_ENABLED=1 and BRAVE_API_KEY. Returns scored
+    results with title, url, description. Gracefully degrades if key missing.
+    """
+
+    BASE_URL = "https://api.search.brave.com/res/v1/web/search"
+
+    def __init__(self) -> None:
+        self.enabled = bool(cfg.BRAVE_API_KEY and cfg.BRAVE_ENABLED)
+        self.timeout = cfg.BRAVE_TIMEOUT_S
+
+    async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
+        if not self.enabled:
+            return []
+        import httpx
+        headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": cfg.BRAVE_API_KEY,
+        }
+        params = {
+            "q": query,
+            "count": min(limit, cfg.BRAVE_MAX_RESULTS),
+            "search_lang": "en",
+            "country": "US",
+        }
+        if kind == "news":
+            params["type"] = "news"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(self.BASE_URL, headers=headers, params=params)
+            if resp.status_code != 200:
+                logger.warning("brave search http {} for {!r}", resp.status_code, query)
+                return []
+            data = resp.json()
+        except Exception as e:
+            logger.warning("brave search failed for {!r}: {}", query, e)
+            return []
+
+        results = []
+        items = data.get("web", {}).get("results", []) if kind != "news" else data.get("news", {}).get("results", [])
+        for r in items:
+            url = (r.get("url") or "").strip()
+            title = (r.get("title") or "").strip()
+            desc = (r.get("description") or "").strip()
+            if not url or not re.match(r"^https?://", url):
+                continue
+            results.append(
+                SearchResult(
+                    title=title[:200],
+                    url=url[:500],
+                    body=desc[:500],
+                    source="brave",
+                    kind="news" if kind == "news" else "web",
+                    published=r.get("published") or r.get("date"),
+                )
+            )
+            if len(results) >= limit:
+                break
+        return results
+
+
 _TEXT_PROVIDER = DDGSProvider()
 _WIKI_PROVIDER = WikipediaProvider()
+_BRAVE_PROVIDER = BraveSearchProvider()
 _TAVILY_PROVIDER = TavilyProvider()
 _TAVILY_IMAGE_PROVIDER = TavilyImageProvider()
 _TAVILY_VIDEO_PROVIDER = TavilyVideoProvider()
@@ -492,6 +564,7 @@ class ProviderPool:
         self._sem_tavily = asyncio.Semaphore(cfg.MAX_TAVILY_CONCURRENCY)
         self._sem_ddgs = asyncio.Semaphore(cfg.MAX_SEARCH_CONCURRENCY)
         self._sem_wiki = asyncio.Semaphore(min(cfg.MAX_SEARCH_CONCURRENCY, 2))
+        self._sem_brave = asyncio.Semaphore(cfg.MAX_SEARCH_CONCURRENCY)
         self._sem_images = asyncio.Semaphore(cfg.MAX_IMAGE_CONCURRENCY)
 
     async def _run(self, prov: SearchProvider, sem: asyncio.Semaphore, query: str, limit: int, kind: str) -> list[SearchResult]:
@@ -504,13 +577,17 @@ class ProviderPool:
         # blocked providers are cancelled so they can never stall the answer.
         t0 = time.perf_counter()
         label = {_TAVILY_PROVIDER: "tavily", _TEXT_PROVIDER: "ddgs", _WIKI_PROVIDER: "wikipedia"}
+        providers = [
+            (_TAVILY_PROVIDER, self._sem_tavily),
+            (_TEXT_PROVIDER, self._sem_ddgs),
+            (_WIKI_PROVIDER, self._sem_wiki),
+        ]
+        if _BRAVE_PROVIDER.enabled:
+            label[_BRAVE_PROVIDER] = "brave"
+            providers.append((_BRAVE_PROVIDER, self._sem_brave))
         tasks = {
             asyncio.create_task(self._run(p, sem, query, limit, kind)): p
-            for p, sem in (
-                (_TAVILY_PROVIDER, self._sem_tavily),
-                (_TEXT_PROVIDER, self._sem_ddgs),
-                (_WIKI_PROVIDER, self._sem_wiki),
-            )
+            for p, sem in providers
         }
         deadline = t0 + cfg.SEARCH_TIMEOUT_S
         pending: set = set(tasks)

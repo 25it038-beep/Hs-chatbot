@@ -127,6 +127,10 @@ def score_results(
         if tavily_score:
             s += min(tavily_score, 1.0) * 0.4
 
+        # Brave diversity bonus (enhanced search)
+        if r.source == "brave":
+            s += 0.15
+
         # Spam / low-quality penalties
         if any(h in url_l for h in _SPAM_HINTS):
             s -= 2.0

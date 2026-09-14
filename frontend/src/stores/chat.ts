@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Chat, ChatFolder, Message, ModelInfo } from '@/types'
+import type { Chat, ChatFolder, Message, ModelInfo, Attachment } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
@@ -65,14 +65,17 @@ interface ChatState {
   models: ModelInfo[]
   streaming: boolean
   streamingContent: string
+  streamingAttachments: Attachment[]
   generatingImage: boolean
   loading: boolean
 
   chatMessages: Record<string, Message[]>
   chatStreamingContent: Record<string, string>
+  chatStreamingAttachments: Record<string, Attachment[]>
   streamingChatIds: string[]
   streamingPhase: Record<string, 'thinking' | 'writing' | 'searching' | 'browser_action'>
   streamingReasoning: Record<string, string>
+
 
   // Voice state
   voice: VoiceState
@@ -107,15 +110,16 @@ export const useChat = create<ChatState>((set, get) => {
   const streamControllers: Record<string, AbortController> = {}
 
   const syncDisplay = () => {
-    const { currentChat, chatMessages, chatStreamingContent, streamingChatIds, generatingImage } = get()
+    const { currentChat, chatMessages, chatStreamingContent, chatStreamingAttachments, streamingChatIds, generatingImage } = get()
     if (!currentChat) {
-      set({ messages: [], streaming: false, streamingContent: '', generatingImage: false })
+      set({ messages: [], streaming: false, streamingContent: '', streamingAttachments: [], generatingImage: false })
       return
     }
     set({
       messages: chatMessages[currentChat.id] || [],
       streaming: streamingChatIds.includes(currentChat.id),
       streamingContent: chatStreamingContent[currentChat.id] || '',
+      streamingAttachments: chatStreamingAttachments[currentChat.id] || [],
       generatingImage: generatingImage,
     })
   }
@@ -155,14 +159,17 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     models: [],
     streaming: false,
     streamingContent: '',
+    streamingAttachments: [],
     generatingImage: false,
     loading: false,
 
     chatMessages: {},
     chatStreamingContent: {},
+    chatStreamingAttachments: {},
     streamingChatIds: [],
     streamingPhase: {},
     streamingReasoning: {},
+
 
     voice: DEFAULT_VOICE_STATE,
 
@@ -201,9 +208,9 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     createChat: async (continueFromLast = false) => {
       const chat = await api.createChat({ model: 'muse-glimmer', provider: 'nvidia' })
       let initialMessages: Message[] = []
-      if (continueFromLast && state.chats.length > 0) {
-        const lastChat = state.chats[0]
-        const lastMsgs = state.chatMessages[lastChat.id] || []
+      if (continueFromLast && get().chats.length > 0) {
+        const lastChat = get().chats[0]
+        const lastMsgs = get().chatMessages[lastChat.id] || []
         initialMessages = lastMsgs.slice(-6)
       }
       set(state => ({
@@ -289,6 +296,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         chatMessages: { ...state.chatMessages, [chat.id]: updatedMessages },
         streamingChatIds: [...state.streamingChatIds, chat.id],
         chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: '' },
+        chatStreamingAttachments: { ...state.chatStreamingAttachments, [chat.id]: [] },
         streamingPhase: { ...state.streamingPhase, [chat.id]: 'thinking' },
         streamingReasoning: { ...state.streamingReasoning, [chat.id]: '' },
       }))
@@ -319,6 +327,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               model,
               stream: true,
               auto_route: isImageRequestForChat,
+              location: city,
+              timezone,
             }, controller.signal)
           } else {
             return api.sendMessageStream({
@@ -327,7 +337,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               model,
               provider,
               location: city,
-              // timezone can be sent via header or included in system prompt; for now attach via location field as city
+              timezone,
             })
           }
         }
@@ -344,6 +354,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const decoder = new TextDecoder()
         let fullContent = ''
         let buffer = ''
+        let currentAttachments: Attachment[] = []
 
         // 45-second timeout for first chunk — cancels if NVIDIA hangs
         firstChunkReceived = false
@@ -371,6 +382,31 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               if (data === '[DONE]') continue
               try {
                 const chunk = JSON.parse(data)
+                if (chunk.type === 'file_created' || chunk.file) {
+                  const newFile: Attachment | undefined = chunk.file
+                  if (newFile && !currentAttachments.some(a => a.id === newFile.id)) {
+                    currentAttachments = [...currentAttachments, newFile]
+                    set(state => ({
+                      chatStreamingAttachments: { ...state.chatStreamingAttachments, [chat.id]: currentAttachments },
+                    }))
+                    if (get().currentChat?.id === chat.id) {
+                      set({ streamingAttachments: currentAttachments })
+                    }
+                  }
+                }
+                if (chunk.attachments && Array.isArray(chunk.attachments)) {
+                  for (const att of chunk.attachments as Attachment[]) {
+                    if (att && !currentAttachments.some(a => a.id === att.id)) {
+                      currentAttachments = [...currentAttachments, att]
+                    }
+                  }
+                  set(state => ({
+                    chatStreamingAttachments: { ...state.chatStreamingAttachments, [chat.id]: currentAttachments },
+                  }))
+                  if (get().currentChat?.id === chat.id) {
+                    set({ streamingAttachments: currentAttachments })
+                  }
+                }
                 if (chunk.type === 'reasoning' && chunk.content) {
                   // Reasoning is hidden from user
                 } else if (chunk.type === 'searching') {
@@ -456,6 +492,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           chat_id: chat.id,
           role: 'assistant',
           content: fullContent,
+          attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
           token_count: 0,
           input_tokens: 0,
           output_tokens: 0,
@@ -467,12 +504,15 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           const { [chat.id]: _, ...rest } = state.chatStreamingContent
           const { [chat.id]: __, ...restPhase } = state.streamingPhase
           const { [chat.id]: ___, ...restReasoning } = state.streamingReasoning
+          const { [chat.id]: ____, ...restAttachments } = state.chatStreamingAttachments
           return {
             chatMessages: { ...state.chatMessages, [chat.id]: finalMessages },
             streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
             chatStreamingContent: rest,
+            chatStreamingAttachments: restAttachments,
             streamingPhase: restPhase,
             streamingReasoning: restReasoning,
+            streamingAttachments: [],
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()

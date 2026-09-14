@@ -35,3 +35,19 @@ Thumbs.db
 
 # Rust/Tauri
 desktop/src-tauri/target/
+
+# Virtual environments
+.venv*/
+venv*/
+backend/.venv*/
+
+# Storage & local artifacts
+storage/
+backend/storage/
+*.tsbuildinfo
+*.png
+
+# Scratch scripts & temp files
+/test_*.py
+/backend/test_*.py
+/index.html

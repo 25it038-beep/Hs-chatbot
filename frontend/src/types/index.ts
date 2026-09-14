@@ -36,6 +36,14 @@ export interface ChatFolder {
   created_at: string
 }
 
+export interface Attachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  download_url: string
+}
+
 export interface Message {
   id: string
   chat_id: string
@@ -45,6 +53,7 @@ export interface Message {
   provider?: string
   reasoning?: string
   metadata?: Record<string, unknown>
+  attachments?: Attachment[]
   token_count: number
   input_tokens: number
   output_tokens: number
@@ -54,7 +63,7 @@ export interface Message {
 }
 
 export interface StreamChunk {
-  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done'
+  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta'
   content: string
   reasoning?: string
   model?: string
@@ -62,7 +71,10 @@ export interface StreamChunk {
   input_tokens?: number
   output_tokens?: number
   done: boolean
+  file?: Attachment
+  attachments?: Attachment[]
 }
+
 
 export interface ModelInfo {
   id: string

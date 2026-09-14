@@ -2,8 +2,10 @@ import React from 'react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { Copy, Check, Download, Pencil, Undo2 } from 'lucide-react'
-import type { Message } from '@/types'
+import type { Message, Attachment } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
+import { FileAttachmentCard } from './FileAttachmentCard'
+
 
 interface ChatMessageProps {
   message: Message
@@ -91,6 +93,21 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
         ) : (
           <div className="min-w-0">
             <MarkdownRenderer content={message.content} allowImages={showImages} />
+            {(() => {
+              const atts: Attachment[] =
+                message.attachments ||
+                (message.metadata?.attachments as Attachment[]) ||
+                ((message as any).extra_data?.attachments as Attachment[]) ||
+                []
+              if (!atts || atts.length === 0) return null
+              return (
+                <div className="flex flex-col gap-2 my-2">
+                  {atts.map(att => (
+                    <FileAttachmentCard key={att.id || att.name} attachment={att} />
+                  ))}
+                </div>
+              )
+            })()}
             {isStreaming && (
               <span className="inline-flex gap-1 ml-0.5 align-baseline" aria-label="AI is typing">
                 <span className="typing-dot" />
@@ -98,6 +115,7 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
                 <span className="typing-dot" />
               </span>
             )}
+
             {!isStreaming && message.content && (
               <div className="flex items-center gap-0.5 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
                 <button

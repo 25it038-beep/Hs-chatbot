@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     cloudflare_gateway_default_model: str = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
     upload_dir: str = "./data/uploads"
+    storage_dir: str = "./storage"
     max_file_size_mb: int = 50
     remote_backend_url: Optional[str] = "https://hs-chatbot-2.onrender.com"
     browser_ws_token: str = "hsbot-browser-ws-token"

@@ -11,6 +11,14 @@ class MessageCreate(BaseModel):
     parent_id: Optional[str] = None
 
 
+class Attachment(BaseModel):
+    id: str
+    name: str
+    type: str
+    size: int
+    download_url: str
+
+
 class MessageResponse(BaseModel):
     id: str
     chat_id: str
@@ -20,6 +28,7 @@ class MessageResponse(BaseModel):
     provider: Optional[str] = None
     reasoning: Optional[str] = None
     extra_data: Optional[Any] = None
+    attachments: Optional[list[Attachment]] = None
     token_count: int
     input_tokens: int
     output_tokens: int
@@ -29,6 +38,7 @@ class MessageResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 
 class ChatRequest(BaseModel):
@@ -43,6 +53,7 @@ class ChatRequest(BaseModel):
     files: Optional[list[str]] = None
     tools: Optional[list[dict]] = None
     location: Optional[str] = None  # e.g., "lat,lon" or city name
+    timezone: Optional[str] = None  # IANA timezone from client
 
 
 class ChatResponse(BaseModel):

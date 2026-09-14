@@ -14,8 +14,11 @@ from typing import Optional
 from app.database import get_db
 from app.middleware.auth import get_current_user, get_optional_user
 from app.models.user import User
+from app.models.chat import Chat
 from app.models.message import Message
 from app.services.chat import ChatService
+from app.services.document_service import document_service
+
 from app.services.rag import RAGService
 from app.services.nvidia import (
     NvidiaChatProvider, NvidiaVisionProvider, NvidiaImageProvider,
@@ -192,6 +195,8 @@ class ChatRequest(BaseModel):
     auto_route: bool = True
     chat_id: Optional[str] = None
     files: Optional[list[str]] = None
+    location: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 class EmbedRequest(BaseModel):
@@ -232,12 +237,24 @@ async def nvidia_chat(
     if intent in ("TIME", "TIMEZONE"):
         try:
             if intent == "TIME":
-                data = time_now()
+                if request.timezone:
+                    try:
+                        from app.services.time_service import get_time_for_timezone
+                        data = get_time_for_timezone(request.timezone)
+                    except Exception:
+                        data = time_now()
+                else:
+                    data = time_now()
                 content = f"🕐 {data['time']}\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
             else:
-                loc = location or "UTC"
-                data = await get_time_for_location(loc)
-                content = f"🕐 The current time in {loc.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
+                loc = location or request.location or "UTC"
+                if loc.upper() == "UTC" and request.timezone:
+                    from app.services.time_service import get_time_for_timezone
+                    data = get_time_for_timezone(request.timezone)
+                    content = f"🕐 The current time in your timezone ({request.timezone}) is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
+                else:
+                    data = await get_time_for_location(loc)
+                    content = f"🕐 The current time in {loc.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
             if request.stream:
                 async def live_gen():
                     yield f"data: {json.dumps({'type':'meta','model':request.model or 'glm-5.2','task':'chat','chat_id':request.chat_id or ''})}\n\n"
@@ -248,7 +265,126 @@ async def nvidia_chat(
                 return JSONResponse({"content": content})
         except Exception:
             pass
+
+    # Document generation intent detector
+    doc_intent = document_service.detect_intent(request.message)
+    if doc_intent:
+        import logging
+        _log = logging.getLogger("hsbot.nvidia.document")
+        _log.info("[CHAT] document request detected format=%s", doc_intent.format)
+        _log.info("[CHAT] requested format: %s", doc_intent.format)
+
+        chat_id = request.chat_id
+        u_id = user.id if user else "default_user"
+
+        if request.stream:
+            async def generate_document_stream():
+                yield f"data: {json.dumps({'type': 'meta', 'model': 'document-generator', 'task': 'document', 'chat_id': chat_id or ''})}\n\n"
+                yield f"data: {json.dumps({'type': 'searching', 'content': f'Generating {doc_intent.format.upper()} document...'})}\n\n"
+
+                try:
+                    _log.info("[CHAT] generating content")
+                    structured_content = await document_service.synthesize_content(doc_intent)
+
+                    file_info = await document_service.generate_file(
+                        fmt=doc_intent.format,
+                        filename=doc_intent.filename,
+                        title=doc_intent.title,
+                        content=structured_content,
+                        conversation_id=chat_id or "general",
+                        user_id=u_id,
+                        db=db,
+                    )
+
+                    attachment = {
+                        "id": file_info["id"],
+                        "name": file_info["filename"],
+                        "type": file_info["mime_type"],
+                        "size": file_info["file_size"],
+                        "download_url": file_info["download_url"],
+                    }
+
+                    msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+
+                    if user and chat_id:
+                        try:
+                            db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                            db.add(Message(
+                                chat_id=chat_id,
+                                role="assistant",
+                                content=msg_content,
+                                model="document-generator",
+                                provider="nvidia",
+                                extra_data={"attachments": [attachment]},
+                            ))
+                            chat_res = await db.execute(select(Chat).where(Chat.id == chat_id))
+                            chat_obj = chat_res.scalar_one_or_none()
+                            if chat_obj and chat_obj.title == "New Chat":
+                                chat_obj.title = doc_intent.title
+                            await db.commit()
+                        except Exception as e:
+                            _log.error("Failed to save document message to DB: %s", e)
+                            await db.rollback()
+
+                    _log.info("[CHAT] attachment returned id=%s", file_info["id"])
+                    yield f"data: {json.dumps({'type': 'file_created', 'file': attachment, 'attachments': [attachment]})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content', 'content': msg_content, 'attachments': [attachment]})}\n\n"
+
+                except Exception as e:
+                    _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'content': f'Document generation failed: {str(e)}'})}\n\n"
+
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(generate_document_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+        else:
+            try:
+                _log.info("[CHAT] generating content")
+                structured_content = await document_service.synthesize_content(doc_intent)
+                file_info = await document_service.generate_file(
+                    fmt=doc_intent.format,
+                    filename=doc_intent.filename,
+                    title=doc_intent.title,
+                    content=structured_content,
+                    conversation_id=chat_id or "general",
+                    user_id=u_id,
+                    db=db,
+                )
+                attachment = {
+                    "id": file_info["id"],
+                    "name": file_info["filename"],
+                    "type": file_info["mime_type"],
+                    "size": file_info["file_size"],
+                    "download_url": file_info["download_url"],
+                }
+                msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+                if user and chat_id:
+                    try:
+                        db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                        db.add(Message(
+                            chat_id=chat_id,
+                            role="assistant",
+                            content=msg_content,
+                            model="document-generator",
+                            provider="nvidia",
+                            extra_data={"attachments": [attachment]},
+                        ))
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                _log.info("[CHAT] attachment returned id=%s", file_info["id"])
+                return JSONResponse({
+                    "content": msg_content,
+                    "attachments": [attachment],
+                    "model": "document-generator",
+                    "provider": "nvidia",
+                })
+            except Exception as e:
+                _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
+
     if request.auto_route:
+
         # Load recent user messages for context-aware routing ("create an image of it")
         context: list[str] = []
         if request.chat_id:

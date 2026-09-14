@@ -138,6 +138,7 @@ export const api = {
     temperature?: number
     max_tokens?: number
     location?: string
+    timezone?: string
   }): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     const controller = new AbortController()
     const headers: Record<string, string> = {
@@ -202,6 +203,8 @@ export const api = {
     json_mode?: boolean
     reasoning?: boolean
     auto_route?: boolean
+    location?: string
+    timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -273,4 +276,24 @@ export const api = {
     const headers = getAuthHeader()
     return fetch(`${BASE_URL}/nvidia/speech/transcribe`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ text: string }>
   },
+
+  downloadFile: async (fileId: string, filename = 'download'): Promise<void> => {
+    const headers = getAuthHeader()
+    const token = localStorage.getItem('access_token')
+    const queryParam = token ? `?token=${encodeURIComponent(token)}` : ''
+    const res = await fetch(`${BASE_URL}/files/${fileId}/download${queryParam}`, { headers })
+    if (!res.ok) {
+      throw new Error(`Download failed with status ${res.status}`)
+    }
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  },
 }
+

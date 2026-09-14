@@ -243,66 +243,61 @@ class ChatService:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
         # Document generation intent detection
-        doc_format = None
-        doc_match = re.search(r'\b(create|make|generate|export|save|convert)\b.*?\b(pdf|word|doc|docx|powerpoint|ppt|pptx|excel|xlsx|csv|markdown|md|presentation|report|resume)\b', request.message, re.IGNORECASE)
-        if doc_match:
-            fmt_raw = doc_match.group(2).lower()
-            fmt_map = {
-                'pdf': 'pdf',
-                'word': 'docx', 'doc': 'docx', 'docx': 'docx',
-                'powerpoint': 'pptx', 'ppt': 'pptx', 'pptx': 'pptx', 'presentation': 'pptx',
-                'excel': 'xlsx', 'xlsx': 'xlsx',
-                'csv': 'csv',
-                'markdown': 'md', 'md': 'md',
-                'report': 'pdf',
-                'resume': 'pdf',
-            }
-            doc_format = fmt_map.get(fmt_raw, 'pdf')
-            _logger.info("document_intent_detected format=%s message=%s", doc_format, request.message)
-        
-        # If document generation intent detected, handle it immediately
-        if doc_format:
-            from app.services.workspace.files import get_chat_workspace_dir
-            import os
-            workspace = get_chat_workspace_dir(str(user_id), str(chat_id))
-            os.makedirs(workspace, exist_ok=True)
-            file_id = str(uuid.uuid4())
-            ext_map = {'pdf':'pdf','docx':'docx','pptx':'pptx','xlsx':'xlsx','csv':'csv','md':'md'}
-            filename = f"{file_id}.{ext_map.get(doc_format, 'pdf')}"
-            path = os.path.join(workspace, filename)
-            # Simple content generation
-            content = f"Document generated for request: {request.message}"
-            title = request.message[:80]
+        from app.services.document_service import document_service
+        doc_intent = document_service.detect_intent(request.message)
+        if doc_intent:
+            _logger.info("[CHAT] document request detected")
+            _logger.info("[CHAT] requested format: %s", doc_intent.format)
+            yield StreamChunk(type="searching", content=f"Generating {doc_intent.format.upper()} document...")
+            
             try:
-                if doc_format == 'pdf':
-                    from app.services.document_service.pdf import generate_simple_pdf
-                    generate_simple_pdf(content, path, title)
-                elif doc_format == 'docx':
-                    from app.services.document_service.docx import generate_simple_docx
-                    generate_simple_docx(title, content, path)
-                elif doc_format == 'pptx':
-                    from app.services.document_service.pptx import generate_simple_pptx
-                    generate_simple_pptx(title, [content], path)
-                elif doc_format == 'xlsx':
-                    from app.services.document_service.xlsx import generate_simple_xlsx
-                    generate_simple_xlsx(title, [['Content'], [content]], path)
-                elif doc_format == 'csv':
-                    from app.services.document_service.csv import generate_csv
-                    generate_csv([['Content'], [content]], path)
-                elif doc_format == 'md':
-                    from app.services.document_service.markdown import generate_simple_markdown
-                    generate_simple_markdown(title, content, path)
-                else:
-                    generate_simple_pdf(content, path, title)
-                # Return file card response with download link
-                download_url = f"/api/documents/download?chat_id={chat_id}&filename={filename}"
-                msg = f"Done — your {doc_format.upper()} has been generated.\n\n📄 {filename}\nDownload: {download_url}"
-                yield StreamChunk(type="content", content=msg, model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                _logger.info("[CHAT] generating content")
+                structured_content = await document_service.synthesize_content(doc_intent)
+                
+                file_info = await document_service.generate_file(
+                    fmt=doc_intent.format,
+                    filename=doc_intent.filename,
+                    title=doc_intent.title,
+                    content=structured_content,
+                    conversation_id=str(chat_id),
+                    user_id=str(user_id),
+                    db=self.db,
+                )
+
+                attachment = {
+                    "id": file_info["id"],
+                    "name": file_info["filename"],
+                    "type": file_info["mime_type"],
+                    "size": file_info["file_size"],
+                    "download_url": file_info["download_url"],
+                }
+
+                msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+
+                # Save user message and assistant message with attachments in database
+                self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                self.db.add(Message(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=msg_content,
+                    model="document-generator",
+                    provider=provider_name,
+                    extra_data={"attachments": [attachment]},
+                ))
+                if chat.title == "New Chat":
+                    chat.title = doc_intent.title
+                await self.db.commit()
+
+                _logger.info("[CHAT] attachment returned id=%s", file_info["id"])
+                yield StreamChunk(type="file_created", file=attachment, attachments=[attachment])
+                yield StreamChunk(type="content", content=msg_content, attachments=[attachment], model="document-generator", provider=provider_name, done=True)
                 return
             except Exception as e:
-                _logger.error("document_generation_failed error=%s", e)
-                yield StreamChunk(type="error", content="Document generation failed. Please try again.", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                _logger.error("[DOCUMENT] document generation failed: %s", e, exc_info=True)
+                await self.db.rollback()
+                yield StreamChunk(type="error", content=f"Document generation failed: {str(e)}", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
                 return
+
 
         # Live intent router – must run BEFORE RAG / web search
         intent, location = classify_live_intent(request.message)

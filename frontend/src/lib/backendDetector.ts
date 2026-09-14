@@ -116,3 +116,8 @@ export function setupBackendSwitcher(): void {
     resetBackendCache();
   });
 }
+
+export function getLocalBackendUrl(): string {
+  return LOCAL_BACKEND;
+}
+

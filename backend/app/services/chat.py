@@ -24,6 +24,10 @@ from app.services.browser.service import browser_service
 from app.services.tools.detector import detect_intent
 from app.services.tools.time_tool import get_current_time
 from app.services.tools.weather_tool import WeatherService
+from app.services.live_router import classify_live_intent
+from app.services.time_service import get_current_time as time_now, get_time_for_timezone, get_time_for_location
+from app.services.weather_service import WeatherService as WeatherServiceNew
+from app.services.location_service import LocationService
 
 _logger = logging.getLogger("hsbot.chat")
 
@@ -238,7 +242,58 @@ class ChatService:
         if url_context:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
-        if user_id:
+        # Live intent router – must run BEFORE RAG / web search
+        intent, location = classify_live_intent(request.message)
+        _logger.info("live_intent_detected intent=%s query=%s", intent, request.message)
+        live_tool_result = None
+        if intent in ("TIME", "TIMEZONE", "WEATHER_CURRENT", "WEATHER_FORECAST", "LOCATION"):
+            try:
+                if intent == "TIME":
+                    _logger.info("live_tool_started tool=get_current_time")
+                    data = time_now()
+                    live_tool_result = f"🕐 Current time: {data['time']}\n{data['day']}, {data['date']}\nTimezone: {data['timezone']} {data['utc_offset']}"
+                    _logger.info("live_tool_completed tool=get_current_time timezone=%s", data['timezone'])
+                elif intent == "TIMEZONE":
+                    if location:
+                        _logger.info("live_tool_started tool=get_time_for_location")
+                        # Use time_service
+                        data = await get_time_for_location(location)
+                        live_tool_result = f"🕐 The current time in {location.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
+                        _logger.info("live_tool_completed tool=get_time_for_location location=%s", location)
+                    else:
+                        data = time_now()
+                        live_tool_result = f"🕐 Current time: {data['time']}\n{data['day']}, {data['date']}\nTimezone: {data['timezone']}"
+                elif intent in ("WEATHER_CURRENT", "WEATHER_FORECAST"):
+                    # Location resolution – use manual city if provided else fallback
+                    loc = location or "Chennai"
+                    _logger.info("live_tool_started tool=weather location=%s", loc)
+                    ws = WeatherServiceNew()
+                    try:
+                        wdata = await ws.get_weather_by_city(loc, forecast_days=7 if intent=="WEATHER_FORECAST" else 1)
+                        cur = wdata.get("current", {})
+                        live_tool_result = f"🌦 Weather in {wdata.get('location')}: {cur.get('temperature')}°C, {cur.get('condition')}\nHumidity {cur.get('humidity')}%, Wind {cur.get('wind_speed')} km/h"
+                        _logger.info("live_tool_completed tool=weather location=%s", loc)
+                    except Exception as e:
+                        _logger.warning("live_tool_failed tool=weather error=%s", e)
+                        live_tool_result = "Sorry, I couldn't retrieve the current weather right now."
+                elif intent == "LOCATION":
+                    live_tool_result = "Location information is available in Settings. Please set your city for location-based results."
+                if live_tool_result:
+                    system_prompt = f"{system_prompt}\n\nLIVE TOOL RESULT:\n{live_tool_result}"
+                    # Skip RAG / web search for live intents
+                    # Jump to message assembly
+                    skip_retrieval = True
+                else:
+                    skip_retrieval = False
+            except Exception as e:
+                _logger.warning("live_tool_failed intent=%s error=%s", intent, e)
+                live_tool_result = "Sorry, I couldn't retrieve live information right now."
+                system_prompt = f"{system_prompt}\n\nLIVE TOOL RESULT:\n{live_tool_result}"
+                skip_retrieval = True
+        else:
+            skip_retrieval = False
+
+        if not skip_retrieval and user_id:
             rag = RAGService(self.db, user_id)
             rag_context = await rag.search_similar(request.message)
             if rag_context:
@@ -256,50 +311,10 @@ class ChatService:
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
-        if (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
+        if not skip_retrieval and (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
             web_context = await WebSearchService().search(request.message, with_images=True)
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
-
-        # Native Time/Weather tools
-        intent, location = detect_intent(request.message)
-        if intent == "time":
-            try:
-                tdata = await get_current_time(location)
-                time_ctx = (
-                    f"Current time information:\n"
-                    f"Location: {tdata.get('location', 'UTC')}\n"
-                    f"Datetime: {tdata.get('datetime')}\n"
-                    f"Date: {tdata.get('date')}\n"
-                    f"Time: {tdata.get('time')}\n"
-                    f"Day: {tdata.get('day')}\n"
-                    f"Timezone: {tdata.get('timezone')}"
-                )
-                system_prompt = f"{system_prompt}\n\n{time_ctx}"
-            except Exception as e:
-                logger.warning("Time tool failed: {}", e)
-        elif intent == "weather":
-            try:
-                ws = WeatherService()
-                if location:
-                    wdata = await ws.get_weather_by_city(location, forecast_days=7)
-                else:
-                    # Fallback to a default city if no location
-                    wdata = await ws.get_weather_by_city("Chennai", forecast_days=7)
-                # Build concise context for LLM
-                cur = wdata.get("current", {})
-                weather_ctx = (
-                    f"Weather information for {wdata.get('location')}:\n"
-                    f"Current temperature: {cur.get('temperature')}°C, feels like {cur.get('feels_like')}°C\n"
-                    f"Condition: {cur.get('condition')}\n"
-                    f"Humidity: {cur.get('humidity')}%\n"
-                    f"Wind speed: {cur.get('wind_speed')} km/h\n"
-                    f"Rain probability: {cur.get('rain_probability')}%\n"
-                    f"Forecast: {wdata.get('forecast')}"
-                )
-                system_prompt = f"{system_prompt}\n\n{weather_ctx}"
-            except Exception as e:
-                logger.warning("Weather tool failed: {}", e)
 
         messages_result = await self.db.execute(
             select(Message)

@@ -33,6 +33,7 @@ pytesseract==0.3.13
 pillow==11.1.0
 markdown==3.7.0
 python-magic==0.4.27
+reportlab==5.0.1
 
 # RAG (uses NVIDIA NV-Embed API — no local model needed)
 qdrant-client==1.13.0

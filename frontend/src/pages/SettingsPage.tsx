@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { X, Sun, Moon, Monitor, LogOut, Trash2, Sparkles, Check, Loader2 } from 'lucide-react'
+import { LocationSettings } from '@/components/settings/LocationSettings'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const themes = [
@@ -139,6 +140,13 @@ export function SettingsPage() {
                   <p className="text-xs text-muted-foreground/60 mt-2 ml-1">
                     Auto-apply festival color palettes (Diwali, Pongal, Independence Day, ...) to the ambient glow.
                   </p>
+                </section>
+
+                <Separator className="opacity-30" />
+
+                <section className="space-y-3">
+                  <h3 className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider mb-3 ml-1">Location</h3>
+                  <LocationSettings />
                 </section>
 
                 <Separator className="opacity-30" />

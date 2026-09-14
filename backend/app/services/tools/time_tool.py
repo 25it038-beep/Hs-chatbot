@@ -39,6 +39,39 @@ async def _geocode_city(city: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+async def get_current_time_server() -> Dict[str, Any]:
+    """Return actual current server time in UTC."""
+    now = datetime.now(timezone.utc)
+    return {
+        "time": now.strftime("%H:%M:%S"),
+        "date": now.strftime("%B %d, %Y"),
+        "day": now.strftime("%A"),
+        "timezone": "UTC",
+        "utc_offset": "+00:00",
+        "datetime_iso": now.isoformat(),
+    }
+
+
+async def get_time_by_timezone(tz_name: str) -> Dict[str, Any]:
+    """Return current time for given IANA timezone."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+        tz_name = "UTC"
+    now = datetime.now(tz)
+    offset = now.strftime("%z")
+    offset_fmt = f"{offset[:3]}:{offset[3:]}" if len(offset) == 5 else "+00:00"
+    return {
+        "time": now.strftime("%H:%M:%S"),
+        "date": now.strftime("%B %d, %Y"),
+        "day": now.strftime("%A"),
+        "timezone": tz_name,
+        "utc_offset": offset_fmt,
+        "datetime_iso": now.isoformat(),
+    }
+
+
 async def get_current_time(location: Optional[str] = None) -> Dict[str, Any]:
     """Return current time/date for location or UTC if none.
 
@@ -48,31 +81,14 @@ async def get_current_time(location: Optional[str] = None) -> Dict[str, Any]:
         geo = await _geocode_city(location)
         if geo and geo.get("timezone"):
             tz_name = geo["timezone"]
-            try:
-                tz = ZoneInfo(tz_name)
-            except Exception:
-                tz = timezone.utc
-            now = datetime.now(tz)
-            location_str = f"{geo.get('name')}, {geo.get('admin1')}, {geo.get('country')}"
-        else:
-            # Fallback to UTC if geocode fails
-            tz = timezone.utc
-            now = datetime.now(timezone.utc)
-            location_str = location
-    else:
-        tz = timezone.utc
-        now = datetime.now(timezone.utc)
-        location_str = "UTC"
-
-    # Ensure aware
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=tz)
-
-    return {
-        "datetime": now.isoformat(),
-        "timezone": str(now.tzinfo),
-        "date": now.date().isoformat(),
-        "time": now.strftime("%H:%M"),
-        "day": now.strftime("%A"),
-        "location": location_str,
-    }
+            data = await get_time_by_timezone(tz_name)
+            data["location"] = f"{geo.get('name')}, {geo.get('admin1')}, {geo.get('country')}"
+            return data
+    # Fallback
+    data = await get_current_time_server()
+    data["location"] = location or "UTC"
+    # Ensure common fields
+    data.setdefault("time", data.get("datetime_iso",""))
+    data.setdefault("date", "")
+    data.setdefault("day", "")
+    return data

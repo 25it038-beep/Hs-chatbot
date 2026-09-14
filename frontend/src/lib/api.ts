@@ -137,6 +137,7 @@ export const api = {
     system_prompt?: string
     temperature?: number
     max_tokens?: number
+    location?: string
   }): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     const controller = new AbortController()
     const headers: Record<string, string> = {

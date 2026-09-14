@@ -310,6 +310,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const isImageRequestForChat = isImageRequest(content)
 
         const getReader = async () => {
+          const city = localStorage.getItem('hsbot_location') || undefined
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
           if (provider === 'nvidia') {
             return api.nvidiaChatStream({
               message: content,
@@ -324,6 +326,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               chat_id: chat.id,
               model,
               provider,
+              location: city,
+              // timezone can be sent via header or included in system prompt; for now attach via location field as city
             })
           }
         }

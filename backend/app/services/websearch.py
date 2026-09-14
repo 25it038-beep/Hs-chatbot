@@ -65,6 +65,8 @@ class WebSearchService:
         with_images: bool = False,
         with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> Optional[str]:
         if not query or not query.strip():
             return None
@@ -74,6 +76,8 @@ class WebSearchService:
             with_videos=with_videos,
             status_cb=status_cb,
             max_results=max_results or self.max_results,
+            location=location,
+            as_of=as_of,
         )
         return result.context
 
@@ -83,6 +87,8 @@ class WebSearchService:
         max_results: Optional[int] = None,
         with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> tuple[Optional[str], str]:
         if not query or not query.strip():
             return None, ""
@@ -92,6 +98,8 @@ class WebSearchService:
             with_videos=with_videos,
             status_cb=status_cb,
             max_results=max_results or self.max_results,
+            location=location,
+            as_of=as_of,
         )
         return result.context, result.images_md
 
@@ -100,6 +108,8 @@ class WebSearchService:
         query: str,
         max_results: Optional[int] = None,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> str:
         if not query or not query.strip():
             return ""
@@ -108,6 +118,8 @@ class WebSearchService:
             with_images=True,
             status_cb=status_cb,
             max_results=max_results or self.max_results,
+            location=location,
+            as_of=as_of,
         )
         return result.images_md
 
@@ -118,6 +130,8 @@ class WebSearchService:
         force_images: bool,
         with_videos: bool = False,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> tuple[Optional[str], str, str]:
         """Run the full chat-path retrieval: (web_context, images_markdown, videos_markdown).
 
@@ -130,14 +144,14 @@ class WebSearchService:
             img_query = extract_image_subject(message)
             if self.needs_web_search(message):
                 ctx, md, vids = await asyncio.gather(
-                    self.search(message, with_images=False, with_videos=with_videos, status_cb=status_cb),
-                    self.fetch_images_markdown(img_query, status_cb=status_cb),
+                    self.search(message, with_images=False, with_videos=with_videos, status_cb=status_cb, location=location, as_of=as_of),
+                    self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of),
                     self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else _noop_videos(),
                 )
                 return ctx, md, vids
             videos_md = await self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else ""
-            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb), videos_md
-        ctx, md, vids = await self._retrieve_via(message, with_images=True, with_videos=with_videos, status_cb=status_cb)
+            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of), videos_md
+        ctx, md, vids = await self._retrieve_via(message, with_images=True, with_videos=with_videos, status_cb=status_cb, location=location, as_of=as_of)
         return ctx, md, vids
 
     async def fetch_videos_markdown(
@@ -160,11 +174,15 @@ class WebSearchService:
         with_images: bool,
         with_videos: bool,
         status_cb: Optional[Callable[[str], Awaitable[None]]] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> tuple[Optional[str], str, str]:
         result = await retrieval_orchestrator.retrieve(
             query,
             with_images=with_images,
             with_videos=with_videos,
             status_cb=status_cb,
+            location=location,
+            as_of=as_of,
         )
         return result.context, result.images_md, result.videos_md

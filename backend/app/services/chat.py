@@ -1,6 +1,7 @@
 import time
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -423,12 +424,15 @@ class ChatService:
                             await status_q.put(s)
 
                         force_images = task_decision.get("requires_images") and task != "web_images"
+                        # Provide current time for live context
+                        now_iso = datetime.now(timezone.utc).isoformat()
                         retrieval_task = asyncio.create_task(
                             WebSearchService().retrieve_for_chat(
                                 request.message,
                                 force_images=force_images,
                                 with_videos=with_videos,
                                 status_cb=_cb,
+                                as_of=now_iso,
                             )
                         )
                         async for ev in _chat_status_events(status_q, retrieval_task):

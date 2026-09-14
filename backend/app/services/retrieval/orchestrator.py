@@ -73,6 +73,8 @@ class RetrievalOrchestrator:
         force_fresh: bool = False,
         status_cb: StatusCallback = None,
         max_results: Optional[int] = None,
+        location: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> RetrievalResult:
         timer = StageTimer()
         timer.start("routing")
@@ -87,7 +89,14 @@ class RetrievalOrchestrator:
         if not route["needs_search"]:
             return RetrievalResult(context=None, images_md="", perf=build_perf(timer), query=query)
 
-        normalized = normalize_query(query)
+        # Build location / time-aware query for search providers
+        effective_query = query
+        if location:
+            effective_query = f"{query} near {location}"
+        if as_of:
+            effective_query = f"{effective_query} as of {as_of}"
+
+        normalized = normalize_query(effective_query)
         scope = "news" if "news" in types and current else cache_scope(query)
         timer.start("cache")
         # Always fetch live data – never serve stale cache

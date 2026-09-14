@@ -21,6 +21,9 @@ from app.services.websearch import WebSearchService
 from app.services.retrieval.router import classify_video_intent
 from app.services.retrieval.url_handler import handle_url_fetching
 from app.services.browser.service import browser_service
+from app.services.tools.detector import detect_intent
+from app.services.tools.time_tool import get_current_time
+from app.services.tools.weather_tool import WeatherService
 
 _logger = logging.getLogger("hsbot.chat")
 
@@ -252,6 +255,46 @@ class ChatService:
             web_context = await WebSearchService().search(request.message, with_images=True)
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
+
+        # Native Time/Weather tools
+        intent, location = detect_intent(request.message)
+        if intent == "time":
+            try:
+                tdata = await get_current_time(location)
+                time_ctx = (
+                    f"Current time information:\n"
+                    f"Location: {tdata.get('location', 'UTC')}\n"
+                    f"Datetime: {tdata.get('datetime')}\n"
+                    f"Date: {tdata.get('date')}\n"
+                    f"Time: {tdata.get('time')}\n"
+                    f"Day: {tdata.get('day')}\n"
+                    f"Timezone: {tdata.get('timezone')}"
+                )
+                system_prompt = f"{system_prompt}\n\n{time_ctx}"
+            except Exception as e:
+                logger.warning("Time tool failed: {}", e)
+        elif intent == "weather":
+            try:
+                ws = WeatherService()
+                if location:
+                    wdata = await ws.get_weather_by_city(location, forecast_days=7)
+                else:
+                    # Fallback to a default city if no location
+                    wdata = await ws.get_weather_by_city("Chennai", forecast_days=7)
+                # Build concise context for LLM
+                cur = wdata.get("current", {})
+                weather_ctx = (
+                    f"Weather information for {wdata.get('location')}:\n"
+                    f"Current temperature: {cur.get('temperature')}°C, feels like {cur.get('feels_like')}°C\n"
+                    f"Condition: {cur.get('condition')}\n"
+                    f"Humidity: {cur.get('humidity')}%\n"
+                    f"Wind speed: {cur.get('wind_speed')} km/h\n"
+                    f"Rain probability: {cur.get('rain_probability')}%\n"
+                    f"Forecast: {wdata.get('forecast')}"
+                )
+                system_prompt = f"{system_prompt}\n\n{weather_ctx}"
+            except Exception as e:
+                logger.warning("Weather tool failed: {}", e)
 
         messages_result = await self.db.execute(
             select(Message)

@@ -34,12 +34,18 @@ def detect_intent(query: str) -> Tuple[Optional[Literal["time","weather"]], Opti
     q = query.lower()
     # Helper to extract location after in/at/for
     def extract_location(text: str) -> Optional[str]:
-        m = re.search(r"\b(?:in|at|for)\s+([a-zA-Z\s]+?)(?:\?|$|\.|,)", text)
+        # Try in/at/for first
+        m = re.search(r"\b(?:in|at|for)\s+([a-zA-Z\s]+?)(?:\?|$|\.|,|and)", text)
         if m:
             loc = m.group(1).strip()
-            # Remove trailing words like 'tomorrow', 'today', 'weather', 'forecast'
-            loc = re.sub(r"\b(tomorrow|today|weather|forecast|temperature|the|my location|here)\b", "", loc, flags=re.I).strip()
+            # Remove trailing words
+            loc = re.sub(r"\b(tomorrow|today|weather|forecast|temperature|the|my location|here|outside)\b", "", loc, flags=re.I).strip()
             loc = re.sub(r"\s+", " ", loc)
+            # Normalize empty / here / my location
+            if not loc or loc in ("here", "my location"):
+                return None
+            # Take first city before 'and'
+            loc = loc.split(" and ")[0].split(" or ")[0].strip()
             return loc if loc else None
         return None
 
@@ -54,6 +60,9 @@ def detect_intent(query: str) -> Tuple[Optional[Literal["time","weather"]], Opti
             if not location:
                 m = re.search(r"weather\s+(?:in|at|for)?\s*([a-zA-Z\s]+)", q)
                 if m:
-                    location = m.group(1).strip()
+                    loc = m.group(1).strip()
+                    loc = re.sub(r"\b(tomorrow|today|weather|forecast|temperature|the|my location|here|outside)\b", "", loc, flags=re.I).strip()
+                    if loc and loc not in ("here", "my location"):
+                        location = loc.split(" and ")[0]
             return "weather", location
     return None, None

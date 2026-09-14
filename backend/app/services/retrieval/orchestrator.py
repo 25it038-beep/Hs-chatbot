@@ -33,6 +33,7 @@ from .videos import (
     format_videos_md,
     rank_videos,
 )
+from .weather import get_weather_for_query
 
 StatusCallback = Optional[Callable[[str], Awaitable[None]]]
 
@@ -233,6 +234,17 @@ class RetrievalOrchestrator:
                 await self._notify(status_cb, "Finding relevant videos...")
                 video_list = rank_videos(dedupe_videos(filter_videos(video_rows, query)), query)
                 videos_md = format_videos_md(video_list, cfg.MAX_VIDEOS)
+
+        # ── Weather forecast (optional) ──
+        weather_md = ""
+        try:
+            weather_md = await get_weather_for_query(query, location)
+        except Exception as e:
+            logger.warning("weather fetch error: {}", e)
+        if weather_md and context:
+            context = f"{weather_md}\n\n{context}"
+        elif weather_md:
+            context = weather_md
 
         # ── Cache write disabled for live data ──
         # Cache is intentionally not used to ensure always-fresh results

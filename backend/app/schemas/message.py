@@ -42,6 +42,7 @@ class ChatRequest(BaseModel):
     stream: bool = True
     files: Optional[list[str]] = None
     tools: Optional[list[dict]] = None
+    location: Optional[str] = None  # e.g., "lat,lon" or city name
 
 
 class ChatResponse(BaseModel):

@@ -496,6 +496,7 @@ class ChatService:
                                 with_videos=with_videos,
                                 status_cb=_cb,
                                 as_of=now_iso,
+                                location=request.location,
                             )
                         )
                         async for ev in _chat_status_events(status_q, retrieval_task):

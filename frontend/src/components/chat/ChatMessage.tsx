@@ -1,10 +1,11 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { Copy, Check, Download, Pencil, Undo2 } from 'lucide-react'
+import { Copy, Check, Download, Pencil, Undo2, Volume2, VolumeX } from 'lucide-react'
 import type { Message, Attachment } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
 import { FileAttachmentCard } from './FileAttachmentCard'
+import { useVoiceStore } from '@/lib/speech'
 
 
 interface ChatMessageProps {
@@ -52,11 +53,21 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
   const [copied, setCopied] = React.useState(false)
   const isUser = message.role === 'user'
   const isGeneratedImage = !isUser && message.content.startsWith('<img ')
+  const { isSpeaking, speakingMessageId, speakText, stopSpeaking, synthesisSupported } = useVoiceStore()
+  const isThisSpeaking = isSpeaking && speakingMessageId === message.id
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleSpeakToggle = () => {
+    if (isThisSpeaking) {
+      stopSpeaking()
+    } else {
+      speakText(message.content, message.id)
+    }
   }
 
   return (
@@ -126,6 +137,29 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
                 >
                   {copied ? <Check size={12} className="text-brand" /> : <Copy size={12} />}
                 </button>
+
+                {synthesisSupported && (
+                  <button
+                    onClick={handleSpeakToggle}
+                    className={cn(
+                      'p-1.5 rounded-md transition-all flex items-center gap-1',
+                      isThisSpeaking
+                        ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                        : 'text-muted-foreground/50 hover:text-foreground hover:bg-muted'
+                    )}
+                    title={isThisSpeaking ? 'Stop speaking' : 'Read aloud'}
+                    aria-label={isThisSpeaking ? 'Stop speaking' : 'Read aloud'}
+                  >
+                    {isThisSpeaking ? (
+                      <>
+                        <VolumeX size={12} className="text-primary animate-pulse" />
+                        <span className="text-[10px] font-medium text-primary hidden xs:inline">Stop</span>
+                      </>
+                    ) : (
+                      <Volume2 size={12} />
+                    )}
+                  </button>
+                )}
                 {message.latency_ms ? (
                   <span className="ml-1 text-[10px] text-muted-foreground/40 font-mono" title="Response time">
                     {(message.latency_ms / 1000).toFixed(1)}s

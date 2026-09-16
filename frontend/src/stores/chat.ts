@@ -324,10 +324,11 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         // Detect explicit image generation requests (shared helper)
         const isImageRequestForChat = isImageRequest(content)
 
-        const getReader = async () => {
+        const getReader = async (useFallbackProvider = false) => {
           const city = localStorage.getItem('hsbot_location') || undefined
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-          if (provider === 'nvidia') {
+          const activeProvider = useFallbackProvider ? (provider === 'nvidia' ? 'sambanova' : 'nvidia') : provider
+          if (activeProvider === 'nvidia') {
             return api.nvidiaChatStream({
               message: content,
               chat_id: chat.id,
@@ -342,20 +343,26 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               message: content,
               chat_id: chat.id,
               model,
-              provider,
+              provider: activeProvider,
               location: city,
               timezone,
-            })
+            }, controller.signal)
           }
         }
 
-        // Auto-retry once on failure (handles Render cold-start / NVIDIA hiccup)
+        // Auto-retry once on failure, with fallback provider if primary connection drops
         let reader: ReadableStreamDefaultReader<Uint8Array>
         try {
           reader = await getReader()
-        } catch {
-          await new Promise(r => setTimeout(r, 2000)) // wait 2s then retry
-          reader = await getReader()
+        } catch (firstErr) {
+          console.warn('Initial chat stream failed, retrying in 1.5s...', firstErr)
+          await new Promise(r => setTimeout(r, 1500))
+          try {
+            reader = await getReader()
+          } catch (retryErr) {
+            console.warn('Retry failed, switching to backup provider...', retryErr)
+            reader = await getReader(true)
+          }
         }
 
         const decoder = new TextDecoder()
@@ -420,14 +427,21 @@ const DEFAULT_VOICE_STATE: VoiceState = {
                   set(state => ({
                     streamingPhase: { ...state.streamingPhase, [chat.id]: 'searching' },
                   }))
-                } else if (chunk.type === 'content' && chunk.content) {
-                  fullContent += chunk.content
-                  set(state => ({
-                    chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
-                    streamingPhase: { ...state.streamingPhase, [chat.id]: 'writing' },
-                  }))
-                  if (get().currentChat?.id === chat.id) {
-                    set({ streamingContent: fullContent })
+                } else if (
+                  (chunk.type === 'content' && chunk.content) ||
+                  chunk.choices?.[0]?.delta?.content ||
+                  (typeof chunk.content === 'string' && !chunk.type)
+                ) {
+                  const newContent = chunk.content || chunk.choices?.[0]?.delta?.content || ''
+                  if (newContent) {
+                    fullContent += newContent
+                    set(state => ({
+                      chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                      streamingPhase: { ...state.streamingPhase, [chat.id]: 'writing' },
+                    }))
+                    if (get().currentChat?.id === chat.id) {
+                      set({ streamingContent: fullContent })
+                    }
                   }
                 } else if (chunk.type === 'generating') {
                   fullContent = 'Generating image...'

@@ -1,12 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, Loader2, X, Pencil, Camera, Radio } from 'lucide-react'
+import { Send, Paperclip, Square, Mic, MicOff, Volume2, VolumeX, Loader2, X, Pencil, Camera, Radio, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
 import { fuzzySearch } from '@/lib/fuzzySearch'
 import { executeCommand } from '@/lib/commandExecutionHandler'
 import { useAmbient } from '@/stores/ambient'
+import { useVoiceStore } from '@/lib/speech'
 import type { SlashCommand, CommandExecutionContext } from '@/types/command'
 
 interface ChatInputProps {
@@ -39,8 +40,6 @@ export function ChatInput({
   const [input, setInput] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [sending, setSending] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [speechSupported, setSpeechSupported] = useState(true)
   const [isFocused, setIsFocused] = useState(false)
   const { setUserTyping } = useAmbient()
 
@@ -51,7 +50,6 @@ export function ChatInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const recognitionRef = useRef<any>(null)
 
   const isHero = variant === 'hero'
   const isEditing = Boolean(editing)
@@ -243,45 +241,43 @@ export function ChatInput({
     }
   }
 
-  useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    setSpeechSupported(!!SpeechRecognition)
-  }, [])
-
-  const startRecording = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setSpeechSupported(false)
-      return
-    }
-    const recognition = new SpeechRecognition()
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.lang = 'en-US'
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript
-      if (transcript) setInput(prev => prev + transcript)
-    }
-    recognition.onerror = () => setRecording(false)
-    recognition.onend = () => setRecording(false)
-    recognitionRef.current = recognition
-    recognition.start()
-    setRecording(true)
-  }, [])
-
-  const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop()
-      recognitionRef.current = null
-    }
-    setRecording(false)
-  }, [])
+  const {
+    isListening,
+    startListening,
+    stopListening,
+    recognitionSupported,
+    interimTranscript,
+    recognitionError,
+    autoSpeak,
+    setAutoSpeak,
+  } = useVoiceStore()
 
   const handleMicClick = () => {
-    if (recording) stopRecording()
-    else startRecording()
+    if (isListening) {
+      stopListening()
+      return
+    }
+
+    if (!recognitionSupported) {
+      if (onStartLive) {
+        onStartLive()
+      }
+      return
+    }
+
+    const started = startListening((transcript, isFinal) => {
+      if (isFinal && transcript.trim()) {
+        setInput((prev) => {
+          const trimmed = prev.trim()
+          return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim()
+        })
+        setUserTyping(true)
+      }
+    })
+
+    if (!started && onStartLive) {
+      onStartLive()
+    }
   }
 
   const canSubmit = Boolean(input.trim() || pendingFile)
@@ -331,6 +327,58 @@ export function ChatInput({
               : 'border-border hover:border-foreground/20',
           )}
         >
+          {isListening && (
+            <div className="absolute left-2.5 right-2.5 -top-12 flex items-center justify-between gap-2 rounded-xl border border-red-500/30 bg-card/95 backdrop-blur-md shadow-elevated px-3 py-2 animate-fade-in z-20">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                </span>
+                <span className="text-xs font-medium text-foreground truncate">
+                  {interimTranscript ? (
+                    <span className="text-foreground italic">"{interimTranscript}"</span>
+                  ) : (
+                    <span className="text-muted-foreground">Listening... Speak your prompt</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => stopListening()}
+                  className="px-2 py-1 rounded-md text-[11px] font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all"
+                >
+                  Done
+                </button>
+                {input.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopListening()
+                      handleSubmit()
+                    }}
+                    className="px-2 py-1 rounded-md text-[11px] font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all"
+                  >
+                    Send
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {recognitionError && !isListening && (
+            <div className="absolute left-2.5 right-2.5 -top-10 flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-600 dark:text-amber-400 animate-fade-in z-20">
+              <span className="truncate">{recognitionError}</span>
+              <button
+                type="button"
+                onClick={() => useVoiceStore.setState({ recognitionError: null })}
+                className="p-0.5 hover:opacity-75"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
           {pendingFile && (
             <div className="absolute left-2.5 right-2.5 -top-10 flex items-center justify-between gap-2 rounded-lg border border-border bg-card shadow-elevated px-2.5 py-1.5">
               <span className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
@@ -436,25 +484,39 @@ export function ChatInput({
             )}
 
             <button
+              type="button"
               onClick={handleMicClick}
-              disabled={streaming || !speechSupported || isEditing}
+              disabled={streaming || isEditing}
               className={cn(
-                'p-2 rounded-lg transition-all flex items-center justify-center',
-                recording
-                  ? 'text-destructive bg-destructive/10'
+                'p-2 rounded-lg transition-all flex items-center justify-center relative',
+                isListening
+                  ? 'bg-red-500/15 text-red-500 ring-2 ring-red-500/30 animate-pulse'
                   : 'text-muted-foreground/50 hover:text-foreground hover:bg-muted',
                 'disabled:opacity-40 disabled:pointer-events-none'
               )}
-              title={
-                !speechSupported
-                  ? 'Voice input not supported'
-                  : recording
-                  ? 'Stop recording'
-                  : 'Voice input'
-              }
-              aria-label={recording ? 'Stop recording' : 'Voice input'}
+              title={isListening ? 'Stop listening' : 'Voice input (Speak to HSBot)'}
+              aria-label={isListening ? 'Stop listening' : 'Voice input (Speak to HSBot)'}
             >
-              <Mic size={17} className={recording ? 'animate-pulse' : ''} />
+              {isListening ? <MicOff size={17} className="text-red-500" /> : <Mic size={17} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAutoSpeak(!autoSpeak)}
+              className={cn(
+                'p-2 rounded-lg transition-all flex items-center justify-center',
+                autoSpeak
+                  ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                  : 'text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50'
+              )}
+              title={
+                autoSpeak
+                  ? 'Auto-speak replies: ON (HSBot will read answers aloud)'
+                  : 'Auto-speak replies: OFF (Click to have HSBot speak answers back)'
+              }
+              aria-label={autoSpeak ? 'Auto-speak replies: ON' : 'Auto-speak replies: OFF'}
+            >
+              {autoSpeak ? <Volume2 size={17} className="text-primary" /> : <VolumeX size={17} />}
             </button>
 
             {streaming && !isEditing ? (

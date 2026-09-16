@@ -129,7 +129,7 @@ export const api = {
   getMessages: (chatId: string) =>
     request<Message[]>(`/chats/${chatId}/messages`),
 
-  sendMessageStream: (data: {
+  sendMessageStream: async (data: {
     message: string
     chat_id?: string
     model?: string
@@ -139,22 +139,36 @@ export const api = {
     max_tokens?: number
     location?: string
     timezone?: string
-  }): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
-    const controller = new AbortController()
+  }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
     }
-    const response = fetch(`${BASE_URL}/chats/messages`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...data, stream: true }),
-      signal: controller.signal,
-    })
-    return response.then((res) => {
-      if (!res.ok) throw new Error('Stream request failed')
-      return res.body!.getReader()
-    })
+    const doFetch = (hdrs: Record<string, string>) =>
+      fetch(`${BASE_URL}/chats/messages`, {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ ...data, stream: true }),
+        signal,
+      })
+
+    let res = await doFetch(headers)
+    if (res.status === 401 && refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+        res = await doFetch(headers)
+      }
+    }
+    if (!res.ok) {
+      let msg = `Stream failed (${res.status})`
+      try {
+        const err = await res.json()
+        msg = err.detail || err.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
+    return res.body!.getReader()
   },
 
   // Folders

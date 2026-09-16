@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useSettings } from '@/stores/settings'
-import { useTheme } from 'next-themes'
+import { useTheme } from '@/components/theme/ThemeProvider'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,8 +9,7 @@ import {
 import { isTauri } from '@/lib/tauri'
 import { useChat } from '@/stores/chat'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
-
-const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+import { HAS_CLERK } from '@/lib/clerkConfig'
 
 const THEME_CYCLE = ['light', 'dark', 'system'] as const
 type ThemeOption = (typeof THEME_CYCLE)[number]

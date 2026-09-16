@@ -9,6 +9,7 @@ import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { isTauri, listenForHotkeyFocus } from '@/lib/tauri'
+import { HAS_CLERK } from '@/lib/clerkConfig'
 
 // Keep Render backend warm — ping every 4 minutes so it never cold-starts
 function useKeepAlive() {
@@ -20,7 +21,6 @@ function useKeepAlive() {
   }, [])
 }
 
-const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true'
 
 function LoadingScreen() {

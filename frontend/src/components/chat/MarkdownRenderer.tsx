@@ -81,6 +81,7 @@ export function MarkdownRenderer({ content, className, allowImages = true }: Mar
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={{
+          script: () => null,
           code: CodeBlock,
           pre: ({ children }) => <>{children}</>,
           input: (props) => {

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     qdrant_collection: str = "hsbot_docs"
 
     nvidia_api_keys: str = "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"
-    nvidia_default_chat_model: str = "llama-3.1-70b"
+    nvidia_default_chat_model: str = "llama-3.2-11b"
     nvidia_default_code_model: str = "glm-5.2"
     nvidia_default_vision_model: str = "llama-3.2-vision"
     nvidia_default_image_model: str = "flux-1-dev"

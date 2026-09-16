@@ -1,5 +1,5 @@
 import React from 'react'
-import { useTheme } from 'next-themes'
+import { useTheme } from '@/components/theme/ThemeProvider'
 import { useSettings } from '@/stores/settings'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'

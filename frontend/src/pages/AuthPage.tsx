@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+import { HAS_CLERK } from '@/lib/clerkConfig'
 
 export function AuthPage() {
   const { login, register, loading } = useAuth()
@@ -136,6 +135,35 @@ export function AuthPage() {
                     {mode === 'login' ? 'Signing in...' : 'Creating account...'}
                   </span>
                 ) : mode === 'login' ? 'Sign In' : 'Create Account'}
+              </Button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border/60" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-card px-2 text-muted-foreground/60">or</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-10 rounded-lg text-xs font-medium border-border/80 hover:bg-muted/50"
+                onClick={() => {
+                  useAuth.setState({
+                    user: {
+                      id: 'demo-user',
+                      username: 'Guest User',
+                      email: 'guest@hsbot.ai',
+                      is_active: true,
+                      created_at: new Date().toISOString(),
+                    },
+                    initialized: true,
+                  })
+                }}
+              >
+                Continue as Guest (Demo Mode)
               </Button>
             </form>
           </div>

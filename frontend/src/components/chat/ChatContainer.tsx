@@ -13,7 +13,8 @@ import type { FileInfo, Message } from '@/types'
 import { isImageRequest } from '@/stores/chat'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 import { isTauri } from '@/lib/tauri'
-import { LiveConversationModal } from './LiveConversationModal'
+import { LivePanel } from '@/components/live'
+import { useVoiceStore } from '@/lib/speech'
 
 const SUGGESTIONS = [
   {
@@ -145,6 +146,21 @@ export function ChatContainer() {
   useEffect(() => {
     if (isAtBottom) scrollToBottom()
   }, [messages, streamingContent, isAtBottom])
+
+  // Automatically speak assistant response if autoSpeak is enabled
+  const wasStreamingRef = useRef(false)
+  useEffect(() => {
+    if (wasStreamingRef.current && !streaming) {
+      const { autoSpeak, speakText } = useVoiceStore.getState()
+      if (autoSpeak && messages.length > 0) {
+        const lastMsg = messages[messages.length - 1]
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+          speakText(lastMsg.content, lastMsg.id)
+        }
+      }
+    }
+    wasStreamingRef.current = streaming
+  }, [streaming, messages])
 
   const handleScroll = () => {
     if (!scrollRef.current) return
@@ -414,11 +430,10 @@ export function ChatContainer() {
         onStartLive={handleStartLive}
       />
 
-      <LiveConversationModal
+      <LivePanel
         isOpen={isLiveOpen}
-        conversationId={currentChat?.id || liveConvIdRef.current}
         onClose={() => setLiveOpen(false)}
-        onMessageSaved={handleLiveMessageSaved}
+        onSaveToChat={handleLiveMessageSaved}
       />
     </div>
   )

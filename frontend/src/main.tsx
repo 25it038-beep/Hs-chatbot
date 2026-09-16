@@ -1,19 +1,18 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { ThemeProvider } from 'next-themes'
+import { ThemeProvider } from '@/components/theme/ThemeProvider'
 import { ClerkProvider } from '@clerk/clerk-react'
 import { MotionConfigProvider } from '@/components/animations/MotionConfig'
+import { CLERK_PUBLISHABLE_KEY, HAS_CLERK } from '@/lib/clerkConfig'
 import App from './App'
 import './index.css'
-
-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ''
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <MotionConfigProvider>
-        {PUBLISHABLE_KEY ? (
-          <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+        {HAS_CLERK && CLERK_PUBLISHABLE_KEY ? (
+          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
             <App />
           </ClerkProvider>
         ) : (

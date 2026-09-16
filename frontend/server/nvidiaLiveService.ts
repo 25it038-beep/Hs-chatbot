@@ -355,6 +355,53 @@ class NvidiaLiveService {
   }
 
   /**
+   * Stream synthesize text in real-time via SynthesizeOnline gRPC
+   */
+  streamSynthesizePCM(
+    text: string,
+    voiceName = 'Chatterbox-Multilingual',
+    sampleRate = 24000,
+    onAudioChunk?: (chunkB64: string) => void
+  ): Promise<void> {
+    const client = this.getTtsClient()
+
+    return new Promise((resolve, reject) => {
+      const meta = new grpc.Metadata()
+      meta.add('authorization', `Bearer ${NVIDIA_API_KEY}`)
+      meta.add('function-id', TTS_FUNCTION_ID)
+
+      try {
+        const call = client.SynthesizeOnline(meta)
+
+        call.on('data', (resp: any) => {
+          if (resp?.audio && resp.audio.length > 0 && onAudioChunk) {
+            onAudioChunk(resp.audio.toString('base64'))
+          }
+        })
+
+        call.on('error', (err: any) => {
+          reject(err)
+        })
+
+        call.on('end', () => {
+          resolve()
+        })
+
+        call.write({
+          text,
+          language_code: 'en-US',
+          encoding: 'LINEAR_PCM',
+          sample_rate_hz: sampleRate,
+          voice_name: voiceName,
+        })
+        call.end()
+      } catch (err) {
+        reject(err)
+      }
+    })
+  }
+
+  /**
    * Call NVIDIA LLM for conversational voice response
    */
   async chatCompletion(messages: any[], stream = false) {

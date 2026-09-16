@@ -1,22 +1,41 @@
-"""
+""""
 NVIDIA TTS Client for HSBot Live Voice
-Uses NVIDIA Chatterbox Multilingual TTS via gRPC worker.
+Uses persistent NVIDIA Chatterbox Multilingual SynthesizeOnline gRPC streaming.
 """
 
-import asyncio
-import json
+import base64
 import logging
-import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, AsyncGenerator
+
+from app.live.riva_bridge import riva_bridge
 
 logger = logging.getLogger("hsbot.live.tts")
 
-WORKER_SCRIPT = os.path.join(os.path.dirname(__file__), "nvidia_grpc_worker.js")
-
 
 class NvidiaLiveTTS:
-    def __init__(self):
-        self.worker_script = WORKER_SCRIPT
+    async def stream_synthesize(
+        self,
+        text: str,
+        voice: str = "Chatterbox-Multilingual",
+        sample_rate: int = 24000
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        Streams raw PCM audio chunks in real-time from NVIDIA Riva TTS.
+        """
+        clean_text = text.strip()
+        if not clean_text:
+            return
+
+        try:
+            async for chunk in riva_bridge.stream_synthesize(
+                text=clean_text,
+                voice=voice,
+                sample_rate=sample_rate
+            ):
+                if chunk:
+                    yield chunk
+        except Exception as e:
+            logger.error(f"Error in streaming NVIDIA TTS: {e}")
 
     async def synthesize(
         self,
@@ -25,47 +44,27 @@ class NvidiaLiveTTS:
         sample_rate: int = 24000
     ) -> Optional[Dict[str, Any]]:
         """
-        Synthesizes text into raw PCM audio base64 using NVIDIA TTS.
-        Returns: { 'audio': base64_pcm, 'sampleRate': 24000, 'bytes': int }
+        Synthesizes text into full PCM audio base64 (accumulating stream chunks).
+        Returns: { 'audio': base64_pcm, 'sampleRate': sample_rate, 'bytes': int }
         """
         clean_text = text.strip()
         if not clean_text:
             return None
 
+        chunks = []
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "node",
-                self.worker_script,
-                "tts",
-                clean_text,
-                voice,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            async for chunk in self.stream_synthesize(clean_text, voice=voice, sample_rate=sample_rate):
+                chunks.append(chunk)
 
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                err_text = stderr.decode("utf-8", errors="replace").strip()
-                logger.error(f"NVIDIA TTS worker error (code {proc.returncode}): {err_text}")
+            if not chunks:
                 return None
 
-            result_str = stdout.decode("utf-8", errors="replace").strip()
-            if not result_str:
-                return None
-
-            data = json.loads(result_str)
-            if data.get("success"):
-                logger.info(f"NVIDIA TTS synthesized {data.get('bytes')} bytes for: '{clean_text[:40]}...'")
-                return {
-                    "audio": data.get("audio"),
-                    "sampleRate": data.get("sampleRate", sample_rate),
-                    "bytes": data.get("bytes", 0),
-                }
-            else:
-                logger.error(f"NVIDIA TTS failure: {data.get('error')}")
-                return None
-
+            all_bytes = b"".join(chunks)
+            return {
+                "audio": base64.b64encode(all_bytes).decode("ascii"),
+                "sampleRate": sample_rate,
+                "bytes": len(all_bytes),
+            }
         except Exception as e:
             logger.error(f"Exception during NVIDIA TTS synthesis: {e}")
             return None

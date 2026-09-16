@@ -49,9 +49,13 @@ async def lifespan(app: FastAPI):
     stop_ws_client()
     from app.services.retrieval.selenium_fetcher import shutdown as _selenium_shutdown
     from app.services.browser.agent import browser_agent as _browser_agent
+    from app.live.riva_bridge import riva_bridge as _riva_bridge
+    from app.live.llm import live_llm as _live_llm
 
     await _selenium_shutdown()
     await _browser_agent.shutdown()
+    await _riva_bridge.shutdown()
+    await _live_llm.close()
 
 app = FastAPI(
     title=settings.app_name,

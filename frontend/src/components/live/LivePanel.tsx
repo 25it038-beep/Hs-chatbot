@@ -16,9 +16,10 @@ import {
   Radio,
   Sliders,
   Send,
+  Activity,
 } from 'lucide-react'
 import { LiveSessionManager } from '@/live/LiveSessionManager'
-import { LiveState, LiveTranscriptItem, LiveAudioLevel } from '@/live/LiveTypes'
+import { LiveState, LiveTranscriptItem, LiveAudioLevel, LiveTimingMetrics } from '@/live/LiveTypes'
 import { LiveStatus } from './LiveStatus'
 import { LiveTranscript } from './LiveTranscript'
 import { LiveErrorBoundary } from './LiveErrorBoundary'
@@ -47,6 +48,8 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
   const [selectedVoice, setSelectedVoice] = useState('Chatterbox-Multilingual')
   const [speechPacing, setSpeechPacing] = useState<'relaxed' | 'standard' | 'fast'>('relaxed')
   const [showSettings, setShowSettings] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [timingMetrics, setTimingMetrics] = useState<LiveTimingMetrics>({})
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const sessionManagerRef = useRef<LiveSessionManager | null>(null)
@@ -122,6 +125,9 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
       },
       onAudioLevel: (level) => {
         setAudioLevel(level)
+      },
+      onTiming: (metrics) => {
+        setTimingMetrics(metrics)
       },
       onError: (err) => {
         setErrorMessage(err)
@@ -211,6 +217,17 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
           <div className="flex items-center gap-1">
             <button
               type="button"
+              onClick={() => setShowDiagnostics(!showDiagnostics)}
+              className={cn(
+                'p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all',
+                showDiagnostics && 'bg-primary/10 text-primary'
+              )}
+              title="Pipeline Diagnostics & Latencies"
+            >
+              <Activity size={16} />
+            </button>
+            <button
+              type="button"
               onClick={() => setShowSettings(!showSettings)}
               className={cn(
                 'p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all',
@@ -230,6 +247,54 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Optional Diagnostics Drawer */}
+        {showDiagnostics && (
+          <div className="px-6 py-3 bg-muted/30 border-b border-border/40 text-xs flex flex-col gap-2.5 animate-in slide-in-from-top duration-150">
+            <div className="flex items-center justify-between font-semibold text-foreground border-b border-border/20 pb-1.5">
+              <span className="flex items-center gap-1.5">
+                <Activity size={13} className="text-primary" />
+                Live Pipeline Diagnostics
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
+                NVIDIA NIM Native
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
+                <span className="text-muted-foreground text-[10px]">ASR → 1st Token</span>
+                <span className="font-mono font-semibold text-foreground mt-0.5">
+                  {timingMetrics.asr_to_llm_first_token_ms
+                    ? `${timingMetrics.asr_to_llm_first_token_ms} ms`
+                    : '—'}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
+                <span className="text-muted-foreground text-[10px]">1st Token → Audio</span>
+                <span className="font-mono font-semibold text-foreground mt-0.5">
+                  {timingMetrics.llm_first_token_to_tts_first_audio_ms
+                    ? `${timingMetrics.llm_first_token_to_tts_first_audio_ms} ms`
+                    : '—'}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
+                <span className="text-muted-foreground text-[10px]">Total Latency</span>
+                <span className="font-mono font-semibold text-emerald-500 mt-0.5">
+                  {timingMetrics.total_latency_ms
+                    ? `${timingMetrics.total_latency_ms} ms`
+                    : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
+              <span>LLM: <strong className="text-foreground">Llama-3.2-11B-Vision</strong></span>
+              <span>TTS: <strong className="text-foreground">Chatterbox Multilingual</strong></span>
+              <span>ASR: <strong className="text-foreground">Parakeet TDT 0.6B</strong></span>
+            </div>
+          </div>
+        )}
 
         {/* Settings Drawer */}
         {showSettings && (

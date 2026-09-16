@@ -35,6 +35,12 @@ export interface LiveAudioLevel {
   output: number // 0.0 to 1.0
 }
 
+export interface LiveTimingMetrics {
+  asr_to_llm_first_token_ms?: number
+  llm_first_token_to_tts_first_audio_ms?: number
+  total_latency_ms?: number
+}
+
 // Client -> Server messages
 export type ClientLiveMessage =
   | { type: 'config'; config: Partial<LiveConfig> }
@@ -49,7 +55,8 @@ export type ServerLiveMessage =
   | { type: 'status'; state: LiveState; message?: string }
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; isFinal: boolean }
   | { type: 'llm_chunk'; text: string }
-  | { type: 'audio_chunk'; audio: string; sampleRate: number; index: number } // base64 PCM
+  | { type: 'audio_chunk'; audio: string; sampleRate: number; index?: number } // base64 PCM
+  | { type: 'timing'; metric: string; value: number }
   | { type: 'error'; code: string; message: string }
   | { type: 'pong'; timestamp: number }
 

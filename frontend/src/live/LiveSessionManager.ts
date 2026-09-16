@@ -23,6 +23,7 @@ export interface SessionManagerOptions {
   onStateChange?: (state: LiveState) => void
   onTranscript?: (item: LiveTranscriptItem) => void
   onAudioLevel?: (level: LiveAudioLevel) => void
+  onTiming?: (metrics: import('./LiveTypes').LiveTimingMetrics) => void
   onError?: (error: string) => void
 }
 
@@ -37,6 +38,7 @@ export class LiveSessionManager {
   private llm: LiveLLM
   private tts: LiveTTS
   private audioLevel: LiveAudioLevel = { input: 0, output: 0 }
+  private timingMetrics: import('./LiveTypes').LiveTimingMetrics = {}
   private options: SessionManagerOptions
   private isDestroyed = false
   private receivedAudioForTurn = false
@@ -143,6 +145,7 @@ export class LiveSessionManager {
       onSpeechFinal: (text) => {
         const state = this.turnManager.getState()
         if (state === 'LISTENING' || state === 'CONNECTING') {
+          this.timingMetrics = {}
           this.asr.handleServerTranscript(text, true)
           // Forward recognized speech to server for immediate LLM processing
           this.connection.sendUserSpeech(text)
@@ -152,6 +155,7 @@ export class LiveSessionManager {
       onSpeechEnd: () => {
         const state = this.turnManager.getState()
         if (state === 'LISTENING' || state === 'CONNECTING') {
+          this.timingMetrics = {}
           this.connection.sendCommitTurn()
         }
       },
@@ -255,6 +259,17 @@ export class LiveSessionManager {
           this.turnManager.transitionTo('SPEAKING', 'Received audio response')
         }
         this.tts.handleAudioChunk(msg.audio, msg.sampleRate, msg.index)
+        break
+
+      case 'timing':
+        if (msg.metric === 'asr_to_llm_first_token_ms') {
+          this.timingMetrics.asr_to_llm_first_token_ms = msg.value
+        } else if (msg.metric === 'llm_first_token_to_tts_first_audio_ms') {
+          this.timingMetrics.llm_first_token_to_tts_first_audio_ms = msg.value
+        } else if (msg.metric === 'total_latency_ms') {
+          this.timingMetrics.total_latency_ms = msg.value
+        }
+        this.options.onTiming?.({ ...this.timingMetrics })
         break
 
       case 'error':

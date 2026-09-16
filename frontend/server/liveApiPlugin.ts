@@ -77,29 +77,74 @@ export function liveApiPlugin(): Plugin {
                 ...conversationHistory.slice(-6),
               ]
 
+              const tAsrFinal = Date.now()
+              let tLlmFirst = 0
+              let firstAudioSent = false
+
               ws.send(JSON.stringify({ type: 'status', state: 'PROCESSING', message: 'Thinking (NVIDIA NIM)...' }))
               const llmRes = await nvidiaLiveService.chatCompletion(messages, true)
               let fullReply = ''
               let sentenceBuffer = ''
               let chunkIndex = 0
 
-              const synthesizeAndSendSentence = async (text: string) => {
-                const clean = text.replace(/[*_#`~[\]]/g, '').trim()
-                if (clean.length < 2 || isInterrupted) return
-                try {
-                  ws.send(JSON.stringify({ type: 'status', state: 'SPEAKING', message: 'Speaking...' }))
-                  const ttsRes = await nvidiaLiveService.synthesizePCM(clean, 'Chatterbox-Multilingual', 24000)
-                  if (ttsRes && ttsRes.audioBase64 && !isInterrupted) {
-                    ws.send(JSON.stringify({
-                      type: 'audio_chunk',
-                      audio: ttsRes.audioBase64,
-                      sampleRate: ttsRes.sampleRate,
-                      index: chunkIndex++,
-                    }))
+              // Async queue for TTS phrases
+              const phraseQueue: string[] = []
+              let isSynthesizing = false
+              let ttsResolve: (() => void) | null = null
+
+              const processTtsQueue = async () => {
+                if (isSynthesizing) return
+                isSynthesizing = true
+
+                while (phraseQueue.length > 0) {
+                  if (isInterrupted) break
+                  const phrase = phraseQueue.shift()!
+                  const clean = phrase.replace(/[*_#`~[\]]/g, '').trim()
+                  if (clean.length < 2) continue
+
+                  try {
+                    await nvidiaLiveService.streamSynthesizePCM(
+                      clean,
+                      'Chatterbox-Multilingual',
+                      24000,
+                      (audioBase64) => {
+                        if (isInterrupted) return
+                        if (!firstAudioSent) {
+                          firstAudioSent = true
+                          const tFirstAudio = Date.now()
+                          const llmToTts = tLlmFirst ? tFirstAudio - tLlmFirst : 0
+                          const totalLat = tFirstAudio - tAsrFinal
+
+                          console.log(`[LIVE][TIMING] LLM_FIRST_TOKEN → TTS_FIRST_AUDIO = ${llmToTts} ms`)
+                          console.log(`[LIVE][TIMING] ASR_FINAL → SPEAKER = ${totalLat} ms`)
+
+                          ws.send(JSON.stringify({ type: 'status', state: 'SPEAKING', message: 'Speaking...' }))
+                          ws.send(JSON.stringify({ type: 'timing', metric: 'llm_first_token_to_tts_first_audio_ms', value: llmToTts }))
+                          ws.send(JSON.stringify({ type: 'timing', metric: 'total_latency_ms', value: totalLat }))
+                        }
+
+                        ws.send(JSON.stringify({
+                          type: 'audio_chunk',
+                          audio: audioBase64,
+                          sampleRate: 24000,
+                          index: chunkIndex++,
+                        }))
+                      }
+                    )
+                  } catch (ttsErr: any) {
+                    console.warn('[LiveApiPlugin] Sentence TTS error:', ttsErr?.message)
                   }
-                } catch (ttsErr: any) {
-                  console.warn('[LiveApiPlugin] Sentence TTS error:', ttsErr?.message)
                 }
+
+                isSynthesizing = false
+                if (ttsResolve && phraseQueue.length === 0) {
+                  ttsResolve()
+                }
+              }
+
+              const enqueuePhrase = (phrase: string) => {
+                phraseQueue.push(phrase)
+                processTtsQueue()
               }
 
               if (llmRes.body) {
@@ -118,17 +163,24 @@ export function liveApiPlugin(): Plugin {
                         const parsed = JSON.parse(trimmed.substring(6))
                         const delta = parsed.choices?.[0]?.delta?.content || ''
                         if (delta) {
+                          if (!tLlmFirst) {
+                            tLlmFirst = Date.now()
+                            const asrToLlm = tLlmFirst - tAsrFinal
+                            console.log(`[LIVE][TIMING] ASR_FINAL → LLM_FIRST_TOKEN = ${asrToLlm} ms`)
+                            ws.send(JSON.stringify({ type: 'timing', metric: 'asr_to_llm_first_token_ms', value: asrToLlm }))
+                          }
+
                           fullReply += delta
                           sentenceBuffer += delta
                           ws.send(JSON.stringify({ type: 'llm_chunk', text: delta }))
 
-                          // If sentence completed, synthesize audio immediately without waiting for full text
+                          // If sentence completed, enqueue immediately WITHOUT blocking LLM token reception
                           const match = sentenceBuffer.match(/^(.*?[.!?\n])\s*(.*)$/s)
                           if (match) {
                             const readySentence = match[1].trim()
                             sentenceBuffer = match[2] || ''
                             if (readySentence.length >= 3) {
-                              await synthesizeAndSendSentence(readySentence)
+                              enqueuePhrase(readySentence)
                             }
                           }
                         }
@@ -140,9 +192,17 @@ export function liveApiPlugin(): Plugin {
                 }
               }
 
-              // Synthesize remaining sentence buffer
+              // Enqueue remaining sentence buffer
               if (sentenceBuffer.trim().length > 0 && !isInterrupted) {
-                await synthesizeAndSendSentence(sentenceBuffer.trim())
+                enqueuePhrase(sentenceBuffer.trim())
+              }
+
+              // Await remaining TTS synthesis
+              if (isSynthesizing || phraseQueue.length > 0) {
+                await new Promise<void>((resolve) => {
+                  ttsResolve = resolve
+                  setTimeout(resolve, 8000) // safety timeout
+                })
               }
 
               const finalReply = fullReply.trim() || 'I am here and listening.'

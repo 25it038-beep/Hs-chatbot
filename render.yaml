@@ -1,8 +1,9 @@
 services:
   - type: web
     name: hs-chatbot-backend
-    image:
-      url: docker.io/harshanseliyan28/hsbot-backend:latest
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: APP_ENV
         value: production

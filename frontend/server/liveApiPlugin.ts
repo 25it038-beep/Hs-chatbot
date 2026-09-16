@@ -196,6 +196,8 @@ export function liveApiPlugin(): Plugin {
             await runTurnPipeline(userText)
           }
 
+          let userSilenceTimeout = 1500
+
           // Voice turn silence detector loop (every 100ms)
           silenceInterval = setInterval(async () => {
             if (isProcessing || !hasVoiceInTurn) return
@@ -203,8 +205,8 @@ export function liveApiPlugin(): Plugin {
             const silenceDuration = Date.now() - lastVoiceTime
             const totalBytes = audioChunks.reduce((acc, c) => acc + c.length, 0)
 
-            // If user spoke and has now been silent for 750ms with at least ~0.1s of audio recorded
-            if (silenceDuration >= 750 && totalBytes >= 2400) {
+            // If user spoke and has now been silent for userSilenceTimeout with sufficient audio recorded
+            if (silenceDuration >= userSilenceTimeout && totalBytes >= 9600) {
               hasVoiceInTurn = false
               const fullBuffer = Buffer.concat(audioChunks)
               audioChunks = []
@@ -215,7 +217,9 @@ export function liveApiPlugin(): Plugin {
           ws.on('message', async (raw: any) => {
             try {
               const msg = JSON.parse(raw.toString())
-              if (msg.type === 'ping') {
+              if (msg.type === 'config' && msg.config?.silenceTimeoutMs) {
+                userSilenceTimeout = Math.max(600, Math.min(5000, Number(msg.config.silenceTimeoutMs)))
+              } else if (msg.type === 'ping') {
                 ws.send(JSON.stringify({ type: 'pong', timestamp: msg.timestamp || Date.now() }))
               } else if (msg.type === 'user_speech') {
                 const text = (msg.text || '').trim()

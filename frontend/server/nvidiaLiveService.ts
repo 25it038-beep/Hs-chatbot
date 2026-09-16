@@ -175,15 +175,17 @@ class NvidiaLiveService {
     return cleaned
   }
 
+  private geminiQuotaExhausted = false
+
   /**
    * Transcribe 16kHz raw PCM speech to text
    */
   async transcribePCM(pcmBuffer: Buffer, language = 'en-US'): Promise<string> {
-    if (!pcmBuffer || pcmBuffer.length < 1600) {
+    if (!pcmBuffer || pcmBuffer.length < 3200) {
       return ''
     }
 
-    // 1. Primary: Native low-latency NVIDIA Riva Parakeet ASR via gRPC (~1.2s)
+    // 1. Primary: Native low-latency NVIDIA Riva Parakeet ASR via gRPC (~1.0s)
     try {
       const client = this.getAsrClient()
       const makeCall = (functionId: string): Promise<string> => {
@@ -218,22 +220,40 @@ class NvidiaLiveService {
       const res = await makeCall(ASR_FUNCTION_ID_PRIMARY)
       if (res && res.length > 0) return res
     } catch (rivaErr: any) {
-      console.warn('[NvidiaLiveService] Primary Riva ASR failed, trying fallback:', rivaErr?.message)
+      console.warn('[NvidiaLiveService] Primary Riva ASR note:', rivaErr?.message)
     }
 
-    // 2. Secondary: Fallback to multimodal Gemini 3.6 Flash ASR if Riva was quiet/unavailable
-    if (process.env.GEMINI_API_KEY) {
+    // 2. Secondary: Fallback to multimodal Gemini 3.6 Flash ASR only if quota not exhausted
+    if (process.env.GEMINI_API_KEY && !this.geminiQuotaExhausted) {
       try {
         const text = await this.transcribeWithGemini(pcmBuffer, 16000)
         if (text && text.length > 0) {
           return text
         }
       } catch (geminiErr: any) {
-        console.warn('[NvidiaLiveService] Gemini ASR fallback error:', geminiErr?.message)
+        if (geminiErr?.message?.includes('429') || geminiErr?.message?.includes('Quota exceeded')) {
+          this.geminiQuotaExhausted = true
+          setTimeout(() => {
+            this.geminiQuotaExhausted = false
+          }, 60000)
+        }
+        console.warn('[NvidiaLiveService] Gemini ASR fallback note:', geminiErr?.message)
       }
     }
 
     return ''
+  }
+
+  /**
+   * Helper: Normalize voice to valid Riva TTS model voice
+   */
+  private normalizeVoice(voiceName?: string): string {
+    if (!voiceName) return 'Chatterbox-Multilingual'
+    const v = voiceName.toLowerCase()
+    if (v.includes('chatterbox') || v.includes('english') || v.includes('female') || v.includes('male') || v.includes('default')) {
+      return 'Chatterbox-Multilingual'
+    }
+    return voiceName
   }
 
   /**
@@ -245,33 +265,44 @@ class NvidiaLiveService {
     sampleRate = 24000
   ): Promise<Buffer> {
     const client = this.getTtsClient()
+    const targetVoice = this.normalizeVoice(voiceName)
 
-    return new Promise((resolve, reject) => {
-      const meta = new grpc.Metadata()
-      meta.add('authorization', `Bearer ${NVIDIA_API_KEY}`)
-      meta.add('function-id', TTS_FUNCTION_ID)
+    const doCall = (voiceToUse: string): Promise<Buffer> => {
+      return new Promise((resolve, reject) => {
+        const meta = new grpc.Metadata()
+        meta.add('authorization', `Bearer ${NVIDIA_API_KEY}`)
+        meta.add('function-id', TTS_FUNCTION_ID)
 
-      const req = {
-        text,
-        language_code: 'en-US',
-        encoding: 'LINEAR_PCM',
-        sample_rate_hz: sampleRate,
-        voice_name: voiceName,
-      }
-
-      client.Synthesize(req, meta, { deadline: Date.now() + 20000 }, (err: any, resp: any) => {
-        if (err) {
-          return reject(err)
-        }
-        if (!resp?.audio || resp.audio.length === 0) {
-          return reject(new Error('NVIDIA Riva TTS returned empty audio'))
+        const req = {
+          text,
+          language_code: 'en-US',
+          encoding: 'LINEAR_PCM',
+          sample_rate_hz: sampleRate,
+          voice_name: voiceToUse,
         }
 
-        // Return raw PCM or WAV
-        const wavBuffer = pcmToWav(resp.audio, sampleRate, 1, 16)
-        resolve(wavBuffer)
+        client.Synthesize(req, meta, { deadline: Date.now() + 15000 }, (err: any, resp: any) => {
+          if (err) {
+            return reject(err)
+          }
+          if (!resp?.audio || resp.audio.length === 0) {
+            return reject(new Error('NVIDIA Riva TTS returned empty audio'))
+          }
+
+          const wavBuffer = pcmToWav(resp.audio, sampleRate, 1, 16)
+          resolve(wavBuffer)
+        })
       })
-    })
+    }
+
+    try {
+      return await doCall(targetVoice)
+    } catch {
+      if (targetVoice !== 'Chatterbox-Multilingual') {
+        return await doCall('Chatterbox-Multilingual')
+      }
+      return await doCall('')
+    }
   }
 
   /**
@@ -283,32 +314,44 @@ class NvidiaLiveService {
     sampleRate = 24000
   ): Promise<{ audioBase64: string; bytes: number; sampleRate: number }> {
     const client = this.getTtsClient()
+    const targetVoice = this.normalizeVoice(voiceName)
 
-    return new Promise((resolve, reject) => {
-      const meta = new grpc.Metadata()
-      meta.add('authorization', `Bearer ${NVIDIA_API_KEY}`)
-      meta.add('function-id', TTS_FUNCTION_ID)
+    const doCall = (voiceToUse: string): Promise<{ audioBase64: string; bytes: number; sampleRate: number }> => {
+      return new Promise((resolve, reject) => {
+        const meta = new grpc.Metadata()
+        meta.add('authorization', `Bearer ${NVIDIA_API_KEY}`)
+        meta.add('function-id', TTS_FUNCTION_ID)
 
-      const req = {
-        text,
-        language_code: 'en-US',
-        encoding: 'LINEAR_PCM',
-        sample_rate_hz: sampleRate,
-        voice_name: voiceName,
-      }
-
-      client.Synthesize(req, meta, { deadline: Date.now() + 20000 }, (err: any, resp: any) => {
-        if (err) {
-          return reject(err)
+        const req = {
+          text,
+          language_code: 'en-US',
+          encoding: 'LINEAR_PCM',
+          sample_rate_hz: sampleRate,
+          voice_name: voiceToUse,
         }
-        const audioBuffer = resp?.audio || Buffer.alloc(0)
-        resolve({
-          audioBase64: audioBuffer.toString('base64'),
-          bytes: audioBuffer.length,
-          sampleRate,
+
+        client.Synthesize(req, meta, { deadline: Date.now() + 15000 }, (err: any, resp: any) => {
+          if (err) {
+            return reject(err)
+          }
+          const audioBuffer = resp?.audio || Buffer.alloc(0)
+          resolve({
+            audioBase64: audioBuffer.toString('base64'),
+            bytes: audioBuffer.length,
+            sampleRate,
+          })
         })
       })
-    })
+    }
+
+    try {
+      return await doCall(targetVoice)
+    } catch {
+      if (targetVoice !== 'Chatterbox-Multilingual') {
+        return await doCall('Chatterbox-Multilingual')
+      }
+      return await doCall('')
+    }
   }
 
   /**

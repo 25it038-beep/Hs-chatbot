@@ -9,8 +9,10 @@ import { LiveLogger } from './LiveLogger'
 
 export interface MicrophoneOptions {
   sampleRate?: number
+  silenceTimeoutMs?: number
   onAudioChunk?: (pcmData: Int16Array, base64: string) => void
   onVolumeChange?: (volume: number) => void // 0.0 to 1.0
+  onSpeechStart?: () => void
   onSpeechInterim?: (text: string) => void
   onSpeechFinal?: (text: string) => void
   onSpeechEnd?: () => void
@@ -64,13 +66,24 @@ export class LiveMicrophone {
   private hasSpokenInTurn = false
   private speechFramesCount = 0
   private lastVoiceTimestamp = 0
+  private silenceTimeoutMs = 1500
   private options: MicrophoneOptions
 
   constructor(options: MicrophoneOptions = {}) {
     this.options = {
       sampleRate: 16000,
+      silenceTimeoutMs: 1500,
       ...options,
     }
+    this.silenceTimeoutMs = this.options.silenceTimeoutMs || 1500
+  }
+
+  /**
+   * Adjust speech silence pause duration dynamically
+   */
+  setSilenceTimeout(ms: number) {
+    this.silenceTimeoutMs = Math.max(600, Math.min(5000, ms))
+    LiveLogger.info(`Microphone silence timeout set to: ${this.silenceTimeoutMs}ms`)
   }
 
   /**
@@ -151,22 +164,30 @@ export class LiveMicrophone {
         this.options.onVolumeChange?.(normalizedVolume)
 
         // Sensitive client-side VAD: detects normal conversational speech accurately
-        // Normal speech has peak > 0.015 or rms > 0.002
-        const isVoice = peak > 0.015 || rms > 0.002 || normalizedVolume > 0.025
+        // Normal speech has peak > 0.018 or rms > 0.0025
+        const isVoice = peak > 0.018 || rms > 0.0025 || normalizedVolume > 0.03
         if (isVoice) {
-          this.hasSpokenInTurn = true
-          this.speechFramesCount++
+          if (!this.hasSpokenInTurn) {
+            this.speechFramesCount++
+            if (this.speechFramesCount >= 4) {
+              this.hasSpokenInTurn = true
+              this.options.onSpeechStart?.()
+            }
+          }
           this.lastVoiceTimestamp = Date.now()
         } else if (this.hasSpokenInTurn) {
-          // Snappy conversational turn-taking: pause for >= 750ms after speech triggers turn commit
-          if (Date.now() - this.lastVoiceTimestamp >= 750) {
+          // Allow natural conversational pauses: wait for configured silenceTimeoutMs (default 1500ms)
+          const timeout = this.silenceTimeoutMs || 1500
+          if (Date.now() - this.lastVoiceTimestamp >= timeout) {
             this.hasSpokenInTurn = false
-            const frames = this.speechFramesCount
             this.speechFramesCount = 0
-            if (frames >= 3) {
-              LiveLogger.info('Client VAD: End of speech turn detected')
-              this.options.onSpeechEnd?.()
-            }
+            LiveLogger.info(`Client VAD: End of speech turn detected after ${timeout}ms pause`)
+            this.options.onSpeechEnd?.()
+          }
+        } else {
+          // If noise was transient (<4 frames) and stopped, reset frame counter after 300ms
+          if (this.speechFramesCount > 0 && Date.now() - this.lastVoiceTimestamp > 300) {
+            this.speechFramesCount = 0
           }
         }
 

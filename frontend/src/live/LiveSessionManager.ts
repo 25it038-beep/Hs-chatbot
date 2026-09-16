@@ -41,6 +41,7 @@ export class LiveSessionManager {
   private isDestroyed = false
   private receivedAudioForTurn = false
   private audioFallbackTimeout: ReturnType<typeof setTimeout> | null = null
+  private processingWatchdogTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: SessionManagerOptions = {}) {
     this.options = options
@@ -51,13 +52,27 @@ export class LiveSessionManager {
       language: 'en-US',
       voice: 'Chatterbox-Multilingual',
       vadThreshold: 0.20,
-      silenceDurationMs: 800,
+      silenceDurationMs: 1500,
       ...options.config,
     }
 
     // 1. Initialize Turn Manager
     this.turnManager = new LiveTurnManager({
       onStateChange: (state) => {
+        if (state === 'PROCESSING') {
+          if (this.processingWatchdogTimeout) clearTimeout(this.processingWatchdogTimeout)
+          this.processingWatchdogTimeout = setTimeout(() => {
+            if (this.turnManager.getState() === 'PROCESSING' && !this.isDestroyed) {
+              LiveLogger.warn('Processing watchdog: Turn took > 8.5s without response, recovering to LISTENING')
+              this.turnManager.transitionTo('LISTENING', 'Watchdog recovery')
+            }
+          }, 8500)
+        } else {
+          if (this.processingWatchdogTimeout) {
+            clearTimeout(this.processingWatchdogTimeout)
+            this.processingWatchdogTimeout = null
+          }
+        }
         this.options.onStateChange?.(state)
       },
       onInterrupt: () => {
@@ -112,6 +127,7 @@ export class LiveSessionManager {
     // 5. Initialize Microphone Capture
     this.microphone = new LiveMicrophone({
       sampleRate: 16000,
+      silenceTimeoutMs: this.config.silenceDurationMs || 1500,
       onAudioChunk: (_pcm, base64) => {
         const state = this.turnManager.getState()
         if (state === 'LISTENING' || state === 'CONNECTING') {
@@ -344,6 +360,23 @@ export class LiveSessionManager {
 
   isMuted(): boolean {
     return this.microphone.getMuted()
+  }
+
+  /**
+   * Dynamically adjust silence duration for conversational pacing
+   */
+  setSilenceDuration(ms: number): void {
+    this.config.silenceDurationMs = ms
+    this.microphone.setSilenceTimeout(ms)
+    this.connection.sendConfig({ silenceDurationMs: ms })
+  }
+
+  /**
+   * Dynamically adjust selected TTS voice
+   */
+  setVoice(voice: string): void {
+    this.config.voice = voice
+    this.connection.sendConfig({ voice })
   }
 
   getState(): LiveState {

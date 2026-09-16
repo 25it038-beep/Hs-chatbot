@@ -45,11 +45,21 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
   const [transcripts, setTranscripts] = useState<LiveTranscriptItem[]>([])
   const [isMuted, setIsMuted] = useState(false)
   const [selectedVoice, setSelectedVoice] = useState('Chatterbox-Multilingual')
+  const [speechPacing, setSpeechPacing] = useState<'relaxed' | 'standard' | 'fast'>('relaxed')
   const [showSettings, setShowSettings] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const sessionManagerRef = useRef<LiveSessionManager | null>(null)
   const accumulatedTurnsRef = useRef<{ user: string; assistant: string }[]>([])
+
+  const getPacingMs = (pacing: 'relaxed' | 'standard' | 'fast') => {
+    switch (pacing) {
+      case 'relaxed': return 2200
+      case 'fast': return 900
+      case 'standard':
+      default: return 1500
+    }
+  }
 
   // Cleanup on unmount or close
   const cleanup = useCallback(() => {
@@ -77,6 +87,7 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
       sessionId: conversationId || 'live_' + Date.now(),
       config: {
         voice: selectedVoice,
+        silenceDurationMs: getPacingMs(speechPacing),
       },
       onStateChange: (newState) => {
         setState(newState)
@@ -128,7 +139,18 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
       clearTimeout(connectingTimeout)
       cleanup()
     }
-  }, [isOpen, conversationId, selectedVoice, cleanup, saveCallback])
+  }, [isOpen, conversationId, cleanup, saveCallback])
+
+  const handleVoiceChange = (voice: string) => {
+    setSelectedVoice(voice)
+    sessionManagerRef.current?.setVoice(voice)
+  }
+
+  const handlePacingChange = (pacing: 'relaxed' | 'standard' | 'fast') => {
+    setSpeechPacing(pacing)
+    const ms = getPacingMs(pacing)
+    sessionManagerRef.current?.setSilenceDuration(ms)
+  }
 
   const handleToggleMute = () => {
     if (sessionManagerRef.current) {
@@ -178,6 +200,9 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
                   <Cpu size={10} />
                   NVIDIA NIM
                 </span>
+                <span className="text-[10px] text-muted-foreground px-2 py-0.5 rounded-full bg-muted/60 border border-border/50 hidden sm:inline-flex">
+                  {speechPacing === 'relaxed' ? 'Pacing: Relaxed (2.2s)' : speechPacing === 'fast' ? 'Pacing: Fast (0.9s)' : 'Pacing: Standard (1.5s)'}
+                </span>
               </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">Parakeet ASR · Llama 3.2 · Chatterbox TTS</p>
             </div>
@@ -191,7 +216,7 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
                 'p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all',
                 showSettings && 'bg-muted text-foreground'
               )}
-              title="Voice Settings"
+              title="Voice & Pacing Settings"
             >
               <Sliders size={16} />
             </button>
@@ -206,19 +231,72 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
           </div>
         </div>
 
-        {/* Optional Settings Drawer */}
+        {/* Settings Drawer */}
         {showSettings && (
-          <div className="px-6 py-3 bg-muted/40 border-b border-border/40 text-xs flex items-center justify-between animate-in slide-in-from-top duration-150">
-            <span className="font-medium text-foreground">NVIDIA TTS Voice</span>
-            <select
-              value={selectedVoice}
-              onChange={(e) => setSelectedVoice(e.target.value)}
-              className="px-2.5 py-1 rounded-lg bg-background border border-border text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="Chatterbox-Multilingual">Chatterbox Multilingual (Default)</option>
-              <option value="English-US.Female-1">English US (Female 1)</option>
-              <option value="English-US.Male-1">English US (Male 1)</option>
-            </select>
+          <div className="px-6 py-3.5 bg-muted/40 border-b border-border/40 text-xs space-y-3 animate-in slide-in-from-top duration-150">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="font-medium text-foreground block">Speech Pacing / Silence Pause</span>
+                <span className="text-[10px] text-muted-foreground">Allows natural pauses to think while speaking without cutting off</span>
+              </div>
+              <div className="flex items-center gap-1 bg-background border border-border p-0.5 rounded-lg self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => handlePacingChange('relaxed')}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+                    speechPacing === 'relaxed'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  title="2.2 seconds pause allowance - ideal for natural, relaxed speaking"
+                >
+                  Relaxed (2.2s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePacingChange('standard')}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+                    speechPacing === 'standard'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  title="1.5 seconds pause allowance"
+                >
+                  Standard (1.5s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePacingChange('fast')}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+                    speechPacing === 'fast'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  title="0.9 seconds pause allowance"
+                >
+                  Fast (0.9s)
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-border/30">
+              <div>
+                <span className="font-medium text-foreground block">NVIDIA TTS Voice</span>
+                <span className="text-[10px] text-muted-foreground">High-fidelity voice synthesis via Riva Chatterbox</span>
+              </div>
+              <select
+                value={selectedVoice}
+                onChange={(e) => handleVoiceChange(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg bg-background border border-border text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary self-start sm:self-auto"
+              >
+                <option value="Chatterbox-Multilingual">Chatterbox Multilingual (Default)</option>
+                <option value="English-US.Female-1">English US (Female Voice)</option>
+                <option value="English-US.Male-1">English US (Male Voice)</option>
+              </select>
+            </div>
           </div>
         )}
 

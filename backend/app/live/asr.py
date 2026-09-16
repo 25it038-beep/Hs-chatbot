@@ -1,4 +1,4 @@
-""""
+"""
 NVIDIA ASR Client for HSBot Live Voice
 Uses persistent NVIDIA Parakeet TDT 0.6B gRPC channel for sub-second transcription.
 """

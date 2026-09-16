@@ -54,19 +54,22 @@ export class LiveTurnManager {
 
     switch (from) {
       case 'IDLE':
-        return to === 'CONNECTING'
+        return to === 'CONNECTING' || to === 'LISTENING'
       case 'CONNECTING':
-        return to === 'LISTENING'
+        return to === 'LISTENING' || to === 'USER_SPEAKING'
       case 'LISTENING':
-        return to === 'PROCESSING' || to === 'INTERRUPTED'
+        return to === 'USER_SPEAKING' || to === 'PROCESSING' || to === 'THINKING' || to === 'INTERRUPTED'
+      case 'USER_SPEAKING':
+        return to === 'PROCESSING' || to === 'THINKING' || to === 'LISTENING' || to === 'INTERRUPTED'
       case 'PROCESSING':
+      case 'THINKING':
         return to === 'SPEAKING' || to === 'LISTENING' || to === 'INTERRUPTED'
       case 'SPEAKING':
-        return to === 'INTERRUPTED' || to === 'LISTENING' || to === 'PROCESSING'
+        return to === 'INTERRUPTED' || to === 'LISTENING' || to === 'USER_SPEAKING'
       case 'INTERRUPTED':
-        return to === 'LISTENING' || to === 'PROCESSING'
+        return to === 'LISTENING' || to === 'USER_SPEAKING'
       case 'ERROR':
-        return to === 'CONNECTING'
+        return to === 'CONNECTING' || to === 'LISTENING'
       default:
         return true
     }

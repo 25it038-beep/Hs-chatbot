@@ -35,11 +35,19 @@ export const LiveStatus: React.FC<LiveStatusProps> = ({ state, audioLevel, class
       case 'LISTENING':
         return (
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-            <Mic size={13} className={audioLevel.input > 0.04 ? 'animate-bounce text-emerald-400' : 'animate-pulse'} />
-            <span>{audioLevel.input > 0.04 ? 'Hearing your voice...' : 'Listening...'}</span>
+            <Mic size={13} className="animate-pulse" />
+            <span>Listening...</span>
+          </div>
+        )
+      case 'USER_SPEAKING':
+        return (
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]">
+            <Mic size={13} className="animate-bounce text-emerald-400" />
+            <span>Hearing your voice...</span>
           </div>
         )
       case 'PROCESSING':
+      case 'THINKING':
         return (
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
             <Sparkles size={13} className="animate-spin" />

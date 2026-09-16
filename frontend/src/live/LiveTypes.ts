@@ -4,11 +4,29 @@
  * Strict NVIDIA-only live voice conversation types.
  */
 
+export type ConnectionState =
+  | 'DISCONNECTED'
+  | 'CONNECTING'
+  | 'CONNECTED'
+  | 'RECONNECTING'
+  | 'FAILED'
+
+export type TurnState =
+  | 'IDLE'
+  | 'LISTENING'
+  | 'USER_SPEAKING'
+  | 'THINKING'
+  | 'SPEAKING'
+  | 'INTERRUPTED'
+  | 'ERROR'
+
 export type LiveState =
   | 'IDLE'
   | 'CONNECTING'
   | 'LISTENING'
+  | 'USER_SPEAKING'
   | 'PROCESSING'
+  | 'THINKING'
   | 'SPEAKING'
   | 'INTERRUPTED'
   | 'ERROR'
@@ -28,6 +46,7 @@ export interface LiveTranscriptItem {
   text: string
   isFinal: boolean
   timestamp: number
+  turnId?: string
 }
 
 export interface LiveAudioLevel {
@@ -41,22 +60,41 @@ export interface LiveTimingMetrics {
   total_latency_ms?: number
 }
 
+export interface LiveDiagnostics {
+  connectionState: ConnectionState
+  turnState: TurnState
+  micReady: boolean
+  micSampleRate: number
+  micChannels: number
+  micRms: number
+  audioFramesCount: number
+  audioBytesSent: number
+  asrStatus: 'idle' | 'transcribing' | 'success' | 'no_speech' | 'error'
+  asrTranscript: string
+  llmStatus: 'idle' | 'streaming' | 'complete' | 'error'
+  llmTtftMs?: number
+  ttsStatus: 'idle' | 'synthesizing' | 'streaming' | 'complete' | 'error'
+  ttsBytesReceived: number
+  playbackStatus: 'idle' | 'playing' | 'ended'
+  totalTurnLatencyMs?: number
+}
+
 // Client -> Server messages
 export type ClientLiveMessage =
   | { type: 'config'; config: Partial<LiveConfig> }
-  | { type: 'audio'; data: string; sampleRate: number } // base64 PCM 16kHz
-  | { type: 'user_speech'; text: string }
-  | { type: 'commit_turn' }
+  | { type: 'audio'; data: string; sampleRate: number; turnId?: string } // base64 PCM 16kHz
+  | { type: 'user_speech'; text: string; turnId?: string }
+  | { type: 'commit_turn'; turnId?: string }
   | { type: 'interrupt' }
   | { type: 'ping'; timestamp: number }
 
 // Server -> Client messages
 export type ServerLiveMessage =
-  | { type: 'status'; state: LiveState; message?: string }
-  | { type: 'transcript'; role: 'user' | 'assistant'; text: string; isFinal: boolean }
-  | { type: 'llm_chunk'; text: string }
-  | { type: 'audio_chunk'; audio: string; sampleRate: number; index?: number } // base64 PCM
-  | { type: 'timing'; metric: string; value: number }
+  | { type: 'status'; state: LiveState; message?: string; turnId?: string }
+  | { type: 'transcript'; role: 'user' | 'assistant'; text: string; isFinal: boolean; turnId?: string }
+  | { type: 'llm_chunk'; text: string; turnId?: string }
+  | { type: 'audio_chunk'; audio: string; sampleRate: number; index?: number; turnId?: string } // base64 PCM
+  | { type: 'timing'; metric: string; value: number; turnId?: string }
   | { type: 'error'; code: string; message: string }
   | { type: 'pong'; timestamp: number }
 

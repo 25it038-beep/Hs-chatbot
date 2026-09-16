@@ -117,67 +117,6 @@ class NvidiaLiveService {
   }
 
   /**
-   * Transcribe 16kHz raw PCM using Gemini Flash Multimodal Audio ASR
-   */
-  async transcribeWithGemini(pcmBuffer: Buffer, sampleRate = 16000): Promise<string> {
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) return ''
-    if (Date.now() < geminiQuotaBlockedUntil) return ''
-
-    const wavBuffer = pcmToWav(pcmBuffer, sampleRate, 1, 16)
-    const base64Audio = wavBuffer.toString('base64')
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: 'audio/wav',
-                    data: base64Audio,
-                  },
-                },
-                {
-                  text: 'You are an Automatic Speech Recognition (ASR) system. Transcribe the spoken speech in this audio verbatim. Output ONLY the transcribed words with natural punctuation and capitalization. Do NOT add markdown, explanations, timestamps, or conversational replies. If there is no discernible human speech (only silence, breathing, background static, or ambient noise), output exactly: [NO_SPEECH]',
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            thinkingConfig: { thinkingBudget: 0 },
-            temperature: 0.0,
-            maxOutputTokens: 200,
-          },
-        }),
-      }
-    )
-
-    if (!res.ok) {
-      if (res.status === 429) {
-        geminiQuotaBlockedUntil = Date.now() + 60000
-      }
-      const errText = await res.text()
-      throw new Error(`Gemini ASR HTTP ${res.status}: ${errText}`)
-    }
-
-    const data = await res.json()
-    const rawText = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || ''
-    const cleaned = rawText
-      .replace(/\[NO_SPEECH\]|NO_SPEECH|\[BLANK_AUDIO\]|\[SILENCE\]/gi, '')
-      .replace(/^(00:00|0:00)$/g, '')
-      .trim()
-
-    return cleaned
-  }
-
-  private geminiQuotaExhausted = false
-
-  /**
    * Transcribe 16kHz raw PCM speech to text
    */
   async transcribePCM(pcmBuffer: Buffer, language = 'en-US'): Promise<string> {
@@ -200,11 +139,12 @@ class NvidiaLiveService {
               sample_rate_hertz: 16000,
               language_code: language,
               max_alternatives: 1,
+              model: 'parakeet-tdt-0.6b-en-US-asr-offline',
             },
             audio: pcmBuffer,
           }
 
-          client.Recognize(req, meta, { deadline: Date.now() + 3500 }, (err: any, resp: any) => {
+          client.Recognize(req, meta, { deadline: Date.now() + 5000 }, (err: any, resp: any) => {
             if (err) return reject(err)
             const transcript =
               resp?.results
@@ -219,29 +159,11 @@ class NvidiaLiveService {
 
       const res = await makeCall(ASR_FUNCTION_ID_PRIMARY)
       if (res && res.length > 0) return res
+      return ''
     } catch (rivaErr: any) {
-      console.warn('[NvidiaLiveService] Primary Riva ASR note:', rivaErr?.message)
+      console.warn('[NvidiaLiveService] Riva ASR error:', rivaErr?.message)
+      return ''
     }
-
-    // 2. Secondary: Fallback to multimodal Gemini 3.6 Flash ASR only if quota not exhausted
-    if (process.env.GEMINI_API_KEY && !this.geminiQuotaExhausted) {
-      try {
-        const text = await this.transcribeWithGemini(pcmBuffer, 16000)
-        if (text && text.length > 0) {
-          return text
-        }
-      } catch (geminiErr: any) {
-        if (geminiErr?.message?.includes('429') || geminiErr?.message?.includes('Quota exceeded')) {
-          this.geminiQuotaExhausted = true
-          setTimeout(() => {
-            this.geminiQuotaExhausted = false
-          }, 60000)
-        }
-        console.warn('[NvidiaLiveService] Gemini ASR fallback note:', geminiErr?.message)
-      }
-    }
-
-    return ''
   }
 
   /**

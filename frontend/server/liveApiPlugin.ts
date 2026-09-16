@@ -313,7 +313,10 @@ export function liveApiPlugin(): Plugin {
                   const isVoice = peak > 250 || rms > 0.003
 
                   if (isVoice) {
-                    hasVoiceInTurn = true
+                    if (!hasVoiceInTurn) {
+                      hasVoiceInTurn = true
+                      ws.send(JSON.stringify({ type: 'status', state: 'USER_SPEAKING', message: 'Hearing your voice...' }))
+                    }
                     lastVoiceTime = Date.now()
                     audioChunks.push(chunk)
                   } else if (hasVoiceInTurn) {

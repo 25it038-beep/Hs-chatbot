@@ -21,6 +21,7 @@ export interface SessionManagerOptions {
   sessionId?: string
   config?: Partial<LiveConfig>
   onStateChange?: (state: LiveState) => void
+  onDiagnostics?: (diagnostics: import('./LiveTypes').LiveDiagnostics) => void
   onTranscript?: (item: LiveTranscriptItem) => void
   onAudioLevel?: (level: LiveAudioLevel) => void
   onTiming?: (metrics: import('./LiveTypes').LiveTimingMetrics) => void
@@ -41,8 +42,12 @@ export class LiveSessionManager {
   private timingMetrics: import('./LiveTypes').LiveTimingMetrics = {}
   private options: SessionManagerOptions
   private isDestroyed = false
-  private receivedAudioForTurn = false
-  private audioFallbackTimeout: ReturnType<typeof setTimeout> | null = null
+
+  // Separate State Machines
+  private connectionState: import('./LiveTypes').ConnectionState = 'DISCONNECTED'
+  private asrStatus: 'idle' | 'transcribing' | 'success' | 'no_speech' | 'error' = 'idle'
+  private asrTranscript = ''
+  private llmStatus: 'idle' | 'streaming' | 'complete' | 'error' = 'idle'
   private processingWatchdogTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: SessionManagerOptions = {}) {
@@ -61,12 +66,14 @@ export class LiveSessionManager {
     // 1. Initialize Turn Manager
     this.turnManager = new LiveTurnManager({
       onStateChange: (state) => {
-        if (state === 'PROCESSING') {
+        if (state === 'PROCESSING' || state === 'THINKING') {
           if (this.processingWatchdogTimeout) clearTimeout(this.processingWatchdogTimeout)
           this.processingWatchdogTimeout = setTimeout(() => {
-            if (this.turnManager.getState() === 'PROCESSING' && !this.isDestroyed) {
+            const curState = this.turnManager.getState()
+            if ((curState === 'PROCESSING' || curState === 'THINKING') && !this.isDestroyed) {
               LiveLogger.warn('Processing watchdog: Turn took > 8.5s without response, recovering to LISTENING')
               this.turnManager.transitionTo('LISTENING', 'Watchdog recovery')
+              this.notifyDiagnostics()
             }
           }, 8500)
         } else {
@@ -76,13 +83,17 @@ export class LiveSessionManager {
           }
         }
         this.options.onStateChange?.(state)
+        this.notifyDiagnostics()
       },
       onInterrupt: () => {
         this.audioPlayer.stop()
+        this.tts.stop()
         this.connection.sendInterrupt()
+        this.notifyDiagnostics()
       },
       onError: (err) => {
         this.options.onError?.(err)
+        this.notifyDiagnostics()
       },
     })
 
@@ -93,6 +104,10 @@ export class LiveSessionManager {
         if (this.turnManager.getState() === 'SPEAKING') {
           this.turnManager.transitionTo('LISTENING', 'AI finished speaking')
         }
+        this.notifyDiagnostics()
+      },
+      onPlaybackStatusChange: () => {
+        this.notifyDiagnostics()
       },
       onVolumeChange: (vol) => {
         this.audioLevel.output = vol
@@ -132,63 +147,63 @@ export class LiveSessionManager {
       silenceTimeoutMs: this.config.silenceDurationMs || 1500,
       onAudioChunk: (_pcm, base64) => {
         const state = this.turnManager.getState()
-        if (state === 'LISTENING' || state === 'CONNECTING') {
+        if (state === 'LISTENING' || state === 'USER_SPEAKING' || state === 'CONNECTING') {
           this.connection.sendAudio(base64, 16000)
         }
+        this.notifyDiagnostics()
       },
-      onSpeechInterim: (text) => {
+      onSpeechStart: () => {
         const state = this.turnManager.getState()
-        if (state === 'LISTENING' || state === 'CONNECTING') {
-          this.asr.handleServerTranscript(text, false)
-        }
-      },
-      onSpeechFinal: (text) => {
-        const state = this.turnManager.getState()
-        if (state === 'LISTENING' || state === 'CONNECTING') {
-          this.timingMetrics = {}
-          this.asr.handleServerTranscript(text, true)
-          // Forward recognized speech to server for immediate LLM processing
-          this.connection.sendUserSpeech(text)
-          this.turnManager.transitionTo('PROCESSING', 'User speech recognized')
+        if (state === 'LISTENING') {
+          this.turnManager.transitionTo('USER_SPEAKING', 'User speech detected')
+          this.asrStatus = 'transcribing'
+          this.notifyDiagnostics()
         }
       },
       onSpeechEnd: () => {
         const state = this.turnManager.getState()
-        if (state === 'LISTENING' || state === 'CONNECTING') {
-          this.timingMetrics = {}
+        if (state === 'USER_SPEAKING' || state === 'LISTENING') {
           this.connection.sendCommitTurn()
+          this.turnManager.transitionTo('PROCESSING', 'Speech offset detected')
+          this.notifyDiagnostics()
         }
       },
-      onVolumeChange: (vol) => {
+      onVolumeChange: (vol, rawRms) => {
         this.audioLevel.input = vol
         this.options.onAudioLevel?.({ ...this.audioLevel })
 
         const state = this.turnManager.getState()
-        // Only barge-in if the user speaks loudly and deliberately (>0.35) while AI is speaking
-        if (state === 'SPEAKING' && vol > 0.35) {
+        // Deliberate barge-in if user speaks loudly while AI is speaking
+        if (state === 'SPEAKING' && rawRms > 0.04) {
           this.turnManager.handleBargeIn()
         }
       },
       onError: (err) => {
         LiveLogger.error('Microphone error:', err.message)
-        this.turnManager.handleError(`Microphone access error: ${err.message}`)
+        this.turnManager.handleError(`Microphone error: ${err.message}`)
+        this.notifyDiagnostics()
       },
     })
 
-    // 6. Initialize Connection (WebSocket with transparent HTTP/SSE fallback)
+    // 6. Initialize Connection
     this.connection = new LiveConnection(this.sessionId, {
       onOpen: () => {
+        this.connectionState = 'CONNECTED'
         this.connection.sendConfig(this.config)
         this.turnManager.transitionTo('LISTENING', 'Connected to NVIDIA Live Voice')
+        this.notifyDiagnostics()
       },
       onClose: () => {
         if (!this.isDestroyed && !this.connection.isConnected() && this.turnManager.getState() !== 'IDLE') {
+          this.connectionState = 'RECONNECTING'
           this.turnManager.transitionTo('CONNECTING', 'Reconnecting stream')
+          this.notifyDiagnostics()
         }
       },
       onError: () => {
         if (!this.connection.isConnected()) {
-          LiveLogger.warn('Connection error occurred while disconnected')
+          this.connectionState = 'FAILED'
+          this.notifyDiagnostics()
         }
       },
       onMessage: (msg) => {
@@ -202,14 +217,27 @@ export class LiveSessionManager {
       case 'status':
         if (msg.state) {
           this.turnManager.transitionTo(msg.state, msg.message)
+          if (msg.state === 'LISTENING') {
+            this.asrStatus = 'idle'
+            this.llmStatus = 'idle'
+            this.tts.setStatus('idle')
+          } else if (msg.state === 'USER_SPEAKING') {
+            this.asrStatus = 'transcribing'
+          } else if (msg.state === 'PROCESSING' || msg.state === 'THINKING') {
+            this.llmStatus = 'streaming'
+          } else if (msg.state === 'SPEAKING') {
+            this.tts.setStatus('streaming')
+          }
+          this.notifyDiagnostics()
         }
         break
 
       case 'transcript':
         if (msg.role === 'user') {
+          this.asrTranscript = msg.text
+          this.asrStatus = 'success'
           this.asr.handleServerTranscript(msg.text, msg.isFinal)
           if (msg.isFinal) {
-            // Check fast router intent
             const route = LiveRouter.classify(msg.text)
             if (route.intent === 'SHORT_COMMAND') {
               this.interrupt()
@@ -217,7 +245,11 @@ export class LiveSessionManager {
             }
             this.turnManager.transitionTo('PROCESSING', 'User utterance received')
           }
+          this.notifyDiagnostics()
         } else if (msg.role === 'assistant') {
+          if (msg.isFinal) {
+            this.llmStatus = 'complete'
+          }
           this.options.onTranscript?.({
             id: 'ast_' + Date.now(),
             role: 'assistant',
@@ -225,40 +257,22 @@ export class LiveSessionManager {
             isFinal: msg.isFinal,
             timestamp: Date.now(),
           })
-
-          if (msg.isFinal && msg.text) {
-            this.receivedAudioForTurn = false
-            if (this.audioFallbackTimeout) {
-              clearTimeout(this.audioFallbackTimeout)
-            }
-            this.audioFallbackTimeout = setTimeout(() => {
-              if (!this.receivedAudioForTurn && !this.isDestroyed && this.turnManager.getState() !== 'INTERRUPTED') {
-                this.turnManager.transitionTo('SPEAKING', 'Speaking response')
-                this.tts.speakFallback(msg.text, () => {
-                  if (this.turnManager.getState() === 'SPEAKING') {
-                    this.turnManager.transitionTo('LISTENING', 'AI finished speaking')
-                  }
-                })
-              }
-            }, 650)
-          }
+          this.notifyDiagnostics()
         }
         break
 
       case 'llm_chunk':
+        this.llmStatus = 'streaming'
         this.llm.appendChunk(msg.text)
+        this.notifyDiagnostics()
         break
 
       case 'audio_chunk':
-        this.receivedAudioForTurn = true
-        if (this.audioFallbackTimeout) {
-          clearTimeout(this.audioFallbackTimeout)
-          this.audioFallbackTimeout = null
-        }
         if (this.turnManager.getState() !== 'SPEAKING' && this.turnManager.getState() !== 'INTERRUPTED') {
-          this.turnManager.transitionTo('SPEAKING', 'Received audio response')
+          this.turnManager.transitionTo('SPEAKING', 'Received NVIDIA TTS audio')
         }
         this.tts.handleAudioChunk(msg.audio, msg.sampleRate, msg.index)
+        this.notifyDiagnostics()
         break
 
       case 'timing':
@@ -270,15 +284,51 @@ export class LiveSessionManager {
           this.timingMetrics.total_latency_ms = msg.value
         }
         this.options.onTiming?.({ ...this.timingMetrics })
+        this.notifyDiagnostics()
         break
 
       case 'error':
         LiveLogger.error(`Server reported error: ${msg.code} - ${msg.message}`)
+        this.asrStatus = 'error'
+        this.llmStatus = 'error'
         this.turnManager.handleError(msg.message)
+        this.notifyDiagnostics()
         break
 
       case 'pong':
         break
+    }
+  }
+
+  getDiagnostics(): import('./LiveTypes').LiveDiagnostics {
+    const micMetrics = this.microphone.getMetrics()
+    const rawTurnState = this.turnManager.getState()
+    const turnState: import('./LiveTypes').TurnState =
+      rawTurnState === 'PROCESSING' ? 'THINKING' : (rawTurnState as import('./LiveTypes').TurnState)
+
+    return {
+      connectionState: this.connectionState,
+      turnState,
+      micReady: micMetrics.isReady,
+      micSampleRate: micMetrics.sampleRate,
+      micChannels: micMetrics.channels,
+      micRms: Number(micMetrics.rms.toFixed(4)),
+      audioFramesCount: micMetrics.framesCount,
+      audioBytesSent: micMetrics.bytesSent,
+      asrStatus: this.asrStatus,
+      asrTranscript: this.asrTranscript,
+      llmStatus: this.llmStatus,
+      llmTtftMs: this.timingMetrics.asr_to_llm_first_token_ms,
+      ttsStatus: this.tts.getStatus(),
+      ttsBytesReceived: this.tts.getBytesReceived(),
+      playbackStatus: this.audioPlayer.getPlaybackStatus(),
+      totalTurnLatencyMs: this.timingMetrics.total_latency_ms,
+    }
+  }
+
+  private notifyDiagnostics() {
+    if (this.options.onDiagnostics) {
+      this.options.onDiagnostics(this.getDiagnostics())
     }
   }
 
@@ -292,7 +342,9 @@ export class LiveSessionManager {
     }
 
     try {
+      this.connectionState = 'CONNECTING'
       this.turnManager.transitionTo('CONNECTING', 'Starting session')
+      this.notifyDiagnostics()
 
       // Unlock Web Audio context inside user gesture
       this.audioPlayer.unlock()
@@ -300,24 +352,29 @@ export class LiveSessionManager {
       // Start microphone first
       const micSuccess = await this.microphone.start()
       if (!micSuccess) {
+        this.connectionState = 'FAILED'
         this.turnManager.transitionTo('ERROR', 'Microphone permission denied')
+        this.notifyDiagnostics()
         return false
       }
 
       // Connect
       this.connection.connect()
 
-      // Watchdog: If state is still CONNECTING after 2.5 seconds, transition to LISTENING
+      // Watchdog: If state is still CONNECTING after 2.0 seconds, transition to LISTENING
       setTimeout(() => {
         if (!this.isDestroyed && this.turnManager.getState() === 'CONNECTING') {
           this.turnManager.transitionTo('LISTENING', 'Ready to speak')
+          this.notifyDiagnostics()
         }
-      }, 2500)
+      }, 2000)
 
       return true
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
+      this.connectionState = 'FAILED'
       this.turnManager.transitionTo('ERROR', errorMsg)
+      this.notifyDiagnostics()
       return false
     }
   }
@@ -327,40 +384,42 @@ export class LiveSessionManager {
    */
   stop(): void {
     LiveLogger.info('Stopping live session manager')
-    if (this.audioFallbackTimeout) {
-      clearTimeout(this.audioFallbackTimeout)
-      this.audioFallbackTimeout = null
+    if (this.processingWatchdogTimeout) {
+      clearTimeout(this.processingWatchdogTimeout)
+      this.processingWatchdogTimeout = null
     }
     this.tts.stop()
     this.microphone.stop()
     this.audioPlayer.stop()
     this.connection.disconnect()
     this.turnManager.reset()
+    this.connectionState = 'DISCONNECTED'
     this.audioLevel = { input: 0, output: 0 }
     this.options.onAudioLevel?.({ ...this.audioLevel })
+    this.notifyDiagnostics()
   }
 
   /**
    * Instant barge-in / interrupt
    */
   interrupt(): void {
-    if (this.audioFallbackTimeout) {
-      clearTimeout(this.audioFallbackTimeout)
-      this.audioFallbackTimeout = null
-    }
     this.tts.stop()
     this.audioPlayer.stop()
     this.connection.sendInterrupt()
     this.llm.reset()
     this.turnManager.transitionTo('LISTENING', 'User interrupted')
+    this.notifyDiagnostics()
   }
 
   /**
    * Manually commit speech turn (e.g. user clicks "Done Speaking")
    */
   commitTurn(): void {
-    if (this.turnManager.getState() === 'LISTENING') {
+    const state = this.turnManager.getState()
+    if (state === 'LISTENING' || state === 'USER_SPEAKING') {
       this.connection.sendCommitTurn()
+      this.turnManager.transitionTo('PROCESSING', 'Manual commit')
+      this.notifyDiagnostics()
     }
   }
 
@@ -370,6 +429,7 @@ export class LiveSessionManager {
   toggleMute(): boolean {
     const nextMuted = !this.microphone.getMuted()
     this.microphone.setMuted(nextMuted)
+    this.notifyDiagnostics()
     return nextMuted
   }
 

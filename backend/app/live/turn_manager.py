@@ -7,7 +7,7 @@ from typing import Optional
 
 logger = logging.getLogger("hsbot.live.turn_manager")
 
-VALID_STATES = {"IDLE", "CONNECTING", "LISTENING", "PROCESSING", "SPEAKING", "INTERRUPTED", "ERROR"}
+VALID_STATES = {"IDLE", "CONNECTING", "LISTENING", "USER_SPEAKING", "PROCESSING", "SPEAKING", "INTERRUPTED", "ERROR"}
 
 
 class LiveTurnManager:

@@ -24,19 +24,38 @@ SENTENCE_SPLIT_REGEX = re.compile(r"^(.*?[.!?\n])\s*(.*)$", re.DOTALL)
 CLAUSE_SPLIT_REGEX = re.compile(r"^(.*?[,;:])\s*(.*)$", re.DOTALL)
 
 
+def calculate_pcm_rms(chunk: bytes) -> float:
+    """Calculates RMS energy of 16-bit linear PCM audio chunk."""
+    if len(chunk) < 2:
+        return 0.0
+    sample_count = len(chunk) // 2
+    sum_sq = 0
+    for i in range(0, len(chunk) - 1, 2):
+        s = int.from_bytes(chunk[i:i+2], byteorder="little", signed=True)
+        sum_sq += s * s
+    return (sum_sq / (sample_count or 1)) ** 0.5
+
+
 class LiveVoiceSession:
     def __init__(self, session_id: str, websocket: WebSocket):
         self.session_id = session_id
         self.websocket = websocket
         self.turn_manager = LiveTurnManager()
-        self.audio_buffer = bytearray()
         self.conversation_history: List[Dict[str, str]] = []
         self.voice = "Chatterbox-Multilingual"
         self.sample_rate = 16000
         self.is_active = True
+
+        # VAD and Audio Buffering
+        self._pre_speech_buffer = bytearray()
+        self._speech_buffer = bytearray()
+        self._has_voice_in_turn = False
+        self._speech_onset_frames = 0
+        self._last_voice_time = 0.0
         self.last_audio_time = time.time()
-        self.silence_threshold_s = 0.65
+        self.silence_threshold_s = 1.2
         self.silence_monitor_task: Optional[asyncio.Task] = None
+        self._current_turn_id: Optional[str] = None
 
         # Turn concurrency management
         self._turn_in_progress = False
@@ -59,9 +78,9 @@ class LiveVoiceSession:
                 raw_text = await self.websocket.receive_text()
                 await self.handle_message(raw_text)
         except WebSocketDisconnect:
-            logger.info(f"Live session {self.session_id} disconnected by client")
+            logger.info(f"[LIVE][session={self.session_id}] Disconnected by client")
         except Exception as e:
-            logger.error(f"Live session {self.session_id} error: {e}")
+            logger.error(f"[LIVE][session={self.session_id}] Error in session loop: {e}")
         finally:
             await self.cleanup()
 
@@ -85,7 +104,14 @@ class LiveVoiceSession:
                 self.voice = cfg["voice"]
             if "sampleRate" in cfg:
                 self.sample_rate = cfg["sampleRate"]
-            logger.info(f"Updated live config: voice={self.voice}, sampleRate={self.sample_rate}")
+            if "silenceDurationMs" in cfg:
+                self.silence_threshold_s = max(0.6, min(5.0, float(cfg["silenceDurationMs"]) / 1000.0))
+            if "silenceTimeoutMs" in cfg:
+                self.silence_threshold_s = max(0.6, min(5.0, float(cfg["silenceTimeoutMs"]) / 1000.0))
+            logger.info(
+                f"[LIVE][session={self.session_id}] Updated config: voice={self.voice}, "
+                f"silence={self.silence_threshold_s}s, sampleRate={self.sample_rate}"
+            )
 
         elif msg_type == "interrupt":
             await self.interrupt()
@@ -94,42 +120,79 @@ class LiveVoiceSession:
             # Direct client-side speech transcript (fast path)
             text = (msg.get("text") or "").strip()
             if text and not self._turn_in_progress:
-                self.audio_buffer.clear()
-                asyncio.create_task(self.execute_turn(text=text))
+                self._speech_buffer.clear()
+                self._has_voice_in_turn = False
+                turn_id = f"turn_{int(time.time() * 1000)}"
+                asyncio.create_task(self.execute_turn(text=text, turn_id=turn_id))
 
         elif msg_type == "commit_turn":
-            # Explicit speech completion
-            if self.audio_buffer and not self._turn_in_progress:
-                pcm_bytes = bytes(self.audio_buffer)
-                self.audio_buffer.clear()
-                asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes))
+            # Explicit speech completion signal from client
+            if not self._turn_in_progress and (self._has_voice_in_turn or len(self._speech_buffer) >= 3200):
+                turn_id = self._current_turn_id or f"turn_{int(time.time() * 1000)}"
+                pcm_bytes = bytes(self._speech_buffer)
+                self._speech_buffer.clear()
+                self._has_voice_in_turn = False
+                self._speech_onset_frames = 0
+                asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes, turn_id=turn_id))
 
         elif msg_type == "audio":
             data_b64 = msg.get("data", "")
             if data_b64:
                 try:
                     chunk = base64.b64decode(data_b64)
-                    self.audio_buffer.extend(chunk)
-                    self.last_audio_time = time.time()
+                    if not chunk:
+                        return
 
-                    # Barge-in check: if AI is speaking or thinking and incoming audio is substantial
+                    self.last_audio_time = time.time()
+                    rms = calculate_pcm_rms(chunk)
+
+                    # 1. Barge-in check: if AI is speaking and user speaks deliberately
                     if self.turn_manager.get_state() in ("SPEAKING", "PROCESSING") and len(chunk) > 300:
-                        # Quick energy check on 16-bit PCM
-                        sum_sq = 0
-                        for i in range(0, min(len(chunk) - 1, 400), 2):
-                            sample = int.from_bytes(chunk[i:i+2], byteorder="little", signed=True)
-                            sum_sq += sample * sample
-                        rms = (sum_sq / 200) ** 0.5
-                        if rms > 1500:  # Deliberate user voice
-                            logger.info(f"Barge-in detected (RMS={rms:.0f}), interrupting")
+                        if rms > 1200:
+                            logger.info(f"[LIVE][session={self.session_id}] Barge-in detected (RMS={rms:.0f}), interrupting AI")
                             await self.interrupt()
 
+                    # 2. If turn currently processing, drop/skip audio until reset
+                    if self._turn_in_progress:
+                        return
+
+                    # 3. Voice Activity Detection (RMS threshold 380)
+                    if rms >= 380:
+                        self._speech_onset_frames += 1
+                        if not self._has_voice_in_turn and self._speech_onset_frames >= 2:
+                            self._has_voice_in_turn = True
+                            self._current_turn_id = f"turn_{int(time.time() * 1000)}"
+                            logger.info(
+                                f"[LIVE][session={self.session_id}][turn={self._current_turn_id}] "
+                                f"SPEECH_ONSET detected (RMS={rms:.0f})"
+                            )
+                            # Prepend rolling pre-speech buffer so initial consonants are intact
+                            self._speech_buffer.clear()
+                            self._speech_buffer.extend(self._pre_speech_buffer)
+                            self.turn_manager.transition_to("USER_SPEAKING", "Speech onset detected")
+                            await self.send_status("USER_SPEAKING", "Hearing your voice...")
+
+                        if self._has_voice_in_turn:
+                            self._last_voice_time = time.time()
+                            self._speech_buffer.extend(chunk)
+                    else:
+                        # Low-energy or silence frame
+                        if self._has_voice_in_turn:
+                            # Natural pause between words, accumulate into utterance buffer
+                            self._speech_buffer.extend(chunk)
+                        else:
+                            # Rolling pre-speech buffer (capped at 16000 bytes = ~500ms)
+                            self._speech_onset_frames = max(0, self._speech_onset_frames - 1)
+                            self._pre_speech_buffer.extend(chunk)
+                            if len(self._pre_speech_buffer) > 16000:
+                                del self._pre_speech_buffer[:-16000]
+
                 except Exception as e:
-                    logger.error(f"Error decoding audio chunk: {e}")
+                    logger.error(f"[LIVE][session={self.session_id}] Error decoding audio chunk: {e}")
 
     async def interrupt(self):
         """Immediately cancels active LLM streaming and TTS playback."""
-        logger.info(f"Interrupting live session {self.session_id}")
+        logger.info(f"[LIVE][session={self.session_id}] Interrupting live session")
         self.turn_manager.handle_barge_in()
 
         if self._llm_task and not self._llm_task.done():
@@ -146,34 +209,53 @@ class LiveVoiceSession:
                     break
 
         self._turn_in_progress = False
-        self.audio_buffer.clear()
+        self._speech_buffer.clear()
+        self._pre_speech_buffer.clear()
+        self._has_voice_in_turn = False
+        self._speech_onset_frames = 0
         self.turn_manager.transition_to("LISTENING", "Interrupted by user")
         await self.send_status("LISTENING", "Listening...")
 
     async def _monitor_silence(self):
-        """Monitors audio buffer and triggers turn after pause in speech."""
+        """Monitors audio buffer and triggers turn ONLY after confirmed speech followed by silence."""
         while self.is_active:
-            await asyncio.sleep(0.1)
-            if not self.audio_buffer or self._turn_in_progress:
+            await asyncio.sleep(0.05)
+            if not self._has_voice_in_turn or self._turn_in_progress:
                 continue
 
-            idle_duration = time.time() - self.last_audio_time
-            # If buffer has accumulated >= ~200ms of audio and user has stopped speaking for silence_threshold_s
-            if idle_duration >= self.silence_threshold_s and len(self.audio_buffer) >= 3200:
-                pcm_bytes = bytes(self.audio_buffer)
-                self.audio_buffer.clear()
-                asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes))
+            pause_duration = time.time() - self._last_voice_time
+            # User spoke and has now stopped speaking for silence_threshold_s with >= ~250ms of audio
+            if pause_duration >= self.silence_threshold_s and len(self._speech_buffer) >= 8000:
+                turn_id = self._current_turn_id or f"turn_{int(time.time() * 1000)}"
+                pcm_bytes = bytes(self._speech_buffer)
+                duration_s = len(pcm_bytes) / 32000.0
+                logger.info(
+                    f"[LIVE][session={self.session_id}][turn={turn_id}] SPEECH_OFFSET: "
+                    f"Pause={pause_duration:.2f}s, Utterance={len(pcm_bytes)} bytes (~{duration_s:.2f}s)"
+                )
+                self._has_voice_in_turn = False
+                self._speech_buffer.clear()
+                self._pre_speech_buffer.clear()
+                self._speech_onset_frames = 0
+                asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes, turn_id=turn_id))
 
-    async def execute_turn(self, text: Optional[str] = None, pcm_bytes: Optional[bytes] = None):
+    async def execute_turn(
+        self,
+        text: Optional[str] = None,
+        pcm_bytes: Optional[bytes] = None,
+        turn_id: Optional[str] = None,
+    ):
         """
         Executes an overlapped speech turn:
-        USER STOPS SPEAKING -> STREAMING ASR -> FINAL TRANSCRIPT -> STREAMING LLM -> SENTENCE BUFFER -> STREAMING TTS -> SPEAKER
+        USER STOPS SPEAKING -> STREAMING ASR -> FINAL TRANSCRIPT -> STREAMING LLM -> PHRASE BUFFER -> STREAMING TTS -> SPEAKER
         """
         if self._turn_in_progress:
             return
 
+        turn_id = turn_id or f"turn_{int(time.time() * 1000)}"
         self._turn_in_progress = True
         self._first_audio_sent = False
+        self._current_turn_id = turn_id
 
         try:
             # 1. ASR Step (if text not provided)
@@ -181,17 +263,42 @@ class LiveVoiceSession:
                 self.turn_manager.transition_to("PROCESSING", "Transcribing speech")
                 await self.send_status("PROCESSING", "Transcribing speech...")
                 t_asr_start = time.time()
-                text = await live_asr.transcribe_pcm(pcm_bytes, self.sample_rate)
+                logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] ASR_START ({len(pcm_bytes)} bytes)")
+
+                try:
+                    # 6.0 second fail-fast timeout for ASR
+                    text = await asyncio.wait_for(
+                        live_asr.transcribe_pcm(pcm_bytes, self.sample_rate),
+                        timeout=6.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] ASR_TIMEOUT (>6.0s)")
+                    text = ""
+                except Exception as e:
+                    logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] ASR_ERROR: {e}")
+                    text = ""
+
                 t_asr_end = time.time()
-                if not text:
+                asr_latency_ms = (t_asr_end - t_asr_start) * 1000
+
+                if not text or not text.strip():
+                    logger.info(
+                        f"[LIVE][session={self.session_id}][turn={turn_id}] "
+                        f"ASR_COMPLETE: No speech recognized in {asr_latency_ms:.1f}ms"
+                    )
                     self.turn_manager.transition_to("LISTENING", "No speech detected")
                     await self.send_status("LISTENING", "Listening...")
                     self._turn_in_progress = False
                     return
-                logger.info(f"[LIVE][TIMING] ASR took {(t_asr_end - t_asr_start)*1000:.1f} ms: '{text}'")
+
+                logger.info(
+                    f"[LIVE][session={self.session_id}][turn={turn_id}] "
+                    f"ASR_COMPLETE in {asr_latency_ms:.1f}ms: '{text}'"
+                )
 
             if not text or not text.strip():
                 self.turn_manager.transition_to("LISTENING", "Empty utterance")
+                await self.send_status("LISTENING", "Listening...")
                 self._turn_in_progress = False
                 return
 
@@ -204,10 +311,11 @@ class LiveVoiceSession:
                 "role": "user",
                 "text": user_text,
                 "isFinal": True,
+                "turnId": turn_id,
             })
             self.conversation_history.append({"role": "user", "content": user_text})
 
-            # Transition to PROCESSING
+            # Transition to PROCESSING (Thinking)
             self.turn_manager.transition_to("PROCESSING", "Streaming NVIDIA LLM")
             await self.send_status("PROCESSING", "Thinking (NVIDIA LLM)...")
 
@@ -215,10 +323,10 @@ class LiveVoiceSession:
             self._tts_queue = asyncio.Queue()
 
             # Start TTS Consumer Task
-            self._tts_task = asyncio.create_task(self._tts_consumer(self._tts_queue, self._t_asr_final))
+            self._tts_task = asyncio.create_task(self._tts_consumer(self._tts_queue, self._t_asr_final, turn_id))
 
             # Run LLM Producer in this coroutine
-            full_reply = await self._llm_producer(user_text, self._tts_queue, self._t_asr_final)
+            full_reply = await self._llm_producer(user_text, self._tts_queue, self._t_asr_final, turn_id)
 
             # Wait for TTS consumer to finish synthesizing all queued phrases
             if self._tts_task:
@@ -231,13 +339,14 @@ class LiveVoiceSession:
                     "role": "assistant",
                     "text": full_reply,
                     "isFinal": True,
+                    "turnId": turn_id,
                 })
                 self.conversation_history.append({"role": "assistant", "content": full_reply})
 
         except asyncio.CancelledError:
-            logger.info("Turn cancelled by interruption")
+            logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Turn cancelled by interruption")
         except Exception as e:
-            logger.error(f"Error during live turn: {e}", exc_info=True)
+            logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] Error during live turn: {e}", exc_info=True)
             self.turn_manager.handle_error(str(e))
         finally:
             self._turn_in_progress = False
@@ -245,11 +354,19 @@ class LiveVoiceSession:
                 self.turn_manager.transition_to("LISTENING", "Turn complete")
                 await self.send_status("LISTENING", "Listening...")
 
-    async def _llm_producer(self, user_text: str, tts_queue: asyncio.Queue, t_asr_final: float) -> str:
+    async def _llm_producer(
+        self,
+        user_text: str,
+        tts_queue: asyncio.Queue,
+        t_asr_final: float,
+        turn_id: str,
+    ) -> str:
         """Streams LLM tokens, applies phrase buffer, and feeds sentences immediately into tts_queue."""
         full_text = ""
         token_buffer = ""
         first_token_received = False
+
+        logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] LLM_START")
 
         try:
             async for token in live_llm.stream_reply(user_text, self.conversation_history):
@@ -257,11 +374,15 @@ class LiveVoiceSession:
                     first_token_received = True
                     self._t_llm_first = time.time()
                     asr_to_llm_ms = (self._t_llm_first - t_asr_final) * 1000
-                    logger.info(f"[LIVE][TIMING] ASR_FINAL → LLM_FIRST_TOKEN = {asr_to_llm_ms:.1f} ms")
+                    logger.info(
+                        f"[LIVE][session={self.session_id}][turn={turn_id}] "
+                        f"LLM_FIRST_TOKEN in {asr_to_llm_ms:.1f}ms"
+                    )
                     await self.websocket.send_json({
                         "type": "timing",
                         "metric": "asr_to_llm_first_token_ms",
                         "value": round(asr_to_llm_ms, 1),
+                        "turnId": turn_id,
                     })
 
                 full_text += token
@@ -270,6 +391,7 @@ class LiveVoiceSession:
                 await self.websocket.send_json({
                     "type": "llm_chunk",
                     "text": token,
+                    "turnId": turn_id,
                 })
 
                 # Check sentence boundary
@@ -298,13 +420,14 @@ class LiveVoiceSession:
 
             # Signal end of phrases to TTS consumer
             await tts_queue.put(None)
+            logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] LLM_COMPLETE: '{full_text[:60]}...'")
             return full_text.strip()
 
         except asyncio.CancelledError:
             await tts_queue.put(None)
             raise
 
-    async def _tts_consumer(self, tts_queue: asyncio.Queue, t_asr_final: float):
+    async def _tts_consumer(self, tts_queue: asyncio.Queue, t_asr_final: float, turn_id: str):
         """Pulls phrases from queue and streams synthesized audio chunks to WebSocket immediately."""
         chunk_index = 0
 
@@ -328,8 +451,14 @@ class LiveVoiceSession:
                             t_first_audio = time.time()
                             llm_to_tts_ms = (t_first_audio - self._t_llm_first) * 1000 if self._t_llm_first else 0.0
                             asr_to_speaker_ms = (t_first_audio - t_asr_final) * 1000
-                            logger.info(f"[LIVE][TIMING] LLM_FIRST_TOKEN → TTS_FIRST_AUDIO = {llm_to_tts_ms:.1f} ms")
-                            logger.info(f"[LIVE][TIMING] ASR_FINAL → SPEAKER = {asr_to_speaker_ms:.1f} ms")
+                            logger.info(
+                                f"[LIVE][session={self.session_id}][turn={turn_id}] "
+                                f"TTS_FIRST_AUDIO in {llm_to_tts_ms:.1f}ms"
+                            )
+                            logger.info(
+                                f"[LIVE][session={self.session_id}][turn={turn_id}] "
+                                f"TOTAL_TURN_LATENCY = {asr_to_speaker_ms:.1f}ms"
+                            )
 
                             self.turn_manager.transition_to("SPEAKING", "First audio chunk ready")
                             await self.send_status("SPEAKING", "NVIDIA Voice Speaking...")
@@ -338,11 +467,13 @@ class LiveVoiceSession:
                                 "type": "timing",
                                 "metric": "llm_first_token_to_tts_first_audio_ms",
                                 "value": round(llm_to_tts_ms, 1),
+                                "turnId": turn_id,
                             })
                             await self.websocket.send_json({
                                 "type": "timing",
                                 "metric": "total_latency_ms",
                                 "value": round(asr_to_speaker_ms, 1),
+                                "turnId": turn_id,
                             })
 
                         audio_b64 = base64.b64encode(pcm_chunk).decode("ascii")
@@ -351,13 +482,14 @@ class LiveVoiceSession:
                             "audio": audio_b64,
                             "sampleRate": 24000,
                             "index": chunk_index,
+                            "turnId": turn_id,
                         })
                         chunk_index += 1
 
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    logger.error(f"Error streaming TTS phrase '{clean_phrase[:30]}': {e}")
+                    logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] Error streaming TTS phrase '{clean_phrase[:30]}': {e}")
 
         except asyncio.CancelledError:
             pass
@@ -380,5 +512,8 @@ class LiveVoiceSession:
             self._llm_task.cancel()
         if self._tts_task and not self._tts_task.done():
             self._tts_task.cancel()
+        self._speech_buffer.clear()
+        self._pre_speech_buffer.clear()
         self.turn_manager.reset()
-        logger.info(f"Cleaned up live session {self.session_id}")
+        logger.info(f"[LIVE][session={self.session_id}] Cleaned up live session")
+

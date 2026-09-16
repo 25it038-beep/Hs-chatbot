@@ -51,6 +51,22 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [timingMetrics, setTimingMetrics] = useState<LiveTimingMetrics>({})
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<import('@/live/LiveTypes').LiveDiagnostics>({
+    connectionState: 'DISCONNECTED',
+    turnState: 'IDLE',
+    micReady: false,
+    micSampleRate: 16000,
+    micChannels: 1,
+    micRms: 0,
+    audioFramesCount: 0,
+    audioBytesSent: 0,
+    asrStatus: 'idle',
+    asrTranscript: '',
+    llmStatus: 'idle',
+    ttsStatus: 'idle',
+    ttsBytesReceived: 0,
+    playbackStatus: 'idle',
+  })
 
   const sessionManagerRef = useRef<LiveSessionManager | null>(null)
   const accumulatedTurnsRef = useRef<{ user: string; assistant: string }[]>([])
@@ -97,6 +113,9 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
         if (newState !== 'ERROR') {
           setErrorMessage(null)
         }
+      },
+      onDiagnostics: (diag) => {
+        setDiagnostics(diag)
       },
       onTranscript: (item) => {
         setTranscripts((prev) => {
@@ -248,30 +267,39 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
           </div>
         </div>
 
-        {/* Optional Diagnostics Drawer */}
+        {/* Developer Diagnostics Drawer */}
         {showDiagnostics && (
-          <div className="px-6 py-3 bg-muted/30 border-b border-border/40 text-xs flex flex-col gap-2.5 animate-in slide-in-from-top duration-150">
+          <div className="px-6 py-3 bg-muted/40 border-b border-border/50 text-xs flex flex-col gap-2.5 animate-in slide-in-from-top duration-150 max-h-64 overflow-y-auto">
             <div className="flex items-center justify-between font-semibold text-foreground border-b border-border/20 pb-1.5">
               <span className="flex items-center gap-1.5">
                 <Activity size={13} className="text-primary" />
-                Live Pipeline Diagnostics
+                Live Engine Telemetry (14 Metrics)
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
-                NVIDIA NIM Native
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold border',
+                  diagnostics.connectionState === 'CONNECTED'
+                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                )}>
+                  {diagnostics.connectionState}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono font-semibold">
+                  TURN: {diagnostics.turnState}
+                </span>
+              </div>
             </div>
 
+            {/* Core Timings Grid */}
             <div className="grid grid-cols-3 gap-2 text-[11px]">
               <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
-                <span className="text-muted-foreground text-[10px]">ASR → 1st Token</span>
+                <span className="text-muted-foreground text-[10px]">ASR → 1st Token (TTFT)</span>
                 <span className="font-mono font-semibold text-foreground mt-0.5">
-                  {timingMetrics.asr_to_llm_first_token_ms
-                    ? `${timingMetrics.asr_to_llm_first_token_ms} ms`
-                    : '—'}
+                  {diagnostics.llmTtftMs ? `${diagnostics.llmTtftMs} ms` : '—'}
                 </span>
               </div>
               <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
-                <span className="text-muted-foreground text-[10px]">1st Token → Audio</span>
+                <span className="text-muted-foreground text-[10px]">1st Token → TTS Audio</span>
                 <span className="font-mono font-semibold text-foreground mt-0.5">
                   {timingMetrics.llm_first_token_to_tts_first_audio_ms
                     ? `${timingMetrics.llm_first_token_to_tts_first_audio_ms} ms`
@@ -279,19 +307,62 @@ const LivePanelContent: React.FC<LivePanelProps> = ({
                 </span>
               </div>
               <div className="p-2 rounded-xl bg-background/80 border border-border/50 flex flex-col">
-                <span className="text-muted-foreground text-[10px]">Total Latency</span>
+                <span className="text-muted-foreground text-[10px]">Total Turn Latency</span>
                 <span className="font-mono font-semibold text-emerald-500 mt-0.5">
-                  {timingMetrics.total_latency_ms
-                    ? `${timingMetrics.total_latency_ms} ms`
+                  {diagnostics.totalTurnLatencyMs
+                    ? `${diagnostics.totalTurnLatencyMs} ms`
                     : '—'}
                 </span>
               </div>
             </div>
 
-            <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
+            {/* Audio & Pipeline Telemetry Details */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono">
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40">
+                <span className="text-muted-foreground block">Mic State:</span>
+                <strong className={diagnostics.micReady ? 'text-emerald-500' : 'text-amber-500'}>
+                  {diagnostics.micReady ? 'Active (Live)' : 'Inactive'}
+                </strong>
+              </div>
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40">
+                <span className="text-muted-foreground block">Mic RMS / Rate:</span>
+                <strong className="text-foreground">
+                  {diagnostics.micRms.toFixed(4)} ({diagnostics.micSampleRate}Hz)
+                </strong>
+              </div>
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40">
+                <span className="text-muted-foreground block">Audio Frames / Sent:</span>
+                <strong className="text-foreground">
+                  {diagnostics.audioFramesCount} frames ({(diagnostics.audioBytesSent / 1024).toFixed(1)} KB)
+                </strong>
+              </div>
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40">
+                <span className="text-muted-foreground block">TTS Chunks / Bytes:</span>
+                <strong className="text-foreground">
+                  {diagnostics.ttsStatus} ({(diagnostics.ttsBytesReceived / 1024).toFixed(1)} KB)
+                </strong>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40 truncate">
+                <span className="text-muted-foreground block">ASR Status & Transcript:</span>
+                <span className="text-foreground truncate block">
+                  [{diagnostics.asrStatus}] {diagnostics.asrTranscript ? `"${diagnostics.asrTranscript}"` : '—'}
+                </span>
+              </div>
+              <div className="p-1.5 rounded-lg bg-background/60 border border-border/40">
+                <span className="text-muted-foreground block">LLM & Playback:</span>
+                <span className="text-foreground block">
+                  LLM: <strong>{diagnostics.llmStatus}</strong> | Speaker: <strong>{diagnostics.playbackStatus}</strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 pt-0.5">
+              <span>ASR: <strong className="text-foreground">Parakeet TDT 0.6B</strong></span>
               <span>LLM: <strong className="text-foreground">Llama-3.2-11B-Vision</strong></span>
               <span>TTS: <strong className="text-foreground">Chatterbox Multilingual</strong></span>
-              <span>ASR: <strong className="text-foreground">Parakeet TDT 0.6B</strong></span>
             </div>
           </div>
         )}

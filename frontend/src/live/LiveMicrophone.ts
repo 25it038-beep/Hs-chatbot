@@ -10,11 +10,9 @@ import { LiveLogger } from './LiveLogger'
 export interface MicrophoneOptions {
   sampleRate?: number
   silenceTimeoutMs?: number
-  onAudioChunk?: (pcmData: Int16Array, base64: string) => void
-  onVolumeChange?: (volume: number) => void // 0.0 to 1.0
+  onAudioChunk?: (pcmData: Int16Array, base64: string, rms: number, frameCount: number, bytesSent: number) => void
+  onVolumeChange?: (volume: number, rawRms: number) => void
   onSpeechStart?: () => void
-  onSpeechInterim?: (text: string) => void
-  onSpeechFinal?: (text: string) => void
   onSpeechEnd?: () => void
   onError?: (error: Error) => void
 }
@@ -60,7 +58,6 @@ export class LiveMicrophone {
   private sourceNode: MediaStreamAudioSourceNode | null = null
   private processorNode: ScriptProcessorNode | null = null
   private muteGainNode: GainNode | null = null
-  private speechRecognition: any = null
   private isCapturing = false
   private isMuted = false
   private hasSpokenInTurn = false
@@ -69,6 +66,13 @@ export class LiveMicrophone {
   private silenceTimeoutMs = 1500
   private options: MicrophoneOptions
 
+  // Real-time diagnostics & telemetry
+  private audioFramesCount = 0
+  private audioBytesSent = 0
+  private currentRms = 0
+  private micSampleRate = 16000
+  private micChannels = 1
+
   constructor(options: MicrophoneOptions = {}) {
     this.options = {
       sampleRate: 16000,
@@ -76,6 +80,17 @@ export class LiveMicrophone {
       ...options,
     }
     this.silenceTimeoutMs = this.options.silenceTimeoutMs || 1500
+  }
+
+  getMetrics() {
+    return {
+      isReady: this.isCapturing && !this.isMuted,
+      sampleRate: this.micSampleRate,
+      channels: this.micChannels,
+      rms: this.currentRms,
+      framesCount: this.audioFramesCount,
+      bytesSent: this.audioBytesSent,
+    }
   }
 
   /**
@@ -96,7 +111,7 @@ export class LiveMicrophone {
     }
 
     try {
-      LiveLogger.info('Requesting microphone access...')
+      LiveLogger.info('Requesting microphone access with echo cancellation & noise suppression...')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -106,10 +121,25 @@ export class LiveMicrophone {
         },
       })
 
-      this.mediaStream = stream
+      // Strict track verification
+      const tracks = stream.getAudioTracks()
+      if (!tracks || tracks.length === 0) {
+        throw new Error('No audio tracks returned by microphone device')
+      }
+      const track = tracks[0]
+      if (track.readyState !== 'live') {
+        throw new Error(`Microphone track is not live (readyState: ${track.readyState})`)
+      }
+      if (!track.enabled) {
+        track.enabled = true
+      }
 
-      // Create AudioContext (fallback to default hardware rate for maximum browser compatibility)
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      this.mediaStream = stream
+      this.micChannels = 1
+
+      // Create AudioContext
+      const AudioContextClass =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       try {
         this.audioContext = new AudioContextClass({ sampleRate: 16000 })
       } catch {
@@ -120,14 +150,14 @@ export class LiveMicrophone {
         await this.audioContext.resume()
       }
 
-      const currentSampleRate = this.audioContext.sampleRate || 16000
-      LiveLogger.info(`AudioContext initialized at sampleRate: ${currentSampleRate}Hz`)
+      this.micSampleRate = this.audioContext.sampleRate || 16000
+      LiveLogger.info(`AudioContext initialized at sampleRate: ${this.micSampleRate}Hz (Tracks: ${tracks.length})`)
 
       this.sourceNode = this.audioContext.createMediaStreamSource(stream)
-      // Buffer size 2048 gives low-latency chunks (~40ms - 128ms depending on rate)
+      // Buffer size 2048 gives responsive ~40ms-128ms chunks
       this.processorNode = this.audioContext.createScriptProcessor(2048, 1, 1)
 
-      // Prevent V8 from garbage-collecting ScriptProcessorNode (Chrome WebAudio bug)
+      // Prevent V8 garbage collection
       try {
         ;(window as any).__hsbot_live_processor = this.processorNode
         ;(window as any).__hsbot_live_source = this.sourceNode
@@ -142,12 +172,13 @@ export class LiveMicrophone {
 
       this.processorNode.onaudioprocess = (event) => {
         if (!this.isCapturing || this.isMuted) {
-          this.options.onVolumeChange?.(0)
+          this.currentRms = 0
+          this.options.onVolumeChange?.(0, 0)
           return
         }
 
         const inputChannel = event.inputBuffer.getChannelData(0)
-        
+
         // 1. Calculate RMS and Peak audio levels
         let sumSquares = 0
         let peak = 0
@@ -158,41 +189,39 @@ export class LiveMicrophone {
           sumSquares += val * val
         }
         const rms = Math.sqrt(sumSquares / inputChannel.length)
+        this.currentRms = rms
 
         // Non-linear responsive normalized volume (0.0 to 1.0) for visualizer
         const normalizedVolume = Math.min(1.0, Math.pow(rms * 12.0, 0.75))
-        this.options.onVolumeChange?.(normalizedVolume)
+        this.options.onVolumeChange?.(normalizedVolume, rms)
 
-        // Sensitive client-side VAD: detects normal conversational speech accurately
-        // Normal speech has peak > 0.018 or rms > 0.0025
+        // Sensitive client-side VAD: detects voice onset
         const isVoice = peak > 0.018 || rms > 0.0025 || normalizedVolume > 0.03
         if (isVoice) {
           if (!this.hasSpokenInTurn) {
             this.speechFramesCount++
-            if (this.speechFramesCount >= 4) {
+            if (this.speechFramesCount >= 3) {
               this.hasSpokenInTurn = true
               this.options.onSpeechStart?.()
             }
           }
           this.lastVoiceTimestamp = Date.now()
         } else if (this.hasSpokenInTurn) {
-          // Allow natural conversational pauses: wait for configured silenceTimeoutMs (default 1500ms)
           const timeout = this.silenceTimeoutMs || 1500
           if (Date.now() - this.lastVoiceTimestamp >= timeout) {
             this.hasSpokenInTurn = false
             this.speechFramesCount = 0
-            LiveLogger.info(`Client VAD: End of speech turn detected after ${timeout}ms pause`)
+            LiveLogger.info(`Client VAD: End of speech detected after ${timeout}ms pause`)
             this.options.onSpeechEnd?.()
           }
         } else {
-          // If noise was transient (<4 frames) and stopped, reset frame counter after 300ms
           if (this.speechFramesCount > 0 && Date.now() - this.lastVoiceTimestamp > 300) {
             this.speechFramesCount = 0
           }
         }
 
-        // 2. Downsample Float32 from currentSampleRate to exactly 16000Hz 16-bit PCM
-        const pcm16 = downsampleTo16k(inputChannel, currentSampleRate)
+        // 2. Downsample Float32 to exactly 16000Hz 16-bit PCM
+        const pcm16 = downsampleTo16k(inputChannel, this.micSampleRate)
 
         // 3. Convert PCM to base64
         const uint8 = new Uint8Array(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength)
@@ -204,7 +233,10 @@ export class LiveMicrophone {
         }
         const base64 = btoa(binary)
 
-        this.options.onAudioChunk?.(pcm16, base64)
+        this.audioFramesCount++
+        this.audioBytesSent += pcm16.byteLength
+
+        this.options.onAudioChunk?.(pcm16, base64, rms, this.audioFramesCount, this.audioBytesSent)
       }
 
       this.sourceNode.connect(this.processorNode)
@@ -212,76 +244,25 @@ export class LiveMicrophone {
       this.muteGainNode.connect(this.audioContext.destination)
       this.isCapturing = true
 
-      // Optional Browser Native SpeechRecognition for immediate, local recognition
-      this.initSpeechRecognition()
-
-      LiveLogger.info('Microphone capture started successfully')
+      LiveLogger.info('Microphone capture started and verified successfully')
       return true
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
+    } catch (err: any) {
+      let friendlyMessage = err?.message || String(err)
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        friendlyMessage = 'Microphone permission denied. Please allow microphone access in your browser settings.'
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        friendlyMessage = 'No microphone device was detected on your system.'
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        friendlyMessage = 'Microphone is currently in use or blocked by another application.'
+      } else if (err?.name === 'OverconstrainedError') {
+        friendlyMessage = 'Audio hardware does not support the requested configuration.'
+      }
+
+      const error = new Error(friendlyMessage)
       LiveLogger.error('Failed to start microphone:', error.message)
       this.options.onError?.(error)
       this.stop()
       return false
-    }
-  }
-
-  private initSpeechRecognition() {
-    try {
-      const SpeechRecognitionClass =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      if (!SpeechRecognitionClass) return
-
-      const recognition = new SpeechRecognitionClass()
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'en-US'
-
-      recognition.onresult = (event: any) => {
-        if (!this.isCapturing || this.isMuted) return
-
-        let interimText = ''
-        let finalText = ''
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i]
-          const transcript = res[0]?.transcript || ''
-          if (res.isFinal) {
-            finalText += transcript
-          } else {
-            interimText += transcript
-          }
-        }
-
-        if (interimText.trim()) {
-          this.options.onSpeechInterim?.(interimText.trim())
-        }
-        if (finalText.trim()) {
-          this.options.onSpeechFinal?.(finalText.trim())
-        }
-      }
-
-      recognition.onerror = (event: any) => {
-        // Speech recognition error (e.g. no-speech or network) is non-fatal; audio PCM stream continues
-        LiveLogger.debug('Browser SpeechRecognition event:', event.error)
-      }
-
-      recognition.onend = () => {
-        // Restart if still capturing and not muted
-        if (this.isCapturing && !this.isMuted) {
-          try {
-            recognition.start()
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      recognition.start()
-      this.speechRecognition = recognition
-      LiveLogger.info('Browser SpeechRecognition initialized for rapid transcription')
-    } catch (err) {
-      LiveLogger.debug('Native SpeechRecognition unavailable or not permitted:', err)
     }
   }
 
@@ -296,7 +277,8 @@ export class LiveMicrophone {
       })
     }
     if (muted) {
-      this.options.onVolumeChange?.(0)
+      this.currentRms = 0
+      this.options.onVolumeChange?.(0, 0)
     }
   }
 
@@ -308,23 +290,17 @@ export class LiveMicrophone {
     return this.isCapturing
   }
 
+  resetMetrics() {
+    this.audioFramesCount = 0
+    this.audioBytesSent = 0
+    this.currentRms = 0
+  }
+
   /**
    * Completely stop and release microphone resources
    */
   stop() {
     this.isCapturing = false
-
-    if (this.speechRecognition) {
-      try {
-        this.speechRecognition.onend = null
-        this.speechRecognition.onerror = null
-        this.speechRecognition.onresult = null
-        this.speechRecognition.stop()
-      } catch {
-        // ignore
-      }
-      this.speechRecognition = null
-    }
 
     if (this.muteGainNode) {
       try {
@@ -376,7 +352,8 @@ export class LiveMicrophone {
       this.audioContext = null
     }
 
-    this.options.onVolumeChange?.(0)
+    this.currentRms = 0
+    this.options.onVolumeChange?.(0, 0)
     LiveLogger.info('Microphone capture stopped and released')
   }
 }

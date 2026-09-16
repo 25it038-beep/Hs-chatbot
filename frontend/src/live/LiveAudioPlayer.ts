@@ -10,6 +10,7 @@ import { LiveLogger } from './LiveLogger'
 export interface AudioPlayerOptions {
   sampleRate?: number
   onPlaybackEnded?: () => void
+  onPlaybackStatusChange?: (status: 'idle' | 'playing' | 'ended') => void
   onVolumeChange?: (volume: number) => void
   onError?: (error: Error) => void
 }
@@ -20,6 +21,7 @@ export class LiveAudioPlayer {
   private scheduledSources: AudioBufferSourceNode[] = []
   private nextStartTime = 0
   private isPlaying = false
+  private playbackStatus: 'idle' | 'playing' | 'ended' = 'idle'
   private options: AudioPlayerOptions
   private animFrameId: number | null = null
 
@@ -144,6 +146,10 @@ export class LiveAudioPlayer {
 
       this.nextStartTime = startTime + audioBuffer.duration
       this.isPlaying = true
+      if (this.playbackStatus !== 'playing') {
+        this.playbackStatus = 'playing'
+        this.options.onPlaybackStatusChange?.('playing')
+      }
       this.scheduledSources.push(sourceNode)
 
       sourceNode.onended = () => {
@@ -154,8 +160,17 @@ export class LiveAudioPlayer {
 
         if (this.scheduledSources.length === 0) {
           this.isPlaying = false
+          this.playbackStatus = 'ended'
+          this.options.onPlaybackStatusChange?.('ended')
           this.options.onVolumeChange?.(0)
           this.options.onPlaybackEnded?.()
+          // Return to idle after ended
+          setTimeout(() => {
+            if (this.playbackStatus === 'ended') {
+              this.playbackStatus = 'idle'
+              this.options.onPlaybackStatusChange?.('idle')
+            }
+          }, 300)
         }
       }
     } catch (err) {
@@ -182,6 +197,8 @@ export class LiveAudioPlayer {
     this.scheduledSources = []
     this.isPlaying = false
     this.nextStartTime = 0
+    this.playbackStatus = 'idle'
+    this.options.onPlaybackStatusChange?.('idle')
 
     this.options.onVolumeChange?.(0)
   }
@@ -204,5 +221,9 @@ export class LiveAudioPlayer {
 
   getIsPlaying(): boolean {
     return this.isPlaying
+  }
+
+  getPlaybackStatus(): 'idle' | 'playing' | 'ended' {
+    return this.playbackStatus
   }
 }

@@ -1,13 +1,11 @@
 """
-NVIDIA TTS Client for HSBot Live Voice
-Uses persistent NVIDIA Chatterbox Multilingual gRPC via Riva bridge.
+NVIDIA TTS — uses pure Python gRPC bridge (no Node.js).
 """
-
 import base64
 import logging
-from typing import Dict, Any, Optional, AsyncGenerator
+from typing import AsyncGenerator, Dict, Any, Optional
 
-from app.live.riva_bridge import riva_bridge
+from app.live import riva_python_bridge as _bridge
 
 logger = logging.getLogger("hsbot.live.tts")
 
@@ -19,20 +17,15 @@ class NvidiaLiveTTS:
         voice: str = "Chatterbox-Multilingual",
         sample_rate: int = 24000,
     ) -> AsyncGenerator[bytes, None]:
-        """Streams raw PCM audio chunks from NVIDIA Riva TTS."""
-        clean_text = text.strip()
-        if not clean_text:
+        clean = text.strip()
+        if not clean:
             return
         try:
-            async for chunk in riva_bridge.stream_synthesize(
-                text=clean_text,
-                voice=voice,
-                sample_rate=sample_rate,
-            ):
+            async for chunk in _bridge.stream_synthesize(clean, voice=voice, sample_rate=sample_rate):
                 if chunk:
                     yield chunk
         except Exception as e:
-            logger.error(f"[TTS] Riva stream error: {e}")
+            logger.error(f"[TTS] Error: {e}")
 
     async def synthesize(
         self,
@@ -40,25 +33,17 @@ class NvidiaLiveTTS:
         voice: str = "Chatterbox-Multilingual",
         sample_rate: int = 24000,
     ) -> Optional[Dict[str, Any]]:
-        """Returns full PCM audio as base64."""
-        clean_text = text.strip()
-        if not clean_text:
-            return None
         chunks = []
-        try:
-            async for chunk in self.stream_synthesize(clean_text, voice=voice, sample_rate=sample_rate):
-                chunks.append(chunk)
-            if not chunks:
-                return None
-            all_bytes = b"".join(chunks)
-            return {
-                "audio": base64.b64encode(all_bytes).decode("ascii"),
-                "sampleRate": sample_rate,
-                "bytes": len(all_bytes),
-            }
-        except Exception as e:
-            logger.error(f"[TTS] Synthesis error: {e}")
+        async for chunk in self.stream_synthesize(text, voice=voice, sample_rate=sample_rate):
+            chunks.append(chunk)
+        if not chunks:
             return None
+        all_bytes = b"".join(chunks)
+        return {
+            "audio": base64.b64encode(all_bytes).decode("ascii"),
+            "sampleRate": sample_rate,
+            "bytes": len(all_bytes),
+        }
 
 
 live_tts = NvidiaLiveTTS()

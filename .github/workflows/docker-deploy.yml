@@ -8,10 +8,11 @@ on:
       - 'Dockerfile'
       - 'proto/**'
       - 'package.json'
+      - 'render.yaml'
 
 jobs:
   build-and-push:
-    name: Build Docker image with Node.js + Riva bridge
+    name: Build Docker image (Python gRPC Riva — no Node.js)
     runs-on: ubuntu-latest
 
     steps:
@@ -39,11 +40,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger Render deploy
+      # Option A: trigger via deploy hook URL (set RENDER_DEPLOY_HOOK_URL secret)
+      - name: Trigger Render deploy (hook URL)
         if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" || true
+
+      # Option B: trigger via Render API (set RENDER_API_KEY + RENDER_SERVICE_ID secrets)
+      - name: Trigger Render deploy (API)
+        if: ${{ secrets.RENDER_API_KEY != '' && secrets.RENDER_SERVICE_ID != '' }}
         run: |
-          curl -s "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
-            -X POST \
+          curl -s -X POST \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Content-Type: application/json" \
-            --fail-with-body
-        continue-on-error: true
+            -d '{"clearCache":"do_not_clear"}' || true

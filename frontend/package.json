@@ -46,6 +46,7 @@
     "remark-math": "^6.0.0",
     "tailwind-merge": "^2.6.0",
     "uuid": "^11.0.3",
+    "ws": "^8.18.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
@@ -54,6 +55,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.10",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

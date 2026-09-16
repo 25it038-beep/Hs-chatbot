@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     nvidia_default_vision_model: str = "llama-3.2-vision"
     nvidia_default_image_model: str = "flux-1-dev"
     nvidia_default_embed_model: str = "nv-embed-v1"
+    live_engine: str = "cascaded"
+    live_voice: str = "Chatterbox-Multilingual"
 
     # NVIDIA Reliability Configuration
     nvidia_max_retries: int = 3

@@ -94,7 +94,7 @@ function handleTtsStream(req) {
       language_code: 'en-US',
       encoding: 'LINEAR_PCM',
       sample_rate_hz: sample_rate,
-      voice_name: voice,
+      voice_name: 'Chatterbox-Multilingual',
     });
     call.end();
   } catch (err) {

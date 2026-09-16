@@ -42,21 +42,21 @@ function LoadingScreen() {
 }
 
 function IntroGate({ children }: { children: React.ReactNode }) {
-  const [introDone, setIntroDone] = useState(() => hasSeenIntro())
-  if (introDone) return <>{children}</>
-  return <IntroVideo onComplete={() => setIntroDone(true)} />
+  return <>{children}</>
 }
 
 function ClerkAppInner() {
   const { isLoaded, isSignedIn, user: clerkUser } = useUser()
   const { getToken } = useClerkAuth()
   const { loadChats, loadFolders, loadModels } = useChat()
+  const { user: customUser } = useAuth()
 
   useEffect(() => {
     if (isSignedIn && clerkUser) {
       // Clean up any remaining sign-in/up hash from Clerk
-      if (window.location.hash.startsWith('#/sign-')) {
-        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      if (window.location.hash.includes('sign-')) {
+        window.location.hash = ''
+        window.history.replaceState(null, '', window.location.pathname)
       }
 
       // Sync Clerk user profile into our auth store so Sidebar and Settings show the user
@@ -80,23 +80,28 @@ function ClerkAppInner() {
       getToken()
         .then((token) => {
           if (token) setTokens(token, '')
+          loadChats()
+          loadFolders()
+          loadModels()
         })
-        .catch(() => {})
-
-      loadChats()
-      loadFolders()
-      loadModels()
+        .catch(() => {
+          loadChats()
+          loadFolders()
+          loadModels()
+        })
     }
   }, [isSignedIn, clerkUser, getToken, loadChats, loadFolders, loadModels])
 
-  if (!isLoaded) return <LoadingScreen />
-  if (!isSignedIn) return <AuthPage />
+  const isAuthenticated = isSignedIn || !!customUser
+
+  if (!isLoaded && !customUser) return <LoadingScreen />
+  if (!isAuthenticated) return <AuthPage />
 
   return (
-    <IntroGate>
+    <>
       <ChatPage />
       <SettingsPage />
-    </IntroGate>
+    </>
   )
 }
 
@@ -134,10 +139,10 @@ export default function App() {
   return (
     <AnimatedBackground>
       {BYPASS_AUTH ? (
-        <IntroGate>
+        <>
           <ChatPage />
           <SettingsPage />
-        </IntroGate>
+        </>
       ) : HAS_CLERK ? (
         <ClerkAppInner />
       ) : !initialized ? (
@@ -145,10 +150,10 @@ export default function App() {
       ) : !customUser ? (
         <AuthPage />
       ) : (
-        <IntroGate>
+        <>
           <ChatPage />
           <SettingsPage />
-        </IntroGate>
+        </>
       )}
     </AnimatedBackground>
   )

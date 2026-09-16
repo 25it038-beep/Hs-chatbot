@@ -13,7 +13,7 @@ import type { FileInfo, Message } from '@/types'
 import { isImageRequest } from '@/stores/chat'
 import { AIThinking } from '@/components/animations/LoadingAnimation'
 import { isTauri } from '@/lib/tauri'
-import { LivePanel } from '@/components/live'
+import { LiveVoice as LivePanel } from '@/live'
 import { useVoiceStore } from '@/lib/speech'
 
 const SUGGESTIONS = [

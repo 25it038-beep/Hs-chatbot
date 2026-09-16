@@ -17,8 +17,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             afterSignOutUrl="/"
             signInFallbackRedirectUrl="/"
             signUpFallbackRedirectUrl="/"
-            signInForceRedirectUrl="/"
-            signUpForceRedirectUrl="/"
           >
             <App />
           </ClerkProvider>

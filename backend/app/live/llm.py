@@ -18,9 +18,9 @@ NVIDIA_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 LIVE_MODEL = "meta/llama-3.2-11b-vision-instruct"
 
 SYSTEM_PROMPT = (
-    "You are HSBot, an intelligent and friendly AI assistant speaking in a real-time live voice conversation. "
-    "Keep responses concise, natural, clear, and direct (1 to 2 spoken sentences maximum unless asked for more). "
-    "Do not use markdown formatting, bullet points, asterisks, or code blocks because your response will be read aloud by Text-to-Speech."
+    "You are HSBot, an intelligent and friendly AI assistant speaking in real-time live voice. "
+    "Be brief, conversational, and direct. Respond in 1 or 2 natural spoken sentences. "
+    "Never use markdown, lists, symbols, or code blocks."
 )
 
 
@@ -33,7 +33,7 @@ class NvidiaLiveLLM:
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=5.0),
+                timeout=httpx.Timeout(20.0, connect=5.0),
                 limits=httpx.Limits(max_keepalive_connections=5, keepalive_expiry=60.0),
             )
         return self._client
@@ -49,7 +49,7 @@ class NvidiaLiveLLM:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         if history:
-            for item in history[-6:]:
+            for item in history[-4:]:
                 messages.append(item)
 
         messages.append({"role": "user", "content": user_message})
@@ -63,8 +63,8 @@ class NvidiaLiveLLM:
         payload = {
             "model": LIVE_MODEL,
             "messages": messages,
-            "temperature": 0.6,
-            "max_tokens": 120,
+            "temperature": 0.5,
+            "max_tokens": 85,
             "stream": True,
         }
 

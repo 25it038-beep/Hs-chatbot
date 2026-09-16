@@ -59,8 +59,8 @@ async def live_voices():
     """Returns available voices supported by NVIDIA Riva TTS."""
     return {
         "voices": [
-            {"id": "Chatterbox-Multilingual", "name": "Chatterbox Multilingual", "language": "en-US", "default": True},
-            {"id": "English-US.Female-1", "name": "English US (Female)", "language": "en-US", "default": False},
+            {"id": "English-US.Female-1", "name": "English US (Female - FastPitch)", "language": "en-US", "default": True},
+            {"id": "Chatterbox-Multilingual", "name": "Chatterbox Multilingual", "language": "en-US", "default": False},
             {"id": "English-US.Male-1", "name": "English US (Male)", "language": "en-US", "default": False},
         ]
     }
@@ -185,22 +185,45 @@ async def live_turn_sse(req: LiveTurnRequest):
     return StreamingResponse(sse_event_stream(), media_type="text/event-stream")
 
 
+from app.live.websocket import handle_live_websocket
+from app.live.diagnostics import live_diagnostics
+
+
+@router.get("/diagnostics")
+async def get_live_diagnostics():
+    """Returns detailed real-time 14-point diagnostic snapshot for Live Voice."""
+    return await live_diagnostics.get_snapshot()
+
+
+@router.get("/engine")
+async def get_live_engine():
+    """Returns active and default Live Voice engine."""
+    return {
+        "engine": live_diagnostics.get_engine(),
+        "default": getattr(settings, "live_engine", "nemotron_voicechat"),
+        "supported": ["nemotron_voicechat", "cascaded"],
+    }
+
+
+class EngineUpdateRequest(BaseModel):
+    engine: str
+
+
+@router.post("/engine")
+async def set_live_engine(req: EngineUpdateRequest):
+    """Sets active Live Voice engine (nemotron_voicechat or cascaded)."""
+    if req.engine not in ["nemotron_voicechat", "cascaded"]:
+        return {"status": "error", "message": "Supported engines are 'nemotron_voicechat' and 'cascaded'"}
+    live_diagnostics.set_engine(req.engine)
+    return {"status": "ok", "engine": req.engine}
+
+
 @router.websocket("/ws/{session_id}")
 @router.websocket("/ws")
-async def websocket_live_endpoint(websocket: WebSocket, session_id: str = "default_live"):
+async def websocket_live_endpoint(websocket: WebSocket, session_id: str = "default_live", engine: Optional[str] = None):
     """
     WebSocket endpoint for bidirectional real-time audio and conversation streaming.
-    Isolated completely to NVIDIA NIM backend services.
+    Dispatches to app.live.websocket.handle_live_websocket with Nemotron / Cascaded routing.
     """
-    await websocket.accept()
-    logger.info(f"Accepted Live Voice WebSocket connection: {session_id}")
+    await handle_live_websocket(websocket=websocket, session_id=session_id, requested_engine=engine)
 
-    session = LiveVoiceSession(session_id, websocket)
-    try:
-        await session.start()
-    except WebSocketDisconnect:
-        logger.info(f"Live session {session_id} ended")
-    except Exception as e:
-        logger.error(f"Live session {session_id} encountered error: {e}")
-    finally:
-        await session.cleanup()

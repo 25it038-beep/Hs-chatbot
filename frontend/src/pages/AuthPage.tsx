@@ -3,13 +3,15 @@ import { SignIn, SignUp } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, UserCheck, KeyRound, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HAS_CLERK } from '@/lib/clerkConfig'
+import { setTokens } from '@/lib/api'
 
 export function AuthPage() {
   const { login, register, loading } = useAuth()
   const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [authMethod, setAuthMethod] = useState<'clerk' | 'local'>(HAS_CLERK ? 'clerk' : 'local')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -43,6 +45,21 @@ export function AuthPage() {
     }
   }
 
+  const handleGuestLogin = () => {
+    setTokens('hsbot_guest_token', '')
+    useAuth.setState({
+      user: {
+        id: 'guest_' + Math.random().toString(36).substring(2, 8),
+        username: 'Guest User',
+        email: 'guest@hsbot.ai',
+        display_name: 'Guest User',
+        is_active: true,
+        created_at: new Date().toISOString(),
+      },
+      initialized: true,
+    })
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative z-10 overflow-y-auto pt-safe pb-safe">
       <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up my-auto">
@@ -54,7 +71,7 @@ export function AuthPage() {
           <p className="text-xs sm:text-sm text-muted-foreground/70 mt-1.5">Your AI-powered assistant</p>
         </div>
 
-        {HAS_CLERK ? (
+        {HAS_CLERK && authMethod === 'clerk' ? (
           <div className="flex flex-col items-center gap-4">
             <div className="flex bg-muted/50 rounded-xl p-1 w-full max-w-sm">
               <button
@@ -93,17 +110,37 @@ export function AuthPage() {
                 <SignIn
                   routing="hash"
                   fallbackRedirectUrl="/"
-                  forceRedirectUrl="/"
                   signUpUrl="/#/sign-up"
                 />
               ) : (
                 <SignUp
                   routing="hash"
                   fallbackRedirectUrl="/"
-                  forceRedirectUrl="/"
                   signInUrl="/#/sign-in"
                 />
               )}
+            </div>
+
+            {/* Quick Access / Alternate Options */}
+            <div className="w-full flex flex-col gap-2.5 mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-10 rounded-xl text-xs font-medium border-border/80 hover:bg-muted/60 shadow-xs flex items-center justify-center gap-2"
+                onClick={handleGuestLogin}
+              >
+                <Sparkles size={14} className="text-primary" />
+                <span>Continue as Guest (Instant Access)</span>
+              </Button>
+
+              <button
+                type="button"
+                onClick={() => setAuthMethod('local')}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors text-center py-1 flex items-center justify-center gap-1.5"
+              >
+                <KeyRound size={12} />
+                <span>Sign in with HSBot username & password</span>
+              </button>
             </div>
           </div>
         ) : (
@@ -207,21 +244,21 @@ export function AuthPage() {
                 type="button"
                 variant="outline"
                 className="w-full h-10 rounded-lg text-xs font-medium border-border/80 hover:bg-muted/50"
-                onClick={() => {
-                  useAuth.setState({
-                    user: {
-                      id: 'demo-user',
-                      username: 'Guest User',
-                      email: 'guest@hsbot.ai',
-                      is_active: true,
-                      created_at: new Date().toISOString(),
-                    },
-                    initialized: true,
-                  })
-                }}
+                onClick={handleGuestLogin}
               >
-                Continue as Guest (Demo Mode)
+                <UserCheck size={14} className="mr-1.5 text-primary" />
+                <span>Continue as Guest (Instant Access)</span>
               </Button>
+
+              {HAS_CLERK && (
+                <button
+                  type="button"
+                  onClick={() => setAuthMethod('clerk')}
+                  className="w-full text-xs text-primary hover:underline text-center pt-2"
+                >
+                  ← Back to Clerk Sign In
+                </button>
+              )}
             </form>
           </div>
         )}

@@ -17,6 +17,7 @@ from app.live.turn_manager import LiveTurnManager
 from app.live.asr import live_asr
 from app.live.tts import live_tts
 from app.live.llm import live_llm
+from app.config import settings
 
 logger = logging.getLogger("hsbot.live.session")
 
@@ -42,7 +43,7 @@ class LiveVoiceSession:
         self.websocket = websocket
         self.turn_manager = LiveTurnManager()
         self.conversation_history: List[Dict[str, str]] = []
-        self.voice = "Chatterbox-Multilingual"
+        self.voice = getattr(settings, "live_voice", "Chatterbox-Multilingual")
         self.sample_rate = 16000
         self.is_active = True
 
@@ -53,7 +54,7 @@ class LiveVoiceSession:
         self._speech_onset_frames = 0
         self._last_voice_time = 0.0
         self.last_audio_time = time.time()
-        self.silence_threshold_s = 1.2
+        self.silence_threshold_s = 0.8
         self.silence_monitor_task: Optional[asyncio.Task] = None
         self._current_turn_id: Optional[str] = None
 
@@ -189,6 +190,62 @@ class LiveVoiceSession:
 
                 except Exception as e:
                     logger.error(f"[LIVE][session={self.session_id}] Error decoding audio chunk: {e}")
+
+    async def handle_audio_chunk(self, chunk: bytes):
+        """Processes a raw 16kHz Int16 PCM audio chunk received from WebSocket."""
+        if not chunk:
+            return
+
+        self.last_audio_time = time.time()
+        rms = calculate_pcm_rms(chunk)
+
+        # 1. Barge-in check: if AI is speaking and user speaks deliberately
+        if self.turn_manager.get_state() in ("SPEAKING", "PROCESSING") and len(chunk) > 300:
+            if rms > 1200:
+                logger.info(f"[LIVE][session={self.session_id}] Barge-in detected (RMS={rms:.0f}), interrupting AI")
+                await self.interrupt()
+
+        # 2. If turn currently processing, drop/skip audio until reset
+        if self._turn_in_progress:
+            return
+
+        # 3. Voice Activity Detection (RMS threshold 250 for responsive detection)
+        if rms >= 250:
+            self._speech_onset_frames += 1
+            if not self._has_voice_in_turn and self._speech_onset_frames >= 2:
+                self._has_voice_in_turn = True
+                self._current_turn_id = f"turn_{int(time.time() * 1000)}"
+                logger.info(
+                    f"[LIVE][session={self.session_id}][turn={self._current_turn_id}] "
+                    f"SPEECH_ONSET detected (RMS={rms:.0f})"
+                )
+                self._speech_buffer.clear()
+                self._speech_buffer.extend(self._pre_speech_buffer)
+                self.turn_manager.transition_to("USER_SPEAKING", "Speech onset detected")
+                await self.send_status("USER_SPEAKING", "Hearing your voice...")
+
+            if self._has_voice_in_turn:
+                self._last_voice_time = time.time()
+                self._speech_buffer.extend(chunk)
+        else:
+            if self._has_voice_in_turn:
+                self._speech_buffer.extend(chunk)
+            else:
+                self._speech_onset_frames = max(0, self._speech_onset_frames - 1)
+                self._pre_speech_buffer.extend(chunk)
+                if len(self._pre_speech_buffer) > 16000:
+                    del self._pre_speech_buffer[:-16000]
+
+    async def finalize_user_speech(self):
+        """Forces turn execution on explicit audio_end signal."""
+        if not self._turn_in_progress and len(self._speech_buffer) >= 3200:
+            turn_id = self._current_turn_id or f"turn_{int(time.time() * 1000)}"
+            pcm_bytes = bytes(self._speech_buffer)
+            self._speech_buffer.clear()
+            self._pre_speech_buffer.clear()
+            self._has_voice_in_turn = False
+            self._speech_onset_frames = 0
+            asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes, turn_id=turn_id))
 
     async def interrupt(self):
         """Immediately cancels active LLM streaming and TTS playback."""
@@ -403,9 +460,9 @@ class LiveVoiceSession:
                         await tts_queue.put(ready_sentence)
                     continue
 
-                # Check clause boundary if we have accumulated >= 5 words
+                # Check clause boundary if we have accumulated >= 3 words for faster audio turn-around
                 words = token_buffer.split()
-                if len(words) >= 5:
+                if len(words) >= 3:
                     c_match = CLAUSE_SPLIT_REGEX.match(token_buffer)
                     if c_match:
                         ready_clause = c_match.group(1).strip()

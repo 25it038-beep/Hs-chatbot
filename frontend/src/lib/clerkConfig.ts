@@ -34,7 +34,10 @@ export function isValidClerkPublishableKey(key?: string | null): boolean {
   }
 }
 
-const rawEnvKey = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) || ''
+const rawEnvKey =
+  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY as string | undefined) ||
+  ''
 
 export const IS_VALID_CLERK_KEY = isValidClerkPublishableKey(rawEnvKey)
 export const CLERK_PUBLISHABLE_KEY = IS_VALID_CLERK_KEY ? rawEnvKey.trim() : ''

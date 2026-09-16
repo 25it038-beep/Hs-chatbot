@@ -16,6 +16,19 @@ export function AuthPage() {
   const [error, setError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
 
+  React.useEffect(() => {
+    const syncHash = () => {
+      if (window.location.hash.includes('sign-up')) {
+        setMode('register')
+      } else if (window.location.hash.includes('sign-in')) {
+        setMode('login')
+      }
+    }
+    syncHash()
+    window.addEventListener('hashchange', syncHash)
+    return () => window.removeEventListener('hashchange', syncHash)
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -42,12 +55,56 @@ export function AuthPage() {
         </div>
 
         {HAS_CLERK ? (
-          <div className="flex justify-center shadow-lg rounded-2xl overflow-hidden">
-            {mode === 'login' ? (
-              <SignIn routing="virtual" signUpUrl="#" />
-            ) : (
-              <SignUp routing="virtual" signInUrl="#" />
-            )}
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex bg-muted/50 rounded-xl p-1 w-full max-w-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login')
+                  window.location.hash = '#/sign-in'
+                }}
+                className={cn(
+                  'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+                  mode === 'login'
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground/60 hover:text-foreground'
+                )}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('register')
+                  window.location.hash = '#/sign-up'
+                }}
+                className={cn(
+                  'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+                  mode === 'register'
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground/60 hover:text-foreground'
+                )}
+              >
+                Sign Up
+              </button>
+            </div>
+            <div className="flex justify-center shadow-lg rounded-2xl overflow-hidden w-full">
+              {mode === 'login' ? (
+                <SignIn
+                  routing="hash"
+                  fallbackRedirectUrl="/"
+                  forceRedirectUrl="/"
+                  signUpUrl="/#/sign-up"
+                />
+              ) : (
+                <SignUp
+                  routing="hash"
+                  fallbackRedirectUrl="/"
+                  forceRedirectUrl="/"
+                  signInUrl="/#/sign-in"
+                />
+              )}
+            </div>
           </div>
         ) : (
           <div className="bg-card border border-border rounded-xl p-6 shadow-soft">

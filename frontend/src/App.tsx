@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { useUser } from '@clerk/clerk-react'
+import { useUser, useAuth as useClerkAuth } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'
-import { api } from '@/lib/api'
+import { api, setTokens } from '@/lib/api'
 import { AnimatedBackground } from '@/components/animations/AnimatedBackground'
 import { IntroVideo, hasSeenIntro } from '@/components/intro/IntroVideo'
 import { AuthPage } from '@/pages/AuthPage'
@@ -48,16 +48,46 @@ function IntroGate({ children }: { children: React.ReactNode }) {
 }
 
 function ClerkAppInner() {
-  const { isLoaded, isSignedIn } = useUser()
+  const { isLoaded, isSignedIn, user: clerkUser } = useUser()
+  const { getToken } = useClerkAuth()
   const { loadChats, loadFolders, loadModels } = useChat()
 
   useEffect(() => {
-    if (isSignedIn) {
+    if (isSignedIn && clerkUser) {
+      // Clean up any remaining sign-in/up hash from Clerk
+      if (window.location.hash.startsWith('#/sign-')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      }
+
+      // Sync Clerk user profile into our auth store so Sidebar and Settings show the user
+      useAuth.setState({
+        user: {
+          id: clerkUser.id,
+          username:
+            clerkUser.username ||
+            clerkUser.firstName ||
+            clerkUser.primaryEmailAddress?.emailAddress?.split('@')[0] ||
+            'User',
+          email: clerkUser.primaryEmailAddress?.emailAddress || '',
+          display_name: clerkUser.fullName || clerkUser.firstName || undefined,
+          is_active: true,
+          created_at: clerkUser.createdAt ? new Date(clerkUser.createdAt).toISOString() : new Date().toISOString(),
+        },
+        initialized: true,
+      })
+
+      // Sync Clerk session token with local storage & API client
+      getToken()
+        .then((token) => {
+          if (token) setTokens(token, '')
+        })
+        .catch(() => {})
+
       loadChats()
       loadFolders()
       loadModels()
     }
-  }, [isSignedIn, loadChats, loadFolders, loadModels])
+  }, [isSignedIn, clerkUser, getToken, loadChats, loadFolders, loadModels])
 
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <AuthPage />

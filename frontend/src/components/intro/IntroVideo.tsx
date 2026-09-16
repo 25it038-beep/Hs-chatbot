@@ -53,6 +53,12 @@ export function IntroVideo({ onComplete }: IntroVideoProps) {
         v.play().catch(() => {})
       })
     }
+    // Safety fallback: if video doesn't end or fails to start within 15 seconds, proceed to app
+    const fallbackTimer = setTimeout(() => {
+      onComplete()
+    }, 15000)
+
+    return () => clearTimeout(fallbackTimer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -88,6 +94,7 @@ export function IntroVideo({ onComplete }: IntroVideoProps) {
             autoPlay
             muted
             onEnded={onComplete}
+            onError={onComplete}
             onClick={soundBlocked ? handleUnlockSound : undefined}
             aria-label="HSBot introduction video"
           />

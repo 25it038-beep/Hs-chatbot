@@ -12,7 +12,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <MotionConfigProvider>
         {HAS_CLERK && CLERK_PUBLISHABLE_KEY ? (
-          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
+          <ClerkProvider
+            publishableKey={CLERK_PUBLISHABLE_KEY}
+            afterSignOutUrl="/"
+            signInFallbackRedirectUrl="/"
+            signUpFallbackRedirectUrl="/"
+            signInForceRedirectUrl="/"
+            signUpForceRedirectUrl="/"
+          >
             <App />
           </ClerkProvider>
         ) : (

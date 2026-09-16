@@ -53,3 +53,7 @@ selenium>=4.6.0
 
 groq==1.6.0
 ddgs==9.14.4
+
+# Live Voice fallback TTS (no API key, pure Python, runs without Node.js/Riva)
+edge-tts>=6.1.12
+miniaudio>=1.2

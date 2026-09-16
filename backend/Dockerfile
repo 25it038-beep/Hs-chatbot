@@ -4,15 +4,24 @@ ENV PIP_ROOT_USER_ACTION=ignore
 
 WORKDIR /app
 
+# Install Node.js 20 LTS (required for persistent_riva_worker.js gRPC bridge)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
     tesseract-ocr \
     tesseract-ocr-eng \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# Install Node dependencies for the Riva gRPC bridge worker
+RUN if [ -f "app/live/package.json" ]; then cd app/live && npm ci --omit=dev; fi
 
 EXPOSE 8000
 

@@ -79,8 +79,24 @@ async def handle_live_websocket(
                 })
 
         if engine == "cascaded":
-            session_cascaded = LiveVoiceSession(session_id, websocket)
-            session_cascaded.silence_monitor_task = asyncio.create_task(session_cascaded._monitor_silence())
+            try:
+                session_cascaded = LiveVoiceSession(session_id, websocket)
+                session_cascaded.silence_monitor_task = asyncio.create_task(session_cascaded._monitor_silence())
+                await websocket.send_json({
+                    "type": "status",
+                    "state": "LISTENING",
+                    "message": "NVIDIA Riva Live is ready. Start speaking.",
+                })
+            except Exception as bridge_err:
+                logger.error(f"[LIVE_WS] Failed to initialize cascaded session: {bridge_err}", exc_info=True)
+                await websocket.send_json({
+                    "type": "error",
+                    "code": "RIVA_BRIDGE_UNAVAILABLE",
+                    "message": f"Riva bridge could not start: {bridge_err}. Check NVIDIA_API_KEYS and Node.js availability.",
+                    "timestamp": time.time(),
+                })
+                await websocket.send_json({"type": "status", "state": "ERROR", "message": "Live voice unavailable on this deployment."})
+                session_cascaded = None
 
         # Session loop
         while True:

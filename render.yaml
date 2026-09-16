@@ -24,6 +24,8 @@ services:
       - key: NVIDIA_API_KEYS
         value: ""
         sync: false
+      - key: LIVE_ENABLED
+        value: "1"
       - key: NVIDIA_DEFAULT_IMAGE_MODEL
         value: flux-2-klein
       - key: GOOGLE_API_KEY

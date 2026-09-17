@@ -4,37 +4,30 @@ ENV PIP_ROOT_USER_ACTION=ignore
 
 WORKDIR /app
 
-# System deps (no Node.js needed — pure Python gRPC replaces Node.js bridge)
+# Install system dependencies + Node.js 20 LTS (required for persistent_riva_worker.js Riva gRPC bridge)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
     tesseract-ocr \
     tesseract-ocr-eng \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Python dependencies (includes grpcio + grpcio-tools for Riva gRPC bridge)
+# Install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend application code
 COPY backend/ .
 
+# Install Node dependencies for Riva gRPC bridge (@grpc/grpc-js + @grpc/proto-loader)
+COPY package.json /app/package.json
+RUN npm install --omit=dev --prefix /app
+
 # Copy Riva proto definitions
 COPY proto/ /app/proto/
-
-# Generate Python gRPC stubs from Riva proto files
-# Output goes to app/live/grpc_stubs/ so riva_python_bridge.py can import them
-RUN mkdir -p app/live/grpc_stubs && \
-    python -m grpc_tools.protoc \
-        -I /app/proto \
-        --python_out=app/live/grpc_stubs \
-        --grpc_python_out=app/live/grpc_stubs \
-        riva/proto/riva_asr.proto \
-        riva/proto/riva_tts.proto \
-        riva/proto/riva_audio.proto \
-        riva/proto/riva_common.proto && \
-    touch app/live/grpc_stubs/__init__.py \
-          app/live/grpc_stubs/riva/__init__.py \
-          app/live/grpc_stubs/riva/proto/__init__.py && \
-    echo "gRPC stubs generated:" && ls app/live/grpc_stubs/riva/proto/
 
 EXPOSE 8000
 

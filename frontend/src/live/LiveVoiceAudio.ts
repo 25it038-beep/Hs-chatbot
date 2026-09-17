@@ -87,13 +87,38 @@ export class LiveVoiceAudio {
       await this.micContext.resume()
     }
 
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
+    if (typeof window !== 'undefined') {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      if (!window.isSecureContext && !isLocal) {
+        throw new Error('Microphone access requires HTTPS or localhost (isSecureContext = false).')
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('navigator.mediaDevices.getUserMedia is not supported or accessible in this environment.')
+      }
+    }
+
+    try {
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+    } catch (permErr: any) {
+      console.error('[LIVE-PROD] Microphone permission failed:', permErr)
+      throw new Error(`Microphone access failed: ${permErr.name || permErr.message || 'Permission denied'}`)
+    }
+
+    const tracks = this.micStream.getAudioTracks()
+    const activeTrack = tracks[0]
+    console.log('[LIVE-PROD]', {
+      mediaDevices: true,
+      microphonePermission: 'granted',
+      trackReadyState: activeTrack?.readyState,
+      trackLabel: activeTrack?.label,
+      trackMuted: activeTrack?.muted,
     })
 
     this.micSource = this.micContext.createMediaStreamSource(this.micStream)

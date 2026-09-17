@@ -30,6 +30,45 @@ export class LiveVoiceTransport {
   }
 
   /**
+   * Dynamically builds the WebSocket URL from production backend or environment.
+   */
+  public getWebSocketUrl(engine: LiveEngine = 'cascaded'): string {
+    const envApiUrl = (import.meta.env.VITE_API_URL as string)?.trim() || (import.meta.env.NEXT_PUBLIC_API_URL as string)?.trim()
+
+    let wsProtocol: string
+    let wsHost: string
+    let apiPath = '/api'
+
+    if (envApiUrl && (envApiUrl.startsWith('http://') || envApiUrl.startsWith('https://'))) {
+      try {
+        const parsed = new URL(envApiUrl)
+        wsProtocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:'
+        wsHost = parsed.host
+        apiPath = parsed.pathname.replace(/\/+$/, '') || '/api'
+        if (!apiPath.endsWith('/api') && apiPath !== '') {
+          apiPath = `${apiPath}/api`
+        }
+      } catch {
+        wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        wsHost = window.location.host
+      }
+    } else if (window.location.host === 'hs-chatbot-3.onrender.com' || (window.location.host.endsWith('.onrender.com') && !window.location.host.includes('hs-chatbot-2'))) {
+      // Deployed static frontend on Render without local backend proxy -> routes to public backend
+      wsProtocol = 'wss:'
+      wsHost = 'hs-chatbot-2.onrender.com'
+      apiPath = '/api'
+    } else {
+      // Local development (Vite proxy forwards /api and WebSockets to backend)
+      wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      wsHost = window.location.host
+      apiPath = '/api'
+    }
+
+    apiPath = apiPath.replace(/\/+$/, '')
+    return `${wsProtocol}//${wsHost}${apiPath}/live/ws/${this.sessionId}?engine=${encodeURIComponent(engine)}`
+  }
+
+  /**
    * Connects to the Live Voice WebSocket endpoint.
    */
   public async connect(engine: LiveEngine = 'cascaded'): Promise<void> {
@@ -44,61 +83,83 @@ export class LiveVoiceTransport {
       this.onStateChange('CONNECTING')
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const wsUrl = `${protocol}//${host}/api/live/ws/${this.sessionId}?engine=${encodeURIComponent(engine)}`
+    const wsUrl = this.getWebSocketUrl(engine)
+    console.log('[LIVE-PROD]', {
+      environment: import.meta.env.MODE || (window.location.hostname === 'localhost' ? 'development' : 'production'),
+      origin: window.location.origin,
+      secureContext: window.isSecureContext,
+      backendUrl: (import.meta.env.VITE_API_URL as string) || '(derived)',
+      websocketUrl: wsUrl.split('?')[0],
+      connectionState: 'CONNECTING',
+    })
 
-    try {
-      this.ws = new WebSocket(wsUrl)
+    return new Promise<void>((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(wsUrl)
+        let resolved = false
 
-      this.ws.onopen = () => {
-        this.reconnectAttempts = 0
-        if (this.onStateChange) {
-          this.onStateChange('CONNECTED')
-        }
-      }
-
-      this.ws.onmessage = (event) => {
-        try {
-          const msg: LiveServerMessage = JSON.parse(event.data)
-          if (this.onMessage) {
-            this.onMessage(msg)
+        this.ws.onopen = () => {
+          this.reconnectAttempts = 0
+          if (this.onStateChange) {
+            this.onStateChange('CONNECTED')
           }
-        } catch (err) {
-          console.error('[LiveVoiceTransport] Parse error:', err)
+          if (!resolved) {
+            resolved = true
+            resolve()
+          }
         }
-      }
 
-      this.ws.onerror = (err) => {
-        console.warn('[LiveVoiceTransport] WebSocket error:', err)
+        this.ws.onmessage = (event) => {
+          try {
+            const msg: LiveServerMessage = JSON.parse(event.data)
+            if (this.onMessage) {
+              this.onMessage(msg)
+            }
+          } catch (err) {
+            console.error('[LiveVoiceTransport] Parse error:', err)
+          }
+        }
+
+        this.ws.onerror = (err) => {
+          console.warn('[LiveVoiceTransport] WebSocket error:', err)
+          if (this.onError) {
+            this.onError(err)
+          }
+          if (!resolved) {
+            resolved = true
+            reject(new Error(`WebSocket connection to ${wsUrl.split('?')[0]} failed`))
+          }
+        }
+
+        this.ws.onclose = (event) => {
+          if (!resolved) {
+            resolved = true
+            reject(new Error(`WebSocket closed before open: code=${event.code} reason=${event.reason || 'none'}`))
+          }
+          if (!this.isExplicitlyClosed && this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++
+            const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 4000)
+            setTimeout(() => {
+              if (!this.isExplicitlyClosed) {
+                this.connect(this.currentEngine).catch(() => {})
+              }
+            }, delay)
+          } else {
+            if (this.onStateChange) {
+              this.onStateChange('DISCONNECTED')
+            }
+          }
+        }
+      } catch (err) {
         if (this.onError) {
           this.onError(err)
         }
-      }
-
-      this.ws.onclose = (event) => {
-        if (!this.isExplicitlyClosed && this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.reconnectAttempts++
-          const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 4000)
-          setTimeout(() => {
-            if (!this.isExplicitlyClosed) {
-              this.connect(this.currentEngine)
-            }
-          }, delay)
-        } else {
-          if (this.onStateChange) {
-            this.onStateChange('DISCONNECTED')
-          }
+        if (this.onStateChange) {
+          this.onStateChange('ERROR')
         }
+        reject(err)
       }
-    } catch (err) {
-      if (this.onError) {
-        this.onError(err)
-      }
-      if (this.onStateChange) {
-        this.onStateChange('ERROR')
-      }
-    }
+    })
   }
 
   /**

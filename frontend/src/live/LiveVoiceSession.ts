@@ -63,6 +63,19 @@ export class LiveVoiceSession {
     this.setState('CONNECTING')
     this.diagnostics.clearError()
 
+    const wsUrl = this.transport.getWebSocketUrl(this.engine)
+    console.log('[LIVE-PROD]', {
+      environment: import.meta.env.MODE || (window.location.hostname === 'localhost' ? 'development' : 'production'),
+      origin: window.location.origin,
+      secureContext: window.isSecureContext,
+      backendUrl: (import.meta.env.VITE_API_URL as string) || '(derived)',
+      websocketUrl: wsUrl.split('?')[0],
+      mediaDevices: !!navigator.mediaDevices,
+      microphone: 'connecting',
+      connectionState: 'CONNECTING',
+      turnState: 'IDLE',
+    })
+
     try {
       await this.transport.connect(this.engine)
       await this.audio.startMicrophone()
@@ -71,9 +84,10 @@ export class LiveVoiceSession {
       }
     } catch (err: any) {
       this.setState('ERROR')
-      this.diagnostics.recordError('START_FAILED', err.message || 'Failed to start Live Voice session')
+      const code = err.message?.includes('WebSocket') ? 'WS_CONNECT_FAILED' : 'START_FAILED'
+      this.diagnostics.recordError(code, err.message || 'Failed to start Live Voice session')
       if (this.onError) {
-        this.onError('START_FAILED', err.message || 'Failed to start Live Voice session')
+        this.onError(code, err.message || 'Failed to start Live Voice session')
       }
     }
   }

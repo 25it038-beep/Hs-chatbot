@@ -42,7 +42,17 @@ class LiveConnectRequest(BaseModel):
 @router.get("/health")
 async def live_health():
     """Health check for isolated Live Voice subsystem."""
+    from app.config import settings
+    nvidia_key = getattr(settings, "nvidia_api_keys", "")
+    has_nvidia = bool(nvidia_key and nvidia_key.strip())
     return {
+        "environment": getattr(settings, "app_env", "production"),
+        "live_enabled": True,
+        "nvidia_configured": has_nvidia,
+        "asr_configured": has_nvidia,
+        "llm_configured": has_nvidia,
+        "tts_configured": has_nvidia,
+        "websocket_enabled": True,
         "status": "healthy",
         "subsystem": "live_voice",
         "provider": "nvidia",

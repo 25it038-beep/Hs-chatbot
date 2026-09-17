@@ -45,6 +45,8 @@ async def live_health():
     from app.config import settings
     nvidia_key = getattr(settings, "nvidia_api_keys", "")
     has_nvidia = bool(nvidia_key and nvidia_key.strip())
+    from app.live.tamil_provider import is_tamil_voice_available
+    tamil_status = is_tamil_voice_available()
     return {
         "environment": getattr(settings, "app_env", "production"),
         "live_enabled": True,
@@ -53,6 +55,7 @@ async def live_health():
         "llm_configured": has_nvidia,
         "tts_configured": has_nvidia,
         "websocket_enabled": True,
+        "tamil_supported": bool(tamil_status["supported"]),
         "status": "healthy",
         "subsystem": "live_voice",
         "provider": "nvidia",
@@ -61,6 +64,35 @@ async def live_health():
             "tts": "chatterbox-multilingual",
             "llm": "meta/llama-3.2-11b-vision-instruct",
         },
+    }
+
+
+@router.get("/languages")
+async def live_languages():
+    """Returns supported languages and honest availability status for Live Voice."""
+    from app.live.tamil_provider import is_tamil_voice_available
+    tamil_status = is_tamil_voice_available()
+    return {
+        "default": "en",
+        "languages": [
+            {
+                "code": "en",
+                "label": "English",
+                "supported": True,
+                "default": True,
+                "voice": "Chatterbox-Multilingual",
+                "asr_model": "parakeet-tdt-0.6b-en-US-asr-offline",
+            },
+            {
+                "code": "ta",
+                "label": "Tamil",
+                "supported": bool(tamil_status["supported"]),
+                "default": False,
+                "reason": tamil_status.get("reason"),
+                "voice": tamil_status.get("tts_voice", "UNAVAILABLE"),
+                "asr_model": tamil_status.get("asr_model"),
+            },
+        ],
     }
 
 

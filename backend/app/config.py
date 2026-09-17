@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     live_engine: str = "cascaded"
     live_voice: str = "Chatterbox-Multilingual"
 
+    # Tamil Voice Configuration (Additive, Isolated)
+    enable_tamil_voice: bool = False
+    tamil_asr_model: Optional[str] = None
+    tamil_asr_endpoint: Optional[str] = None
+    tamil_tts_model: Optional[str] = None
+    tamil_tts_endpoint: Optional[str] = None
+    tamil_tts_voice: Optional[str] = None
+    tamil_language_code: str = "ta-IN"
+
     # NVIDIA Reliability Configuration
     nvidia_max_retries: int = 3
     nvidia_timeout_seconds: int = 60

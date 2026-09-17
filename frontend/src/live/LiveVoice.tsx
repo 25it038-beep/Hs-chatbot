@@ -124,8 +124,26 @@ export function LiveVoiceInner({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<any>(null)
+  const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'ta'>('en')
+  const [isTamilAvailable, setIsTamilAvailable] = useState<boolean>(false)
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
+
+  // Query live language capabilities
+  useEffect(() => {
+    if (!isOpen) return
+    const envUrl = (import.meta.env.VITE_API_URL as string)?.trim() || ''
+    const base = envUrl.replace(/\/+$/, '')
+    fetch(`${base}/api/live/languages`)
+      .then((res) => res.json())
+      .then((data) => {
+        const ta = data?.languages?.find((l: any) => l.code === 'ta')
+        setIsTamilAvailable(Boolean(ta?.supported))
+      })
+      .catch(() => {
+        setIsTamilAvailable(false)
+      })
+  }, [isOpen])
 
   // Initialize Session with NVIDIA Riva
   useEffect(() => {
@@ -266,6 +284,53 @@ export function LiveVoiceInner({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Language Selector (English Default / Tamil Opt-In) */}
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border/60 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLanguage('en')
+                  setErrorCode(null)
+                  setErrorMessage(null)
+                }}
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all ${
+                  selectedLanguage === 'en'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="English (NVIDIA Parakeet + Chatterbox)"
+              >
+                English
+              </button>
+              <button
+                type="button"
+                disabled={!isTamilAvailable}
+                onClick={() => {
+                  if (!isTamilAvailable) {
+                    setErrorCode('TAMIL_VOICE_UNAVAILABLE')
+                    setErrorMessage('Tamil voice is currently unavailable: NVIDIA hosted Chatterbox does not provide a verified ta-IN voice model.')
+                  } else {
+                    setSelectedLanguage('ta')
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all flex items-center gap-1.5 ${
+                  selectedLanguage === 'ta'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : isTamilAvailable
+                    ? 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground/50 cursor-not-allowed opacity-60'
+                }`}
+                title={isTamilAvailable ? 'Tamil' : 'Tamil (Unavailable on NVIDIA hosted models)'}
+              >
+                <span>Tamil</span>
+                {!isTamilAvailable && (
+                  <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-muted-foreground/20 text-muted-foreground font-semibold">
+                    Unavailable
+                  </span>
+                )}
+              </button>
+            </div>
+
             <button
               onClick={() => setShowDiagnostics(!showDiagnostics)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${

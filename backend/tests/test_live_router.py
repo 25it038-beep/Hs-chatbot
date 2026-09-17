@@ -71,3 +71,63 @@ def test_non_live_queries():
     intent, loc = classify_live_intent("Tell me a funny joke")
     assert intent is None
     assert loc is None
+
+
+def test_tamil_availability_check_default():
+    from app.live.tamil_provider import is_tamil_voice_available, TAMIL_LANGUAGE_CODE
+    status = is_tamil_voice_available()
+    assert status["language"] == TAMIL_LANGUAGE_CODE
+    assert status["supported"] is False
+    assert status["code"] == "TAMIL_TTS_NOT_SUPPORTED_BY_SELECTED_NVIDIA_MODEL"
+    assert "Chatterbox-Multilingual" in status["reason"]
+
+
+@pytest.mark.asyncio
+async def test_tamil_provider_raises_when_unsupported():
+    from app.live.tamil_provider import TamilVoiceProvider, TamilVoiceUnavailableError
+    provider = TamilVoiceProvider()
+
+    with pytest.raises(TamilVoiceUnavailableError) as exc_asr:
+        await provider.transcribe(b"fake_pcm")
+    assert exc_asr.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_ASR_UNAVAILABLE")
+
+    with pytest.raises(TamilVoiceUnavailableError) as exc_tts:
+        await provider.stream_synthesize("வணக்கம்")
+    assert exc_tts.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_TTS_UNAVAILABLE")
+
+
+@pytest.mark.asyncio
+async def test_live_languages_endpoint():
+    from app.live.router import live_languages
+    res = await live_languages()
+    assert res["default"] == "en"
+    langs = {l["code"]: l for l in res["languages"]}
+
+    # English must be supported and default
+    assert "en" in langs
+    assert langs["en"]["supported"] is True
+    assert langs["en"]["default"] is True
+    assert langs["en"]["voice"] == "Chatterbox-Multilingual"
+
+    # Tamil must be present, unsupported, and not default
+    assert "ta" in langs
+    assert langs["ta"]["supported"] is False
+    assert langs["ta"]["default"] is False
+    assert langs["ta"]["voice"] == "UNAVAILABLE"
+    assert "Chatterbox" in langs["ta"]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_live_health_endpoint_tamil_flag():
+    from app.live.router import live_health
+    health = await live_health()
+    assert health["status"] == "healthy"
+    assert health["subsystem"] == "live_voice"
+    assert health["live_enabled"] is True
+    # English pipeline healthy flags
+    assert health["asr_configured"] is True
+    assert health["llm_configured"] is True
+    assert health["tts_configured"] is True
+    # Tamil supported flag is accurately false
+    assert health["tamil_supported"] is False
+

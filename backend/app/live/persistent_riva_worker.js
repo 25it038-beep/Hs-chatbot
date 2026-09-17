@@ -10,8 +10,26 @@ const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
 const readline = require('readline');
+const fs = require('fs');
 
-const PROTO_DIR = path.resolve(__dirname, '../../../proto');
+function findProtoDir() {
+  const candidates = [
+    path.resolve(__dirname, '../../../proto'),
+    path.resolve(__dirname, '../../proto'),
+    path.resolve(__dirname, '../../riva_proto'),
+    '/app/proto',
+    '/app/riva_proto',
+    path.resolve(__dirname, 'proto'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'riva/proto/riva_tts.proto'))) {
+      return c;
+    }
+  }
+  return path.resolve(__dirname, '../../../proto');
+}
+
+const PROTO_DIR = findProtoDir();
 const DEFAULT_KEY = process.env.NVIDIA_API_KEY || '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';
 
 const FUNCTION_TTS = process.env.NVCF_FUNCTION_TTS || 'ddacc747-1269-4fab-bfd9-8f593dead106'; // chatterbox-multilingual

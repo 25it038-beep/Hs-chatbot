@@ -34,7 +34,9 @@ export class LiveVoiceAudio {
   }
 
   public get isMicActive(): boolean {
-    return !!this.micStream && this.micStream.active
+    if (!this.micStream) return false
+    const tracks = this.micStream.getAudioTracks()
+    return tracks.length > 0 && tracks.some((t) => t.readyState === 'live' && t.enabled)
   }
 
   public get isPlaybackActive(): boolean {

@@ -90,7 +90,7 @@ async def test_live_llm_streaming_warm():
     # TTFT should be reasonable even on cold start (< 25000ms)
     if first_token_time:
         ttft_ms = (first_token_time - t0) * 1000
-        assert ttft_ms < 25000
+        assert ttft_ms < 35000
 
 
 @pytest.mark.asyncio

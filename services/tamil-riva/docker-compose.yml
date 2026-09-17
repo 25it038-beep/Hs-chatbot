@@ -1,0 +1,30 @@
+﻿version: '3.8'
+
+services:
+  tamil-riva:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hsbot-tamil-riva
+    restart: unless-stopped
+    ports:
+      - "50051:50051" # Riva gRPC
+      - "8001:8001"   # Triton HTTP Health
+      - "8002:8002"   # Triton Metrics
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - RIVA_SM_CONTAINER=nvcr.io/nvidia/riva/riva-speech:2.15.0-servicemaker
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./models:/data/models
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

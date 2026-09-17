@@ -154,6 +154,11 @@ class TamilRivaProvider(TamilSpeechProvider):
                 "reason": "Tamil Riva service unavailable (TAMIL_RIVA_HOST not configured or service disabled)",
             }
 
+        from app.live.tamil_asr import tamil_asr_provider
+        from app.live.tamil_tts import tamil_tts_provider
+        asr_h = await tamil_asr_provider.health_check()
+        tts_h = await tamil_tts_provider.health_check()
+
         is_connected = await self.probe_riva_connection()
         if not is_connected:
             host = getattr(settings, "tamil_riva_host", "")
@@ -167,55 +172,25 @@ class TamilRivaProvider(TamilSpeechProvider):
         return {
             "enabled": True,
             "language": self.language_code,
-            "asr": "healthy",
-            "tts": "healthy",
+            "asr": "healthy" if asr_h.get("healthy") else "unhealthy",
+            "tts": "healthy" if tts_h.get("healthy") else "unhealthy",
             "riva": "healthy",
             "host": getattr(settings, "tamil_riva_host", ""),
             "port": getattr(settings, "tamil_riva_port", 50051),
         }
 
     async def transcribe(self, pcm_bytes: bytes, sample_rate: int = 16000) -> str:
-        h = await self.health()
-        if not h.get("enabled"):
-            raise TamilVoiceUnavailableError(
-                code="TAMIL_ASR_UNAVAILABLE",
-                message=h.get("reason", "NVIDIA Riva Tamil ASR is not provisioned or reachable.")
-            )
-
-        # Real Riva gRPC transcription path
-        # In a fully deployed external GPU cluster, this invokes Riva ASR gRPC streaming with language_code='ta-IN'
-        raise TamilVoiceUnavailableError(
-            code="TAMIL_ASR_UNAVAILABLE",
-            message="Tamil Riva ASR checkpoint not yet active on external host."
-        )
+        from app.live.tamil_asr import tamil_asr_provider
+        return await tamil_asr_provider.transcribe(pcm_bytes, sample_rate=sample_rate)
 
     async def stream_synthesize(self, text: str, voice: Optional[str] = None) -> AsyncGenerator[bytes, None]:
-        h = await self.health()
-        if not h.get("enabled"):
-            raise TamilVoiceUnavailableError(
-                code="TAMIL_TTS_UNAVAILABLE",
-                message=h.get("reason", "NVIDIA Riva Tamil TTS is not provisioned or reachable.")
-            )
-
-        raise TamilVoiceUnavailableError(
-            code="TAMIL_TTS_UNAVAILABLE",
-            message="Tamil Riva TTS voice model not yet active on external host."
-        )
-        yield b""  # generator compliance
+        from app.live.tamil_tts import tamil_tts_provider
+        async for chunk in tamil_tts_provider.synthesize_stream(text, voice=voice):
+            yield chunk
 
     async def synthesize(self, text: str, voice: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        import base64
-        chunks = []
-        async for chunk in self.stream_synthesize(text, voice=voice):
-            chunks.append(chunk)
-        if not chunks:
-            return None
-        all_bytes = b"".join(chunks)
-        return {
-            "audio": base64.b64encode(all_bytes).decode("ascii"),
-            "sampleRate": 24000,
-            "bytes": len(all_bytes),
-        }
+        from app.live.tamil_tts import tamil_tts_provider
+        return await tamil_tts_provider.synthesize(text, voice=voice)
 
 
 # Isolated global Tamil Riva provider singleton

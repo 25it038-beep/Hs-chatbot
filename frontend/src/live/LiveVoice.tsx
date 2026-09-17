@@ -320,9 +320,9 @@ export function LiveVoiceInner({
                     ? 'text-muted-foreground hover:text-foreground'
                     : 'text-muted-foreground/50 cursor-not-allowed opacity-60'
                 }`}
-                title={isTamilAvailable ? 'Tamil' : 'Tamil (Unavailable on NVIDIA hosted models)'}
+                title={isTamilAvailable ? 'Tamil LIVE' : 'Tamil (Unavailable on NVIDIA hosted models)'}
               >
-                <span>Tamil</span>
+                <span>{isTamilAvailable ? 'Tamil LIVE' : 'Tamil'}</span>
                 {!isTamilAvailable && (
                   <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-muted-foreground/20 text-muted-foreground font-semibold">
                     Unavailable
@@ -375,10 +375,10 @@ export function LiveVoiceInner({
           </div>
         )}
 
-        {/* 14-METRIC DIAGNOSTICS DRAWER */}
+        {/* 18-METRIC DIAGNOSTICS DRAWER */}
         {showDiagnostics && diagnostics && (
           <div className="px-6 py-3 border-b border-border/40 bg-muted/40 text-xs overflow-x-auto">
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
               <div className="p-2 rounded-lg bg-card/60 border border-border/50">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">1. Engine</span>
                 <p className="font-medium truncate text-foreground">{diagnostics.engine}</p>
@@ -437,12 +437,24 @@ export function LiveVoiceInner({
               </div>
               <div className="p-2 rounded-lg bg-card/60 border border-border/50">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">15. Language</span>
-                <p className="font-medium text-foreground">{selectedLanguage === 'en' ? 'English (Active)' : 'Tamil'}</p>
+                <p className="font-medium text-foreground">{selectedLanguage === 'en' ? 'English (Active)' : 'Tamil (Active)'}</p>
               </div>
-              <div className="p-2 rounded-lg bg-card/60 border border-border/50 col-span-2">
-                <span className="text-[10px] text-muted-foreground uppercase font-bold">16. Tamil Capability</span>
-                <p className="font-medium truncate text-muted-foreground text-[11px]" title={isTamilAvailable ? 'NVIDIA Tamil provisioned' : 'NVIDIA hosted Chatterbox & Riva lack ta-IN voice ID'}>
-                  {isTamilAvailable ? '✓ Ready' : '✗ No verified NVIDIA Tamil voice in catalog'}
+              <div className="p-2 rounded-lg bg-card/60 border border-border/50">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">16. Tamil ASR</span>
+                <p className="font-medium truncate text-[11px] text-foreground" title={isTamilAvailable ? 'NVIDIA Riva Conformer (ta-IN)' : 'Unconfigured'}>
+                  {isTamilAvailable ? 'Riva Conformer' : 'Unconfigured'}
+                </p>
+              </div>
+              <div className="p-2 rounded-lg bg-card/60 border border-border/50">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">17. Tamil TTS</span>
+                <p className="font-medium truncate text-[11px] text-foreground" title={isTamilAvailable ? 'NVIDIA Riva FastPitch (ta-IN)' : 'Unconfigured'}>
+                  {isTamilAvailable ? 'Riva FastPitch' : 'Unconfigured'}
+                </p>
+              </div>
+              <div className="p-2 rounded-lg bg-card/60 border border-border/50">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">18. Tamil Service</span>
+                <p className="font-medium truncate text-[11px] text-foreground" title={isTamilAvailable ? 'External GPU Riva' : 'Unavailable (Needs GPU)'}>
+                  {isTamilAvailable ? 'External GPU Riva' : 'Unavailable'}
                 </p>
               </div>
             </div>

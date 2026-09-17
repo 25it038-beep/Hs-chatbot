@@ -17,6 +17,12 @@ from app.live.turn_manager import LiveTurnManager
 from app.live.asr import live_asr
 from app.live.tts import live_tts
 from app.live.llm import live_llm
+from app.live.tamil_provider import (
+    get_voice_engine,
+    is_tamil_voice_available,
+    BaseVoiceEngine,
+    TamilVoiceUnavailableError,
+)
 from app.config import settings
 
 logger = logging.getLogger("hsbot.live.session")
@@ -46,6 +52,11 @@ class LiveVoiceSession:
         self.voice = getattr(settings, "live_voice", "Chatterbox-Multilingual")
         self.sample_rate = 16000
         self.is_active = True
+
+        # Language and Voice Engine Isolation (Additive)
+        self.language = "en"
+        self.generation_id = 0
+        self.voice_engine: BaseVoiceEngine = get_voice_engine("en")
 
         # VAD and Audio Buffering
         self._pre_speech_buffer = bytearray()
@@ -116,6 +127,41 @@ class LiveVoiceSession:
 
         elif msg_type == "interrupt":
             await self.interrupt()
+
+        elif msg_type == "set_language":
+            new_lang = (msg.get("language") or "en").lower().strip()
+            logger.info(f"[LIVE][session={self.session_id}] Language switch requested: '{self.language}' -> '{new_lang}'")
+            # Cancel active generation to prevent race conditions (Section 15 & 16)
+            await self.interrupt()
+            self.generation_id += 1
+
+            if new_lang in ("ta", "ta-in", "tamil"):
+                status = is_tamil_voice_available()
+                if not status.get("supported"):
+                    logger.warning(f"[LIVE][session={self.session_id}] Tamil voice requested but unavailable: {status.get('code')}")
+                    await self.websocket.send_json({
+                        "type": "error",
+                        "code": "TAMIL_VOICE_UNAVAILABLE",
+                        "message": status.get("reason") or "Tamil voice is unavailable on NVIDIA hosted models.",
+                        "details": status,
+                    })
+                    # Strictly retain English
+                    self.language = "en"
+                    self.voice_engine = get_voice_engine("en")
+                else:
+                    self.language = "ta"
+                    self.voice_engine = get_voice_engine("ta")
+            else:
+                self.language = "en"
+                self.voice_engine = get_voice_engine("en")
+
+            await self.websocket.send_json({
+                "type": "language_changed",
+                "language": self.language,
+                "generationId": self.generation_id,
+            })
+            self.turn_manager.transition_to("LISTENING", f"Language switched to {self.language}")
+            await self.send_status("LISTENING", f"Listening ({self.language.upper()})...")
 
         elif msg_type == "user_speech":
             # Direct client-side speech transcript (fast path)
@@ -313,21 +359,35 @@ class LiveVoiceSession:
         self._turn_in_progress = True
         self._first_audio_sent = False
         self._current_turn_id = turn_id
+        self.generation_id += 1
+        turn_gen_id = self.generation_id
 
         try:
             # 1. ASR Step (if text not provided)
             if not text and pcm_bytes:
                 self.turn_manager.transition_to("PROCESSING", "Transcribing speech")
-                await self.send_status("PROCESSING", "Transcribing speech...")
+                await self.send_status("PROCESSING", f"Transcribing speech ({self.language.upper()})...")
                 t_asr_start = time.time()
-                logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] ASR_START ({len(pcm_bytes)} bytes)")
+                logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}][lang={self.language}] ASR_START ({len(pcm_bytes)} bytes)")
 
                 try:
                     # 6.0 second fail-fast timeout for ASR
                     text = await asyncio.wait_for(
-                        live_asr.transcribe_pcm(pcm_bytes, self.sample_rate),
+                        self.voice_engine.transcribe(pcm_bytes, self.sample_rate),
                         timeout=6.0,
                     )
+                except TamilVoiceUnavailableError as e:
+                    logger.warning(f"[LIVE][session={self.session_id}][turn={turn_id}] Tamil ASR unavailable: {e.message}")
+                    await self.websocket.send_json({
+                        "type": "error",
+                        "code": e.code,
+                        "message": e.message,
+                        "turnId": turn_id,
+                    })
+                    self.turn_manager.transition_to("LISTENING", "Tamil ASR unavailable")
+                    await self.send_status("LISTENING", "Listening (EN)...")
+                    self._turn_in_progress = False
+                    return
                 except asyncio.TimeoutError:
                     logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] ASR_TIMEOUT (>6.0s)")
                     text = ""
@@ -359,6 +419,12 @@ class LiveVoiceSession:
                 self._turn_in_progress = False
                 return
 
+            # Check race condition (Section 16)
+            if self.generation_id != turn_gen_id:
+                logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Stale generation {turn_gen_id}, dropping")
+                self._turn_in_progress = False
+                return
+
             user_text = text.strip()
             self._t_asr_final = time.time()
 
@@ -369,6 +435,7 @@ class LiveVoiceSession:
                 "text": user_text,
                 "isFinal": True,
                 "turnId": turn_id,
+                "generationId": turn_gen_id,
             })
             self.conversation_history.append({"role": "user", "content": user_text})
 
@@ -380,10 +447,14 @@ class LiveVoiceSession:
             self._tts_queue = asyncio.Queue()
 
             # Start TTS Consumer Task
-            self._tts_task = asyncio.create_task(self._tts_consumer(self._tts_queue, self._t_asr_final, turn_id))
+            self._tts_task = asyncio.create_task(
+                self._tts_consumer(self._tts_queue, self._t_asr_final, turn_id, turn_gen_id)
+            )
 
             # Run LLM Producer in this coroutine
-            full_reply = await self._llm_producer(user_text, self._tts_queue, self._t_asr_final, turn_id)
+            full_reply = await self._llm_producer(
+                user_text, self._tts_queue, self._t_asr_final, turn_id, turn_gen_id
+            )
 
             # Wait for TTS consumer to finish synthesizing all queued phrases
             if self._tts_task:
@@ -417,16 +488,26 @@ class LiveVoiceSession:
         tts_queue: asyncio.Queue,
         t_asr_final: float,
         turn_id: str,
+        turn_gen_id: int,
     ) -> str:
         """Streams LLM tokens, applies phrase buffer, and feeds sentences immediately into tts_queue."""
         full_text = ""
         token_buffer = ""
         first_token_received = False
 
-        logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] LLM_START")
+        logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}][gen={turn_gen_id}][lang={self.language}] LLM_START")
+
+        # Isolated prompt instruction for non-English sessions (Section 10)
+        prompt_instruction = self.voice_engine.get_prompt_instruction()
+        llm_input = f"{prompt_instruction}\n\n{user_text}" if prompt_instruction else user_text
 
         try:
-            async for token in live_llm.stream_reply(user_text, self.conversation_history):
+            async for token in live_llm.stream_reply(llm_input, self.conversation_history):
+                # Race condition drop: if language was switched or user interrupted
+                if self.generation_id != turn_gen_id:
+                    logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Stale LLM stream {turn_gen_id}, dropping")
+                    break
+
                 if not first_token_received:
                     first_token_received = True
                     self._t_llm_first = time.time()
@@ -472,7 +553,7 @@ class LiveVoiceSession:
 
             # Flush remaining token buffer
             remaining = token_buffer.strip()
-            if remaining:
+            if remaining and self.generation_id == turn_gen_id:
                 await tts_queue.put(remaining)
 
             # Signal end of phrases to TTS consumer
@@ -484,7 +565,7 @@ class LiveVoiceSession:
             await tts_queue.put(None)
             raise
 
-    async def _tts_consumer(self, tts_queue: asyncio.Queue, t_asr_final: float, turn_id: str):
+    async def _tts_consumer(self, tts_queue: asyncio.Queue, t_asr_final: float, turn_id: str, turn_gen_id: int):
         """Pulls phrases from queue and streams synthesized audio chunks to WebSocket immediately."""
         chunk_index = 0
 
@@ -495,11 +576,15 @@ class LiveVoiceSession:
                     break
 
                 clean_phrase = phrase.strip()
-                if not clean_phrase:
+                if not clean_phrase or self.generation_id != turn_gen_id:
                     continue
 
                 try:
-                    async for pcm_chunk in live_tts.stream_synthesize(clean_phrase, voice=self.voice):
+                    async for pcm_chunk in self.voice_engine.stream_synthesize(clean_phrase, voice=self.voice):
+                        if self.generation_id != turn_gen_id:
+                            logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Stale TTS chunk {turn_gen_id}, dropping")
+                            break
+
                         if not pcm_chunk:
                             continue
 
@@ -540,6 +625,7 @@ class LiveVoiceSession:
                             "sampleRate": 24000,
                             "index": chunk_index,
                             "turnId": turn_id,
+                            "generationId": turn_gen_id,
                         })
                         chunk_index += 1
 

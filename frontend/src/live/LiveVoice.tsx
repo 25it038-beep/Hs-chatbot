@@ -435,6 +435,16 @@ export function LiveVoiceInner({
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">14. Last Error</span>
                 <p className="font-medium truncate text-destructive">{diagnostics.lastErrorCode || 'None'}</p>
               </div>
+              <div className="p-2 rounded-lg bg-card/60 border border-border/50">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">15. Language</span>
+                <p className="font-medium text-foreground">{selectedLanguage === 'en' ? 'English (Active)' : 'Tamil'}</p>
+              </div>
+              <div className="p-2 rounded-lg bg-card/60 border border-border/50 col-span-2">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">16. Tamil Capability</span>
+                <p className="font-medium truncate text-muted-foreground text-[11px]" title={isTamilAvailable ? 'NVIDIA Tamil provisioned' : 'NVIDIA hosted Chatterbox & Riva lack ta-IN voice ID'}>
+                  {isTamilAvailable ? '✓ Ready' : '✗ No verified NVIDIA Tamil voice in catalog'}
+                </p>
+              </div>
             </div>
           </div>
         )}

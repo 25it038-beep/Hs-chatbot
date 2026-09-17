@@ -92,7 +92,8 @@ async def test_tamil_provider_raises_when_unsupported():
     assert exc_asr.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_ASR_UNAVAILABLE")
 
     with pytest.raises(TamilVoiceUnavailableError) as exc_tts:
-        await provider.stream_synthesize("வணக்கம்")
+        async for _ in provider.stream_synthesize("வணக்கம்"):
+            pass
     assert exc_tts.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_TTS_UNAVAILABLE")
 
 
@@ -130,4 +131,41 @@ async def test_live_health_endpoint_tamil_flag():
     assert health["tts_configured"] is True
     # Tamil supported flag is accurately false
     assert health["tamil_supported"] is False
+
+
+@pytest.mark.asyncio
+async def test_session_language_switch_and_isolation():
+    from app.live.session import LiveVoiceSession
+    from app.live.tamil_provider import english_voice_engine, tamil_voice_engine
+
+    class MockWS:
+        def __init__(self):
+            self.sent = []
+        async def send_json(self, data):
+            self.sent.append(data)
+
+    ws = MockWS()
+    session = LiveVoiceSession("test_isolation", ws)
+
+    # Starts in English
+    assert session.language == "en"
+    assert session.voice_engine == english_voice_engine
+
+    # User attempts to switch to Tamil (which is unprovisioned)
+    import json
+    await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
+
+    # Error message emitted, session remains safely on English
+    errors = [m for m in ws.sent if m.get("type") == "error"]
+    assert len(errors) == 1
+    assert errors[0]["code"] == "TAMIL_VOICE_UNAVAILABLE"
+    assert session.language == "en"
+    assert session.voice_engine == english_voice_engine
+
+    # Switch explicitly to English works cleanly
+    await session.handle_message(json.dumps({"type": "set_language", "language": "en"}))
+    lang_changes = [m for m in ws.sent if m.get("type") == "language_changed"]
+    assert len(lang_changes) >= 1
+    assert session.language == "en"
+    assert session.voice_engine == english_voice_engine
 

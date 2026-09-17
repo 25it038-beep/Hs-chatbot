@@ -13,7 +13,7 @@ const path = require('path');
 const fs = require('fs');
 
 const PROTO_DIR = path.resolve(__dirname, '../../../proto');
-const DEFAULT_KEY = process.env.NVIDIA_API_KEY || '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';
+const DEFAULT_KEY = process.env.NVIDIA_API_KEY || '';
 
 // Function IDs on NVCF
 const FUNCTION_TTS = process.env.NVCF_FUNCTION_TTS || 'ddacc747-1269-4fab-bfd9-8f593dead106'; // chatterbox-multilingual

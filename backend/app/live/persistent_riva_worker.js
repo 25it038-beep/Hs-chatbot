@@ -30,7 +30,7 @@ function findProtoDir() {
 }
 
 const PROTO_DIR = findProtoDir();
-const DEFAULT_KEY = process.env.NVIDIA_API_KEY || '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';
+const DEFAULT_KEY = process.env.NVIDIA_API_KEY || '';
 
 const FUNCTION_TTS = process.env.NVCF_FUNCTION_TTS || 'ddacc747-1269-4fab-bfd9-8f593dead106'; // chatterbox-multilingual
 const FUNCTION_ASR = process.env.NVCF_FUNCTION_ASR || 'd3fe9151-442b-4204-a70d-5fcc597fd610'; // parakeet-tdt-0.6b-en-US-asr-offline

@@ -67,6 +67,13 @@ async def live_health():
     }
 
 
+@router.get("/tamil/health")
+async def live_tamil_health():
+    """Returns NVIDIA Riva Tamil speech provider health status."""
+    from app.live.tamil_provider import tamil_riva_provider
+    return await tamil_riva_provider.health()
+
+
 @router.get("/languages")
 async def live_languages():
     """Returns supported languages and honest availability status for Live Voice."""

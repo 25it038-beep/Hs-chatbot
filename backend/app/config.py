@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "hsbot_docs"
 
-    nvidia_api_keys: str = "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"
+    nvidia_api_keys: str = os.getenv("NVIDIA_API_KEYS") or os.getenv("NVIDIA_API_KEY") or ""
     nvidia_default_chat_model: str = "llama-3.2-11b"
     nvidia_default_code_model: str = "glm-5.2"
     nvidia_default_vision_model: str = "llama-3.2-vision"
@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     live_voice: str = "Chatterbox-Multilingual"
 
     # Tamil Voice Configuration (Additive, Isolated)
+    tamil_voice_enabled: bool = False
     enable_tamil_voice: bool = False
+    tamil_riva_host: Optional[str] = None
+    tamil_riva_port: Optional[int] = None
+    tamil_riva_tls: bool = True
     tamil_asr_model: Optional[str] = None
     tamil_asr_endpoint: Optional[str] = None
     tamil_tts_model: Optional[str] = None
@@ -150,7 +154,7 @@ class Settings(BaseSettings):
     @classmethod
     def _fallback_nvidia_api_keys(cls, v):
         if not v or not str(v).strip():
-            return "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"
+            return os.getenv("NVIDIA_API_KEYS") or os.getenv("NVIDIA_API_KEY") or ""
         return v
 
 

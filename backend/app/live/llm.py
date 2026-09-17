@@ -27,7 +27,7 @@ SYSTEM_PROMPT = (
 class NvidiaLiveLLM:
     def __init__(self):
         keys = settings.nvidia_api_keys.split(",") if settings.nvidia_api_keys else []
-        self.api_key = keys[0].strip() if keys else "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"
+        self.api_key = keys[0].strip() if keys else ""
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:

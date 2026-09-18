@@ -103,7 +103,15 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
     }
   }
 
+  const { setActiveArtifact, setArtifactSidePanelOpen } = useChat()
+
   const handleOpenPreview = async () => {
+    // Open Claude-Style Artifact Side Panel
+    if (setActiveArtifact && setArtifactSidePanelOpen) {
+      setActiveArtifact(attachment)
+      setArtifactSidePanelOpen(true)
+    }
+
     setPreviewOpen(true)
     if (!previewData) {
       setLoadingPreview(true)

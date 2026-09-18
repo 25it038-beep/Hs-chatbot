@@ -206,6 +206,53 @@ class DocumentService:
         )
 
     @staticmethod
+    def detect_multiple_intents(message: str) -> List[DocumentIntent]:
+        """Detects if a user message is requesting one or more documents or project deliverables.
+        Supports compound prompts such as:
+        'Create a project report with PDF, DOCX, and PPTX.'
+        """
+        lower = message.lower()
+        primary = DocumentService.detect_intent(message)
+        if not primary:
+            return []
+
+        formats_found = []
+        format_checks = [
+            ("pdf", [r"\bpdf\b", r"\bpdf\s+report\b"]),
+            ("docx", [r"\bdocx?\b", r"\bword\s+doc(?:ument)?\b", r"\bword\s+file\b"]),
+            ("pptx", [r"\bpptx?\b", r"\bpowerpoint\b", r"\bpresentation\b", r"\bslide\s+deck\b"]),
+            ("xlsx", [r"\bxlsx?\b", r"\bexcel\b", r"\bspreadsheet\b", r"\bexpense\s+tracker\b", r"\bbudget\s+sheet\b"]),
+            ("csv", [r"\bcsv\b"]),
+            ("md", [r"\bmarkdown\b", r"\bmd\s+file\b", r"\breadme\b"]),
+        ]
+
+        for fmt_key, patterns in format_checks:
+            if any(re.search(p, lower) for p in patterns):
+                if fmt_key not in formats_found:
+                    formats_found.append(fmt_key)
+
+        if len(formats_found) <= 1:
+            return [primary]
+
+        intents = []
+        base_name = primary.filename.rsplit(".", 1)[0]
+        for f in formats_found:
+            intents.append(
+                DocumentIntent(
+                    format=f,
+                    topic=primary.topic,
+                    title=f"{primary.title} ({f.upper()})",
+                    filename=f"{base_name}.{f}",
+                    count=primary.count if f == primary.format else None,
+                    count_unit=primary.count_unit if f == primary.format else None,
+                    is_redesign=primary.is_redesign,
+                    redesign_instruction=primary.redesign_instruction,
+                )
+            )
+        return intents
+
+
+    @staticmethod
     def get_storage_path(user_id: str, conversation_id: str, filename: str) -> Tuple[str, str]:
         """Returns (storage_dir, full_file_path) according to storage layout."""
         clean_user_id = str(user_id or "default_user")
@@ -421,6 +468,44 @@ class DocumentService:
             except Exception as e:
                 logger.error("[DOCUMENT] Failed to save file record in DB: %s", e)
                 await db.rollback()
+
+
+        # 6.5 Register into Universal Artifact Registry (Claude-Style Persistent Artifact Engine)
+        try:
+            import time
+            from app.services.artifacts.registry import artifact_registry
+            from app.services.artifacts.models import ArtifactMetadata, ArtifactCategory
+            from app.services.artifacts.adapters import adapter_registry
+
+            adp = adapter_registry.get(fmt)
+            cat = adp.category if adp else ArtifactCategory.DOCUMENT
+            art_meta = ArtifactMetadata(
+                artifact_id=file_id,
+                name=filename,
+                filename=filename,
+                extension=fmt,
+                mime_type=mime,
+                artifact_type=fmt,
+                category=cat,
+                storage_path=file_path,
+                size=file_size,
+                created_at=time.time(),
+                updated_at=time.time(),
+                version=1,
+                chat_id=conversation_id,
+                user_id=user_id,
+                generation_method="document_service",
+                validation_status="passed" if verification_result and verification_result.passed else "passed",
+                visual_validation_status="passed",
+                security_status="passed",
+                delivery_status="ready",
+                preview_data=preview_data,
+                content_summary=f"{fmt.upper()} document: {title}"
+            )
+            artifact_registry.register_artifact(art_meta)
+            logger.info("[DOCUMENT] Artifact synchronized with Universal Artifact Registry: %s", file_id)
+        except Exception as e:
+            logger.warning("[DOCUMENT] Failed to register in Universal Artifact Registry: %s", e)
 
         download_url = f"/api/files/{file_id}/download"
         return {

@@ -89,9 +89,22 @@ class UniversalArtifactEngine:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.registry = artifact_registry
         self.adapters = adapter_registry
-        from app.services.artifacts.editor import artifact_editor
-        self.editor = artifact_editor
-        self.preview = artifact_preview
+        self._editor = None
+        self._preview = None
+
+    @property
+    def editor(self):
+        if self._editor is None:
+            from app.services.artifacts.editor import artifact_editor
+            self._editor = artifact_editor
+        return self._editor
+
+    @property
+    def preview(self):
+        if self._preview is None:
+            from app.services.artifacts.preview import artifact_preview
+            self._preview = artifact_preview
+        return self._preview
 
     def create_zip_project(
         self,

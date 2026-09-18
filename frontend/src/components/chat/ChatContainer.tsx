@@ -1,3 +1,4 @@
+import { ArtifactSidePanel } from '@/components/chat/ArtifactSidePanel'
 import React, { useRef, useEffect } from 'react'
 import { useChat } from '@/stores/chat'
 import { useAuth } from '@/stores/auth'
@@ -325,7 +326,8 @@ export function ChatContainer() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 relative">
+    <div className="flex flex-1 min-h-0 relative overflow-hidden">
+      <div className="flex flex-col flex-1 min-h-0 relative">
       <ScrollArea ref={scrollRef} className="flex-1 min-h-0 px-3 md:px-6" onScroll={handleScroll}>
         <div className="max-w-3xl mx-auto py-4 pb-36">
           {messages.map((msg, i) => {
@@ -435,6 +437,8 @@ export function ChatContainer() {
         onClose={() => setLiveOpen(false)}
         onSaveToChat={handleLiveMessageSaved}
       />
+      </div>
+      <ArtifactSidePanel />
     </div>
   )
 }

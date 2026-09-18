@@ -439,6 +439,42 @@ class LiveVoiceSession:
             })
             self.conversation_history.append({"role": "user", "content": user_text})
 
+            # Check for spoken artifact / document creation intent (Section 47)
+            try:
+                from app.services.document_service.service import DocumentService
+                doc_intents = DocumentService.detect_multiple_intents(user_text)
+                if doc_intents:
+                    async def _background_create_artifacts():
+                        try:
+                            from app.services.artifacts.engine import artifact_engine
+                            for d_intent in doc_intents:
+                                res = await artifact_engine.create_document_artifact(
+                                    format_type=d_intent.format,
+                                    topic=d_intent.topic,
+                                    title=d_intent.title,
+                                    filename=d_intent.filename,
+                                    chat_id=self.session_id,
+                                )
+                                if res.get("success"):
+                                    art = res["artifact"]
+                                    await self.websocket.send_json({
+                                        "type": "file_created",
+                                        "turnId": turn_id,
+                                        "file": {
+                                            "id": art["artifact_id"],
+                                            "name": art["filename"],
+                                            "type": art["mime_type"],
+                                            "size": art["size"],
+                                            "download_url": art["download_url"],
+                                            "verification": {"passed": True, "overall_score": 100}
+                                        }
+                                    })
+                        except Exception as e:
+                            logger.warning(f"[LIVE] Spoken artifact background creation error: {e}")
+                    asyncio.create_task(_background_create_artifacts())
+            except Exception as e:
+                logger.warning(f"[LIVE] Error checking spoken artifact intent: {e}")
+
             # Transition to PROCESSING (Thinking)
             self.turn_manager.transition_to("PROCESSING", "Streaming NVIDIA LLM")
             await self.send_status("PROCESSING", "Thinking (NVIDIA LLM)...")

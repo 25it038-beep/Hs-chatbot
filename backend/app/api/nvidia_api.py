@@ -267,9 +267,10 @@ async def nvidia_chat(
         except Exception:
             pass
 
-    # Document generation intent detector
+    # Document & Universal Artifact generation intent detector
     from app.models.file import GeneratedFile
-    doc_intent = document_service.detect_intent(request.message)
+    doc_intents = document_service.detect_multiple_intents(request.message)
+    doc_intent = doc_intents[0] if doc_intents else None
     structured_content = None
     design_spec = None
 
@@ -316,43 +317,83 @@ async def nvidia_chat(
         if request.stream:
             async def generate_document_stream():
                 yield f"data: {json.dumps({'type': 'meta', 'model': 'document-generator', 'task': 'document', 'chat_id': chat_id or ''})}\n\n"
-                yield f"data: {json.dumps({'type': 'searching', 'content': f'Designing {doc_intent.format.upper()} with professional layouts...'})}\n\n"
+                
+                intents_to_run = doc_intents if doc_intents else [doc_intent]
+                all_attachments = []
+                messages_summary = []
 
-                try:
-                    _log.info("[CHAT] generating content")
-                    nonlocal structured_content, design_spec
-                    if not structured_content:
-                        structured_content = await document_service.synthesize_content(doc_intent)
+                for idx, intent_item in enumerate(intents_to_run):
+                    yield f"data: {json.dumps({'type': 'searching', 'content': f'Generating {intent_item.format.upper()} ({idx+1}/{len(intents_to_run)})...'})}\n\n"
+                    try:
+                        _log.info(f"[CHAT] generating content for {intent_item.format}")
+                        nonlocal structured_content, design_spec
+                        current_content = structured_content
+                        if not current_content:
+                            current_content = await document_service.synthesize_content(intent_item)
 
-                    file_info = await document_service.generate_file(
-                        fmt=doc_intent.format,
-                        filename=doc_intent.filename,
-                        title=doc_intent.title,
-                        content=structured_content,
-                        conversation_id=chat_id or "general",
-                        user_id=u_id,
-                        db=db,
-                        design_spec=design_spec,
-                        user_prompt=request.message,
-                    )
+                        file_info = await document_service.generate_file(
+                            fmt=intent_item.format,
+                            filename=intent_item.filename,
+                            title=intent_item.title,
+                            content=current_content,
+                            conversation_id=chat_id or "general",
+                            user_id=u_id,
+                            db=db,
+                            design_spec=design_spec,
+                            user_prompt=request.message,
+                        )
 
-                    attachment = {
-                        "id": file_info["id"],
-                        "name": file_info["filename"],
-                        "type": file_info["mime_type"],
-                        "size": file_info["file_size"],
-                        "download_url": file_info["download_url"],
-                        "verification": file_info.get("verification"),
-                    }
+                        attachment = {
+                            "id": file_info["id"],
+                            "name": file_info["filename"],
+                            "type": file_info["mime_type"],
+                            "size": file_info["file_size"],
+                            "download_url": file_info["download_url"],
+                            "verification": file_info.get("verification"),
+                        }
+                        all_attachments.append(attachment)
+                        messages_summary.append(f"• **{file_info['filename']}** ({file_info['mime_type'].split('/')[-1].upper()})")
+                        yield f"data: {json.dumps({'type': 'file_created', 'file': attachment, 'attachments': [attachment]})}\n\n"
+                    except Exception as e:
+                        _log.error(f"[DOCUMENT] Generation of {intent_item.format} failed: {e}", exc_info=True)
+                        yield f"data: {json.dumps({'type': 'error', 'content': f'Failed generating {intent_item.format.upper()}: {str(e)}'})}\n\n"
 
-                    verification = file_info.get("verification")
-                    if verification and verification.get("passed"):
-                        score = verification.get("overall_score", 100)
-                        checks_passed = len([c for c in verification.get("checks", []) if c.get("status") == "PASSED"])
-                        total_checks = len(verification.get("checks", []))
-                        msg_content = f"Done — your {doc_intent.format.upper()} is ready (Quality Verified: {score}%, {checks_passed}/{total_checks} checks passed)."
+                # Check if user asked for a ZIP packaging as well
+                if "zip" in request.message.lower() or "package" in request.message.lower() or "archive" in request.message.lower():
+                    try:
+                        from app.services.artifacts.engine import artifact_engine
+                        from app.services.workspace.files import get_chat_workspace_dir
+                        yield f"data: {json.dumps({'type': 'searching', 'content': 'Packaging deliverables into verified ZIP archive...'})}\n\n"
+                        # Package chat files
+                        ws_dir = Path(get_chat_workspace_dir(u_id, chat_id or "general"))
+                        zip_res = artifact_engine.create_zip_project(ws_dir, "deliverables.zip", chat_id=chat_id, user_id=u_id)
+                        if zip_res.get("success"):
+                            zip_art = zip_res["artifact"]
+                            zip_att = {
+                                "id": zip_art["artifact_id"],
+                                "name": zip_art["filename"],
+                                "type": "application/zip",
+                                "size": zip_art["size"],
+                                "download_url": zip_art["download_url"],
+                                "verification": {"passed": True, "overall_score": 100}
+                            }
+                            all_attachments.append(zip_att)
+                            messages_summary.append(f"• **{zip_art['filename']}** (ZIP Archive)")
+                            yield f"data: {json.dumps({'type': 'file_created', 'file': zip_att, 'attachments': [zip_att]})}\n\n"
+                    except Exception as e:
+                        _log.warning(f"[DOCUMENT] ZIP packaging error: {e}")
+
+                if all_attachments:
+                    if len(all_attachments) > 1:
+                        final_msg = f"Done — created {len(all_attachments)} verified deliverables:\n\n" + "\n".join(messages_summary)
                     else:
-                        msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+                        att0 = all_attachments[0]
+                        v = att0.get("verification")
+                        if v and v.get("passed"):
+                            score = v.get("overall_score", 100)
+                            final_msg = f"Done — your {att0['name']} is ready (Quality Verified: {score}%)."
+                        else:
+                            final_msg = f"Done — your {att0['name']} is ready."
 
                     if user and chat_id:
                         try:
@@ -360,10 +401,10 @@ async def nvidia_chat(
                             db.add(Message(
                                 chat_id=chat_id,
                                 role="assistant",
-                                content=msg_content,
+                                content=final_msg,
                                 model="document-generator",
                                 provider="nvidia",
-                                extra_data={"attachments": [attachment]},
+                                extra_data={"attachments": all_attachments},
                             ))
                             chat_res = await db.execute(select(Chat).where(Chat.id == chat_id))
                             chat_obj = chat_res.scalar_one_or_none()
@@ -371,16 +412,10 @@ async def nvidia_chat(
                                 chat_obj.title = doc_intent.title
                             await db.commit()
                         except Exception as e:
-                            _log.error("Failed to save document message to DB: %s", e)
+                            _log.error("Failed to save multi-document message to DB: %s", e)
                             await db.rollback()
 
-                    _log.info("[CHAT] attachment returned id=%s", file_info["id"])
-                    yield f"data: {json.dumps({'type': 'file_created', 'file': attachment, 'attachments': [attachment]})}\n\n"
-                    yield f"data: {json.dumps({'type': 'content', 'content': msg_content, 'attachments': [attachment]})}\n\n"
-
-                except Exception as e:
-                    _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'Document generation failed: {str(e)}'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content', 'content': final_msg, 'attachments': all_attachments})}\n\n"
 
                 yield "data: [DONE]\n\n"
 

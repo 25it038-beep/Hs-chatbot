@@ -3,6 +3,7 @@ import os
 import re
 import json
 import zipfile
+import tarfile
 import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -116,9 +117,9 @@ class FileTypeAdapter(ABC):
     def convert(self, source_path: Path, target_extension: str, output_path: Path) -> bool:
         return False
 
-# ==========================================
+# ==============================================================================
 # 1. PDF Adapter
-# ==========================================
+# ==============================================================================
 class PDFAdapter(FileTypeAdapter):
     extension = "pdf"
     mime_type = "application/pdf"
@@ -134,9 +135,9 @@ class PDFAdapter(FileTypeAdapter):
         if isinstance(content, dict):
             ok = generate_pdf(content, str(target_path), spec)
         elif isinstance(content, str):
-            ok = generate_simple_pdf(title, content, str(target_path), spec)
+            ok = generate_simple_pdf(content, str(target_path), title=title)
         else:
-            ok = generate_simple_pdf(title, str(content), str(target_path), spec)
+            ok = generate_simple_pdf(str(content), str(target_path), title=title)
         return GenerationResult(passed=bool(ok), path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
@@ -146,7 +147,7 @@ class PDFAdapter(FileTypeAdapter):
         with open(file_path, "rb") as f:
             header = f.read(5)
             if not header.startswith(b"%PDF-"):
-                errors.append("Invalid PDF magic bytes")
+                errors.append("Invalid PDF magic bytes (missing %PDF- header)")
         return len(errors) == 0, errors
 
     def render_preview(self, file_path: Path) -> Dict[str, Any]:
@@ -159,9 +160,9 @@ class PDFAdapter(FileTypeAdapter):
             "supports_direct_view": True
         }
 
-# ==========================================
+# ==============================================================================
 # 2. DOCX Adapter
-# ==========================================
+# ==============================================================================
 class DOCXAdapter(FileTypeAdapter):
     extension = "docx"
     mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -177,7 +178,7 @@ class DOCXAdapter(FileTypeAdapter):
         if isinstance(content, dict):
             ok = generate_docx(content, str(target_path), spec)
         else:
-            ok = generate_simple_docx(title, str(content), str(target_path), spec)
+            ok = generate_simple_docx(str(content), str(target_path), title=title)
         return GenerationResult(passed=bool(ok), path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
@@ -209,9 +210,9 @@ class DOCXAdapter(FileTypeAdapter):
         except Exception:
             return {"type": "docx_preview", "headings": [], "paragraphs_count": 0}
 
-# ==========================================
+# ==============================================================================
 # 3. PPTX Adapter (with targeted slide editing)
-# ==========================================
+# ==============================================================================
 class PPTXAdapter(FileTypeAdapter):
     extension = "pptx"
     mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -310,27 +311,26 @@ class PPTXAdapter(FileTypeAdapter):
             import pptx
             prs = pptx.Presentation(str(file_path))
             slide_idx = 0
-            # Check if a slide number is specified (e.g. "slide 4")
             m = re.search(r"slide\s+(\d+)", instruction.lower()) or (re.search(r"slide\s+(\d+)", target.lower()) if target else None)
             if m:
                 slide_num = int(m.group(1))
                 if 1 <= slide_num <= len(prs.slides):
                     slide_idx = slide_num - 1
 
-            target_slide = prs.slides[slide_idx]
-            # Add updated card or note shape
-            for shape in target_slide.shapes:
-                if shape.has_text_frame:
-                    shape.text_frame.text += f"\n• Updated: {instruction}"
-                    break
+            if slide_idx < len(prs.slides):
+                target_slide = prs.slides[slide_idx]
+                for shape in target_slide.shapes:
+                    if shape.has_text_frame:
+                        shape.text_frame.text += f"\n• Updated: {instruction}"
+                        break
             prs.save(str(file_path))
             return True
         except Exception:
             return False
 
-# ==========================================
+# ==============================================================================
 # 4. XLSX Adapter (with multi-sheet & formulas)
-# ==========================================
+# ==============================================================================
 class XLSXAdapter(FileTypeAdapter):
     extension = "xlsx"
     mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -403,9 +403,9 @@ class XLSXAdapter(FileTypeAdapter):
         except Exception:
             return {"type": "xlsx_preview", "sheet_names": [], "sheets": []}
 
-# ==========================================
-# 5. CSV Adapter
-# ==========================================
+# ==============================================================================
+# 5. CSV & TSV Adapters
+# ==============================================================================
 class CSVAdapter(FileTypeAdapter):
     extension = "csv"
     mime_type = "text/csv"
@@ -433,7 +433,6 @@ class CSVAdapter(FileTypeAdapter):
             return GenerationResult(passed=False, path=target_path, errors=[str(e)])
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
-        errors = []
         if not file_path.exists() or file_path.stat().st_size == 0:
             return False, ["CSV file empty or missing"]
         return True, []
@@ -447,9 +446,22 @@ class CSVAdapter(FileTypeAdapter):
             "rows": rows[1:] if len(rows) > 1 else []
         }
 
-# ==========================================
+class TSVAdapter(CSVAdapter):
+    extension = "tsv"
+    mime_type = "text/tab-separated-values"
+
+    def render_preview(self, file_path: Path) -> Dict[str, Any]:
+        lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()[:10]
+        rows = [l.split("\t") for l in lines]
+        return {
+            "type": "csv_preview",
+            "headers": rows[0] if rows else [],
+            "rows": rows[1:] if len(rows) > 1 else []
+        }
+
+# ==============================================================================
 # 6. HTML & Web Adapter
-# ==========================================
+# ==============================================================================
 class HTMLAdapter(FileTypeAdapter):
     extension = "html"
     mime_type = "text/html"
@@ -494,9 +506,9 @@ class HTMLAdapter(FileTypeAdapter):
             "supports_live_preview": True
         }
 
-# ==========================================
-# 7. SVG Adapter
-# ==========================================
+# ==============================================================================
+# 7. SVG & Diagram Adapters
+# ==============================================================================
 class SVGAdapter(FileTypeAdapter):
     extension = "svg"
     mime_type = "image/svg+xml"
@@ -526,9 +538,32 @@ class SVGAdapter(FileTypeAdapter):
             "svg_content": svg_content
         }
 
-# ==========================================
-# 8. Markdown Adapter
-# ==========================================
+class MermaidAdapter(FileTypeAdapter):
+    extension = "mermaid"
+    mime_type = "text/vnd.mermaid"
+    category = ArtifactCategory.DIAGRAM
+
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(str(content), encoding="utf-8")
+        return GenerationResult(passed=True, path=target_path)
+
+    def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            return False, ["Mermaid diagram file empty or missing"]
+        return True, []
+
+    def render_preview(self, file_path: Path) -> Dict[str, Any]:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+        return {
+            "type": "mermaid_preview",
+            "code": text
+        }
+
+# ==============================================================================
+# 8. Markdown, RTF, and Plain Text Adapters
+# ==============================================================================
 class MarkdownAdapter(FileTypeAdapter):
     extension = "md"
     mime_type = "text/markdown"
@@ -555,31 +590,69 @@ class MarkdownAdapter(FileTypeAdapter):
             "markdown": text[:8000]
         }
 
-# ==========================================
-# 9. Code Adapter (.py, .ts, .tsx, .js, .sql)
-# ==========================================
-class CodeAdapter(FileTypeAdapter):
-    category = ArtifactCategory.CODE
-
-    def __init__(self, extension: str, mime: str = "text/plain"):
-        self.extension = extension
-        self.mime_type = mime
+class RTFAdapter(FileTypeAdapter):
+    extension = "rtf"
+    mime_type = "application/rtf"
+    category = ArtifactCategory.DOCUMENT
 
     def generate(self, *args, **kwargs) -> GenerationResult:
         target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(str(content), encoding="utf-8")
+        text = str(content).replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+        rtf_doc = f"{{\\rtf1\\ansi\\deff0{{\\fonttbl{{\\f0 Arial;}}}}\fs24\\b {title}\\b0\\par\\par {text}}}"
+        target_path.write_text(rtf_doc, encoding="utf-8")
+        return GenerationResult(passed=True, path=target_path)
+
+    def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
+        if not file_path.exists():
+            return False, ["RTF file missing"]
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+        if not text.startswith("{\\rtf"):
+            return False, ["Invalid RTF header"]
+        return True, []
+
+    def render_preview(self, file_path: Path) -> Dict[str, Any]:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+        return {"type": "rtf_preview", "sample": text[:1000]}
+
+# ==============================================================================
+# 9. Universal Code & Structured Data Adapter
+# ==============================================================================
+class CodeAdapter(FileTypeAdapter):
+    category = ArtifactCategory.CODE
+
+    def __init__(self, extension: str, mime: str = "text/plain", category: ArtifactCategory = ArtifactCategory.CODE):
+        self.extension = extension
+        self.mime_type = mime
+        self.category = category
+
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, (dict, list)) and self.extension in ["json", "yaml", "yml", "toml"]:
+            if self.extension == "json":
+                out = json.dumps(content, indent=2)
+            else:
+                out = json.dumps(content, indent=2)
+        else:
+            out = str(content)
+        target_path.write_text(out, encoding="utf-8")
         return GenerationResult(passed=True, path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists() or file_path.stat().st_size == 0:
-            return False, ["Code file missing or empty"]
-        if file_path.suffix == ".py":
+            return False, [f"{self.extension.upper()} file missing or empty"]
+        if self.extension == "py":
             import ast
             try:
                 ast.parse(file_path.read_text(encoding="utf-8"))
             except SyntaxError as e:
                 return False, [f"Python syntax error: {e}"]
+        elif self.extension == "json":
+            try:
+                json.loads(file_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                return False, [f"JSON syntax error: {e}"]
         return True, []
 
     def render_preview(self, file_path: Path) -> Dict[str, Any]:
@@ -591,9 +664,9 @@ class CodeAdapter(FileTypeAdapter):
             "total_lines": len(text.splitlines())
         }
 
-# ==========================================
-# 10. ZIP Adapter
-# ==========================================
+# ==============================================================================
+# 10. Archive Adapters (ZIP, TAR, TAR.GZ)
+# ==============================================================================
 class ZIPAdapter(FileTypeAdapter):
     extension = "zip"
     mime_type = "application/zip"
@@ -638,29 +711,145 @@ class ZIPAdapter(FileTypeAdapter):
         except Exception:
             return {"type": "zip_preview", "total_files": 0, "files": []}
 
-# ==========================================
-# Adapter Registry
-# ==========================================
+class TarAdapter(FileTypeAdapter):
+    extension = "tar"
+    mime_type = "application/x-tar"
+    category = ArtifactCategory.ARCHIVE
+
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "w:gz" if str(target_path).endswith(".gz") else "w"
+        with tarfile.open(target_path, mode) as tf:
+            if isinstance(content, (str, Path)) and Path(content).is_dir():
+                src_dir = Path(content)
+                tf.add(str(src_dir), arcname="")
+        return GenerationResult(passed=True, path=target_path)
+
+    def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
+        if not file_path.exists():
+            return False, ["Tar archive missing"]
+        try:
+            with tarfile.open(file_path, "r:*") as tf:
+                _ = tf.getmembers()
+        except Exception as e:
+            return False, [f"Corrupt tar: {e}"]
+        return True, []
+
+    def render_preview(self, file_path: Path) -> Dict[str, Any]:
+        try:
+            with tarfile.open(file_path, "r:*") as tf:
+                members = [{"name": m.name, "size": m.size} for m in tf.getmembers()[:25]]
+                return {"type": "zip_preview", "total_files": len(tf.getmembers()), "files": members}
+        except Exception:
+            return {"type": "zip_preview", "total_files": 0, "files": []}
+
+# ==============================================================================
+# 11. Image Adapter
+# ==============================================================================
+class ImageAdapter(FileTypeAdapter):
+    category = ArtifactCategory.IMAGE
+
+    def __init__(self, extension: str, mime: str = "image/png"):
+        self.extension = extension
+        self.mime_type = mime
+
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            target_path.write_bytes(content)
+        else:
+            target_path.write_text(str(content), encoding="utf-8")
+        return GenerationResult(passed=True, path=target_path)
+
+    def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            return False, ["Image file missing or empty"]
+        return True, []
+
+    def render_preview(self, file_path: Path) -> Dict[str, Any]:
+        return {
+            "type": "image_preview",
+            "filename": file_path.name,
+            "size_kb": round(file_path.stat().st_size / 1024, 1),
+            "mime_type": self.mime_type
+        }
+
+# ==============================================================================
+# Comprehensive Adapter Registry
+# ==============================================================================
 class AdapterRegistry:
     def __init__(self):
         self._adapters: Dict[str, FileTypeAdapter] = {
+            # Documents
             "pdf": PDFAdapter(),
             "docx": DOCXAdapter(),
-            "pptx": PPTXAdapter(),
-            "xlsx": XLSXAdapter(),
-            "csv": CSVAdapter(),
-            "html": HTMLAdapter(),
-            "svg": SVGAdapter(),
+            "doc": DOCXAdapter(),
+            "rtf": RTFAdapter(),
+            "odt": DOCXAdapter(), # ODF docx fallback
             "md": MarkdownAdapter(),
-            "zip": ZIPAdapter(),
+            "markdown": MarkdownAdapter(),
+            "txt": CodeAdapter("txt", "text/plain", ArtifactCategory.DOCUMENT),
+
+            # Spreadsheets
+            "xlsx": XLSXAdapter(),
+            "xls": XLSXAdapter(),
+            "ods": XLSXAdapter(),
+            "csv": CSVAdapter(),
+            "tsv": TSVAdapter(),
+
+            # Presentations
+            "pptx": PPTXAdapter(),
+            "ppt": PPTXAdapter(),
+            "odp": PPTXAdapter(),
+
+            # Web & Diagrams
+            "html": HTMLAdapter(),
+            "htm": HTMLAdapter(),
+            "css": CodeAdapter("css", "text/css", ArtifactCategory.WEB),
+            "scss": CodeAdapter("scss", "text/x-scss", ArtifactCategory.WEB),
+            "svg": SVGAdapter(),
+            "mermaid": MermaidAdapter(),
+
+            # Code
             "py": CodeAdapter("py", "text/x-python"),
-            "ts": CodeAdapter("ts", "application/typescript"),
-            "tsx": CodeAdapter("tsx", "application/typescript"),
             "js": CodeAdapter("js", "application/javascript"),
             "jsx": CodeAdapter("jsx", "application/javascript"),
-            "json": CodeAdapter("json", "application/json"),
-            "sql": CodeAdapter("sql", "application/sql"),
-            "txt": CodeAdapter("txt", "text/plain"),
+            "ts": CodeAdapter("ts", "application/typescript"),
+            "tsx": CodeAdapter("tsx", "application/typescript"),
+            "java": CodeAdapter("java", "text/x-java-source"),
+            "c": CodeAdapter("c", "text/x-c"),
+            "cpp": CodeAdapter("cpp", "text/x-c++"),
+            "h": CodeAdapter("h", "text/x-c"),
+            "hpp": CodeAdapter("hpp", "text/x-c++"),
+            "go": CodeAdapter("go", "text/x-go"),
+            "rs": CodeAdapter("rs", "text/x-rust"),
+            "php": CodeAdapter("php", "application/x-php"),
+            "rb": CodeAdapter("rb", "application/x-ruby"),
+            "sh": CodeAdapter("sh", "application/x-sh"),
+            "ps1": CodeAdapter("ps1", "text/plain"),
+            "bat": CodeAdapter("bat", "text/plain"),
+
+            # Data & Config
+            "json": CodeAdapter("json", "application/json", ArtifactCategory.DATA),
+            "yaml": CodeAdapter("yaml", "text/yaml", ArtifactCategory.CONFIGURATION),
+            "yml": CodeAdapter("yml", "text/yaml", ArtifactCategory.CONFIGURATION),
+            "xml": CodeAdapter("xml", "application/xml", ArtifactCategory.DATA),
+            "toml": CodeAdapter("toml", "text/plain", ArtifactCategory.CONFIGURATION),
+            "ini": CodeAdapter("ini", "text/plain", ArtifactCategory.CONFIGURATION),
+            "sql": CodeAdapter("sql", "application/sql", ArtifactCategory.DATA),
+
+            # Archives
+            "zip": ZIPAdapter(),
+            "tar": TarAdapter(),
+            "gz": TarAdapter(),
+
+            # Images
+            "png": ImageAdapter("png", "image/png"),
+            "jpg": ImageAdapter("jpg", "image/jpeg"),
+            "jpeg": ImageAdapter("jpeg", "image/jpeg"),
+            "webp": ImageAdapter("webp", "image/webp"),
         }
 
     def get(self, extension: str) -> Optional[FileTypeAdapter]:

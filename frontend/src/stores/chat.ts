@@ -97,6 +97,12 @@ interface ChatState {
   isLiveOpen: boolean
   setLiveOpen: (open: boolean) => void
 
+  // Claude-Style Artifact Side Panel State
+  activeArtifact: Attachment | null
+  artifactSidePanelOpen: boolean
+  setActiveArtifact: (artifact: Attachment | null) => void
+  setArtifactSidePanelOpen: (open: boolean) => void
+
   // Voice actions
   setVoiceStatus: (status: VoiceState['status']) => void
   setVoiceTranscript: (transcript: string) => void
@@ -177,6 +183,11 @@ const DEFAULT_VOICE_STATE: VoiceState = {
 
     isLiveOpen: false,
     setLiveOpen: (open: boolean) => set({ isLiveOpen: open }),
+
+    activeArtifact: null,
+    artifactSidePanelOpen: false,
+    setActiveArtifact: (artifact: Attachment | null) => set({ activeArtifact: artifact, artifactSidePanelOpen: !!artifact }),
+    setArtifactSidePanelOpen: (open: boolean) => set({ artifactSidePanelOpen: open }),
 
     voice: DEFAULT_VOICE_STATE,
 

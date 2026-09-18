@@ -6,8 +6,10 @@ and streaming NVIDIA TTS in a fully overlapped, asynchronous pipeline.
 
 import asyncio
 import base64
+import datetime
 import json
 import logging
+import random
 import re
 import time
 from typing import Dict, Any, List, Optional
@@ -41,6 +43,85 @@ def calculate_pcm_rms(chunk: bytes) -> float:
         s = int.from_bytes(chunk[i:i+2], byteorder="little", signed=True)
         sum_sq += s * s
     return (sum_sq / (sample_count or 1)) ** 0.5
+
+
+def get_random_greeting(language: str = "en") -> str:
+    """
+    Returns a diverse, natural, time-aware greeting for HSBot Live Voice.
+    """
+    now = datetime.datetime.now()
+    hour = now.hour
+
+    if language in ("ta", "ta-in", "tamil"):
+        if 5 <= hour < 12:
+            time_greetings = [
+                "காலை வணக்கம்! நான் HSBot. இன்று உங்களுக்கு எவ்வாறு உதவ முடியும்?",
+                "இனிய காலை வணக்கம்! நான் HSBot. சொல்லுங்கள், என்ன உதவி வேண்டும்?",
+            ]
+        elif 12 <= hour < 17:
+            time_greetings = [
+                "மதிய வணக்கம்! நான் HSBot. உங்களுக்கு நான் எவ்வாறு உதவலாம்?",
+                "மதிய வணக்கம்! நான் HSBot. சொல்லுங்கள், இன்று என்ன பேசலாம்?",
+            ]
+        elif 17 <= hour < 21:
+            time_greetings = [
+                "மாலை வணக்கம்! நான் HSBot. இன்று உங்களுக்கு எவ்வாறு உதவ முடியும்?",
+                "இனிய மாலை வணக்கம்! நான் HSBot, உங்களுக்கு என்ன உதவி செய்ய வேண்டும்?",
+            ]
+        else:
+            time_greetings = [
+                "வணக்கம்! நான் HSBot. உங்களுக்கு என்ன உதவி வேண்டும்?",
+                "வணக்கம்! நான் HSBot, உங்களுடன் பேசத் தயார்.",
+            ]
+
+        general_greetings = [
+            "வணக்கம்! நான் HSBot. நான் உங்களுக்கு எவ்வாறு உதவ முடியும்?",
+            "வணக்கம்! நான் HSBot, உங்களுடன் பேச தயாராக உள்ளேன். சொல்லுங்கள்!",
+            "வணக்கம்! நான் HSBot, இன்று நாம் எதைப் பற்றி பேசப் போகிறோம்?",
+            "வணக்கம்! நான் HSBot. என்ன உதவி செய்ய வேண்டும் என்று கூறுங்கள்.",
+            "வணக்கம்! நான் HSBot, உங்களுடன் இணைந்ததில் மகிழ்ச்சி. நான் எவ்வாறு உதவலாம்?",
+        ]
+        pool = time_greetings + general_greetings
+        return random.choice(pool)
+
+    # English Greetings
+    if 5 <= hour < 12:
+        time_greetings = [
+            "Good morning! I'm HSBot. How can I help you today?",
+            "Good morning! I'm HSBot, hope you're having a great start. What can I do for you?",
+            "Morning! I'm HSBot, ready whenever you are.",
+        ]
+    elif 12 <= hour < 17:
+        time_greetings = [
+            "Good afternoon! I'm HSBot. What can I assist you with today?",
+            "Good afternoon! I'm HSBot, how can I help you out today?",
+            "Afternoon! I'm HSBot, ready to assist.",
+        ]
+    elif 17 <= hour < 22:
+        time_greetings = [
+            "Good evening! I'm HSBot. How can I assist you tonight?",
+            "Good evening! I'm HSBot, hope your day went well. What's on your mind?",
+            "Evening! I'm HSBot, ready to help with anything you need.",
+        ]
+    else:
+        time_greetings = [
+            "Hello! I'm HSBot, here and ready to help.",
+            "Hello! Working late? I'm HSBot, what can I do for you?",
+        ]
+
+    general_greetings = [
+        "Hello! I am HSBot. How can I help you today?",
+        "Hi there! I'm HSBot, ready whenever you are.",
+        "Hello! I'm HSBot, great to connect with you. What can I do for you?",
+        "Hi! I'm HSBot. What's on your mind today?",
+        "Hey! HSBot here. How can I help you today?",
+        "Hello! I'm HSBot and I'm listening, feel free to ask me anything.",
+        "Hi there! I'm HSBot, how are you doing? What can I help you with?",
+        "Hello! I'm HSBot, ready to assist you. What would you like to explore?",
+    ]
+
+    pool = time_greetings + general_greetings
+    return random.choice(pool)
 
 
 class LiveVoiceSession:
@@ -362,11 +443,7 @@ class LiveVoiceSession:
             return
         self._greeting_sent = True
 
-        greeting_text = text or (
-            "வணக்கம்! நான் HSBot. நான் உங்களுக்கு எவ்வாறு உதவ முடியும்?"
-            if self.language == "ta"
-            else "Hello! I am HSBot. How can I help you today?"
-        )
+        greeting_text = text or get_random_greeting(self.language)
         turn_id = f"greeting_{int(time.time() * 1000)}"
         self.generation_id += 1
         turn_gen_id = self.generation_id

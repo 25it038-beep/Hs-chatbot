@@ -154,7 +154,6 @@ async def test_session_initial_greeting():
     assert len(transcripts) >= 1
     assert transcripts[0]["role"] == "assistant"
     assert "HSBot" in transcripts[0]["text"]
-    assert "Hello" in transcripts[0]["text"]
 
     # Verify conversation history recorded greeting
     assert len(session.conversation_history) == 1
@@ -170,3 +169,19 @@ async def test_session_initial_greeting():
     assert len(transcripts_after) == 1
 
     await session.cleanup()
+
+
+def test_diverse_greetings():
+    from app.live.session import get_random_greeting
+
+    # Generate multiple English greetings and verify diversity
+    en_greetings = set(get_random_greeting("en") for _ in range(50))
+    assert len(en_greetings) > 1, "English greetings should produce diverse variations"
+    for g in en_greetings:
+        assert "HSBot" in g
+
+    # Generate multiple Tamil greetings and verify diversity
+    ta_greetings = set(get_random_greeting("ta") for _ in range(50))
+    assert len(ta_greetings) > 1, "Tamil greetings should produce diverse variations"
+    for g in ta_greetings:
+        assert "HSBot" in g

@@ -94,6 +94,9 @@ class WorkspaceManager:
             }
             self._log_audit("read_file", relative_path, {"start_line": start_line, "end_line": end_line}, "success", (time.time() - t0)*1000, f"Read {total_lines} lines")
             return res
+        except WorkspaceSecurityError:
+            self._log_audit("read_file", relative_path, {"start_line": start_line, "end_line": end_line}, "blocked", (time.time() - t0)*1000, "Security violation")
+            raise
         except Exception as e:
             self._log_audit("read_file", relative_path, {"start_line": start_line, "end_line": end_line}, "failed", (time.time() - t0)*1000, str(e))
             return {"success": False, "error": str(e), "path": relative_path}
@@ -113,6 +116,9 @@ class WorkspaceManager:
             }
             self._log_audit("write_file", relative_path, {"size": len(content)}, "success", (time.time() - t0)*1000, "Created" if not existed else "Overwritten")
             return res
+        except WorkspaceSecurityError:
+            self._log_audit("write_file", relative_path, {}, "blocked", (time.time() - t0)*1000, "Security violation")
+            raise
         except Exception as e:
             self._log_audit("write_file", relative_path, {}, "failed", (time.time() - t0)*1000, str(e))
             return {"success": False, "error": str(e), "path": relative_path}
@@ -128,6 +134,9 @@ class WorkspaceManager:
             res = {"success": True, "path": relative_path, "size_bytes": len(content.encode("utf-8"))}
             self._log_audit("create_file", relative_path, {"size": len(content)}, "success", (time.time() - t0)*1000, "Created new file")
             return res
+        except WorkspaceSecurityError:
+            self._log_audit("create_file", relative_path, {}, "blocked", (time.time() - t0)*1000, "Security violation")
+            raise
         except Exception as e:
             self._log_audit("create_file", relative_path, {}, "failed", (time.time() - t0)*1000, str(e))
             return {"success": False, "error": str(e), "path": relative_path}

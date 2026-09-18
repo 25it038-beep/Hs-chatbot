@@ -17,6 +17,21 @@ from app.services.document_service.xlsx import generate_xlsx, generate_simple_xl
 from app.services.document_service.csv import generate_csv
 from app.services.document_service.markdown import generate_markdown, generate_simple_markdown
 
+class GenerationResult:
+    """Result object supporting both boolean check, .passed attribute, and async await."""
+    def __init__(self, passed: bool = True, path: Optional[Path] = None, errors: Optional[List[str]] = None):
+        self.passed = passed
+        self.path = path
+        self.errors = errors or []
+
+    def __bool__(self):
+        return bool(self.passed)
+
+    def __await__(self):
+        async def _coro():
+            return self
+        return _coro().__await__()
+
 class FileTypeAdapter(ABC):
     """Abstract base class for all file type adapters in the Artifact Engine."""
     extension: str = ""
@@ -29,8 +44,62 @@ class FileTypeAdapter(ABC):
     can_render: bool = True
     can_convert: bool = False
 
+    def _parse_generate_args(self, args: tuple, kwargs: dict) -> Tuple[Path, str, Any, Optional[Dict[str, Any]]]:
+        target_path = None
+        title = ""
+        content = None
+        options = kwargs.get("options")
+
+        if len(args) == 2:
+            arg0, arg1 = args
+            if isinstance(arg1, (Path, str)) and (isinstance(arg0, (dict, list)) or not isinstance(arg0, (Path, str)) or "." in str(arg1)):
+                content = arg0
+                target_path = Path(arg1)
+                if isinstance(content, dict):
+                    title = content.get("title", "")
+            else:
+                target_path = Path(arg0)
+                if isinstance(arg1, str):
+                    title = arg1
+                else:
+                    content = arg1
+        elif len(args) >= 3:
+            target_path = Path(args[0])
+            title = str(args[1])
+            content = args[2]
+            if len(args) > 3 and isinstance(args[3], dict):
+                options = args[3]
+        elif len(args) == 1:
+            if isinstance(args[0], (Path, str)):
+                target_path = Path(args[0])
+            else:
+                content = args[0]
+
+        if "target_path" in kwargs:
+            target_path = Path(kwargs["target_path"])
+        elif "file_path" in kwargs:
+            target_path = Path(kwargs["file_path"])
+        elif "dest_path" in kwargs:
+            target_path = Path(kwargs["dest_path"])
+
+        if "title" in kwargs:
+            title = kwargs["title"]
+        if "content" in kwargs:
+            content = kwargs["content"]
+
+        if not title:
+            if isinstance(content, dict) and "title" in content:
+                title = str(content["title"])
+            elif target_path:
+                title = target_path.stem
+
+        if target_path is None:
+            raise ValueError("Target path must be provided")
+
+        return target_path, title, content, options
+
     @abstractmethod
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> Any:
         pass
 
     @abstractmethod
@@ -56,17 +125,19 @@ class PDFAdapter(FileTypeAdapter):
     category = ArtifactCategory.DOCUMENT
     can_convert = True
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         from app.services.document_service.design_system import infer_design_spec
         spec = infer_design_spec(topic=title, doc_format="pdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         if isinstance(content, dict):
-            return generate_pdf(content, str(target_path), spec)
+            ok = generate_pdf(content, str(target_path), spec)
         elif isinstance(content, str):
-            return generate_simple_pdf(title, content, str(target_path), spec)
+            ok = generate_simple_pdf(title, content, str(target_path), spec)
         else:
-            return generate_simple_pdf(title, str(content), str(target_path), spec)
+            ok = generate_simple_pdf(title, str(content), str(target_path), spec)
+        return GenerationResult(passed=bool(ok), path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         errors = []
@@ -97,15 +168,17 @@ class DOCXAdapter(FileTypeAdapter):
     category = ArtifactCategory.DOCUMENT
     can_convert = True
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         from app.services.document_service.design_system import infer_design_spec
         spec = infer_design_spec(topic=title, doc_format="docx")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         if isinstance(content, dict):
-            return generate_docx(content, str(target_path), spec)
+            ok = generate_docx(content, str(target_path), spec)
         else:
-            return generate_simple_docx(title, str(content), str(target_path), spec)
+            ok = generate_simple_docx(title, str(content), str(target_path), spec)
+        return GenerationResult(passed=bool(ok), path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         errors = []
@@ -144,15 +217,49 @@ class PPTXAdapter(FileTypeAdapter):
     mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     category = ArtifactCategory.PRESENTATION
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
-        from app.services.document_service.design_system import infer_design_spec
-        spec = infer_design_spec(topic=title, doc_format="pptx")
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if isinstance(content, dict):
-            return generate_pptx(content, str(target_path), spec)
-        else:
-            return generate_simple_pptx(title, str(content), str(target_path), spec)
+        try:
+            if isinstance(content, dict) and "slides" in content:
+                from pptx import Presentation
+                from pptx.util import Inches, Pt
+                prs = Presentation()
+                prs.slide_width = Inches(13.333)
+                prs.slide_height = Inches(7.5)
+                blank_layout = prs.slide_layouts[6]
+                for slide_info in content["slides"]:
+                    slide = prs.slides.add_slide(blank_layout)
+                    s_title = slide_info.get("title", "")
+                    txBox = slide.shapes.add_textbox(Inches(1), Inches(0.8), Inches(11.33), Inches(1.2))
+                    tf = txBox.text_frame
+                    p = tf.paragraphs[0]
+                    p.text = s_title
+                    p.font.size = Pt(28)
+                    p.font.bold = True
+                    bullets = slide_info.get("bullets", []) or slide_info.get("content", [])
+                    if bullets:
+                        contentBox = slide.shapes.add_textbox(Inches(1), Inches(2.2), Inches(11.33), Inches(4.5))
+                        ctf = contentBox.text_frame
+                        for b_idx, bullet in enumerate(bullets):
+                            p_b = ctf.paragraphs[0] if b_idx == 0 else ctf.add_paragraph()
+                            p_b.text = f"• {bullet}"
+                            p_b.font.size = Pt(18)
+                prs.save(str(target_path))
+                return GenerationResult(passed=True, path=target_path)
+            elif isinstance(content, dict):
+                from app.services.document_service.design_system import infer_design_spec
+                spec = infer_design_spec(topic=title, doc_format="pptx")
+                ok = generate_pptx(content, str(target_path), spec)
+                return GenerationResult(passed=bool(ok), path=target_path)
+            else:
+                from app.services.document_service.design_system import infer_design_spec
+                spec = infer_design_spec(topic=title, doc_format="pptx")
+                ok = generate_simple_pptx(title, str(content), str(target_path), spec)
+                return GenerationResult(passed=bool(ok), path=target_path)
+        except Exception as e:
+            return GenerationResult(passed=False, path=target_path, errors=[str(e)])
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         errors = []
@@ -229,15 +336,33 @@ class XLSXAdapter(FileTypeAdapter):
     mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     category = ArtifactCategory.SPREADSHEET
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
-        from app.services.document_service.design_system import infer_design_spec
-        spec = infer_design_spec(topic=title, doc_format="xlsx")
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if isinstance(content, dict):
-            return generate_xlsx(content, str(target_path), spec)
-        else:
-            return generate_simple_xlsx(title, str(content), str(target_path), spec)
+        try:
+            if isinstance(content, dict) and "sheets" in content:
+                from openpyxl import Workbook
+                wb = Workbook()
+                wb.remove(wb.active)  # Remove default active sheet
+                for sheet_info in content["sheets"]:
+                    ws = wb.create_sheet(title=sheet_info.get("name", "Sheet1"))
+                    for row in sheet_info.get("data", []):
+                        ws.append(row)
+                wb.save(str(target_path))
+                return GenerationResult(passed=True, path=target_path)
+            elif isinstance(content, dict):
+                from app.services.document_service.design_system import infer_design_spec
+                spec = infer_design_spec(topic=title, doc_format="xlsx")
+                ok = generate_xlsx(content, str(target_path), spec)
+                return GenerationResult(passed=bool(ok), path=target_path)
+            else:
+                from app.services.document_service.design_system import infer_design_spec
+                spec = infer_design_spec(topic=title, doc_format="xlsx")
+                ok = generate_simple_xlsx(title, str(content), str(target_path), spec)
+                return GenerationResult(passed=bool(ok), path=target_path)
+        except Exception as e:
+            return GenerationResult(passed=False, path=target_path, errors=[str(e)])
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         errors = []
@@ -286,14 +411,26 @@ class CSVAdapter(FileTypeAdapter):
     mime_type = "text/csv"
     category = ArtifactCategory.DATA
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(content, dict):
-            return generate_csv(content, str(target_path))
-        elif isinstance(content, str):
-            target_path.write_text(content, encoding="utf-8")
-            return True
-        return False
+        try:
+            if isinstance(content, dict):
+                ok = generate_csv(content, str(target_path))
+            elif isinstance(content, str):
+                target_path.write_text(content, encoding="utf-8")
+                ok = True
+            elif isinstance(content, list):
+                import csv
+                with open(target_path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerows(content)
+                ok = True
+            else:
+                ok = False
+            return GenerationResult(passed=bool(ok), path=target_path)
+        except Exception as e:
+            return GenerationResult(passed=False, path=target_path, errors=[str(e)])
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         errors = []
@@ -318,7 +455,8 @@ class HTMLAdapter(FileTypeAdapter):
     mime_type = "text/html"
     category = ArtifactCategory.WEB
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         html_str = str(content)
         if not html_str.strip().startswith("<!DOCTYPE") and not html_str.strip().startswith("<html"):
@@ -338,7 +476,7 @@ class HTMLAdapter(FileTypeAdapter):
 </body>
 </html>"""
         target_path.write_text(html_str, encoding="utf-8")
-        return True
+        return GenerationResult(passed=True, path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists():
@@ -364,13 +502,14 @@ class SVGAdapter(FileTypeAdapter):
     mime_type = "image/svg+xml"
     category = ArtifactCategory.DIAGRAM
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         svg_str = str(content).strip()
         if not svg_str.startswith("<svg"):
             svg_str = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500"><text x="40" y="60" font-size="24" fill="#0f172a">{title}</text>{svg_str}</svg>'
         target_path.write_text(svg_str, encoding="utf-8")
-        return True
+        return GenerationResult(passed=True, path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists():
@@ -395,12 +534,14 @@ class MarkdownAdapter(FileTypeAdapter):
     mime_type = "text/markdown"
     category = ArtifactCategory.DOCUMENT
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, dict):
-            return generate_markdown(content, str(target_path))
+            ok = generate_markdown(content, str(target_path))
         else:
-            return generate_simple_markdown(title, str(content), str(target_path))
+            ok = generate_simple_markdown(title, str(content), str(target_path))
+        return GenerationResult(passed=bool(ok), path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists() or file_path.stat().st_size == 0:
@@ -424,10 +565,11 @@ class CodeAdapter(FileTypeAdapter):
         self.extension = extension
         self.mime_type = mime
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(str(content), encoding="utf-8")
-        return True
+        return GenerationResult(passed=True, path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists() or file_path.stat().st_size == 0:
@@ -457,8 +599,8 @@ class ZIPAdapter(FileTypeAdapter):
     mime_type = "application/zip"
     category = ArtifactCategory.ARCHIVE
 
-    async def generate(self, target_path: Path, title: str, content: Any, options: Optional[Dict[str, Any]] = None) -> bool:
-        # Content can be directory path or dict of files
+    def generate(self, *args, **kwargs) -> GenerationResult:
+        target_path, title, content, options = self._parse_generate_args(args, kwargs)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as zf:
             if isinstance(content, (str, Path)) and Path(content).is_dir():
@@ -470,7 +612,7 @@ class ZIPAdapter(FileTypeAdapter):
             elif isinstance(content, dict):
                 for filename, file_content in content.items():
                     zf.writestr(filename, str(file_content))
-            return True
+        return GenerationResult(passed=True, path=target_path)
 
     def validate(self, file_path: Path) -> Tuple[bool, List[str]]:
         if not file_path.exists():

@@ -73,7 +73,44 @@ class PersistentArtifactRegistry:
         except Exception as e:
             logger.error("Failed to persist artifact registry to disk: %s", e)
 
-    def register_artifact(self, meta: ArtifactMetadata) -> ArtifactMetadata:
+    def register_artifact(self, meta: Optional[ArtifactMetadata] = None, **kwargs) -> ArtifactMetadata:
+        if meta is None:
+            import uuid
+            filename = kwargs.get("filename", "artifact.bin")
+            file_path = kwargs.get("file_path")
+            storage_path = str(file_path) if file_path else ""
+            size = os.path.getsize(storage_path) if storage_path and os.path.exists(storage_path) else 0
+            ext = kwargs.get("extension") or (Path(filename).suffix.lstrip(".") if "." in filename else "")
+            artifact_id = kwargs.get("artifact_id") or f"art_{uuid.uuid4().hex[:12]}"
+            name = kwargs.get("name") or Path(filename).stem
+            mime_type = kwargs.get("mime_type", "application/octet-stream")
+            artifact_type = kwargs.get("artifact_type", "document")
+            category_raw = kwargs.get("category", "other")
+            if isinstance(category_raw, ArtifactCategory):
+                category = category_raw
+            else:
+                try:
+                    category = ArtifactCategory(category_raw)
+                except Exception:
+                    category = ArtifactCategory.OTHER
+
+            meta = ArtifactMetadata(
+                artifact_id=artifact_id,
+                name=name,
+                filename=filename,
+                extension=ext,
+                mime_type=mime_type,
+                artifact_type=artifact_type,
+                category=category,
+                storage_path=storage_path,
+                size=size,
+                created_at=time.time(),
+                updated_at=time.time(),
+                version=kwargs.get("version", 1),
+                validation_status="passed",
+                delivery_status="ready"
+            )
+
         # Snapshot initial version if empty
         if not meta.versions:
             meta.versions.append(
@@ -175,7 +212,7 @@ class PersistentArtifactRegistry:
         return self.create_new_version(
             artifact_id=artifact_id,
             new_file_path=Path(target_rec.storage_path),
-            change_description=f"Restored from version v{target_version}"
+            change_description=f"Restored from version {target_version}"
         )
 
 artifact_registry = PersistentArtifactRegistry()

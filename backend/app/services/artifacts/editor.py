@@ -15,7 +15,9 @@ logger = logging.getLogger("hsbot.artifacts.editor")
 class ArtifactEditorService:
     """Handles incremental, targeted natural language and programmatic artifact editing."""
 
-    def __init__(self):
+    def __init__(self, registry=None, adapters=None):
+        self.registry = registry or artifact_registry
+        self.adapters = adapters or adapter_registry
         self.secret_scanner = ArtifactSecretScanner()
 
     async def edit_artifact(
@@ -25,7 +27,7 @@ class ArtifactEditorService:
         target: Optional[str] = None
     ) -> Tuple[bool, Optional[ArtifactMetadata], str]:
         """Edits an existing artifact incrementally, preserving unrelated parts, and creates a new version."""
-        art = artifact_registry.get(artifact_id)
+        art = self.registry.get(artifact_id)
         if not art:
             return False, None, f"Artifact {artifact_id} not found"
 
@@ -33,7 +35,7 @@ class ArtifactEditorService:
         if not file_path.exists():
             return False, None, f"Source file {art.storage_path} missing"
 
-        adapter = adapter_registry.get(art.extension)
+        adapter = self.adapters.get(art.extension)
         if not adapter:
             return False, None, f"No adapter found for format .{art.extension}"
 
@@ -91,7 +93,7 @@ class ArtifactEditorService:
             preview = adapter.render_preview(working_copy)
 
             # 7. Commit new version to registry
-            updated_art = artifact_registry.create_new_version(
+            updated_art = self.registry.create_new_version(
                 artifact_id=artifact_id,
                 new_file_path=working_copy,
                 change_description=instruction,
@@ -115,13 +117,13 @@ class ArtifactEditorService:
         target_extension: str
     ) -> Tuple[bool, Optional[ArtifactMetadata], str]:
         """Converts an existing artifact into a new format (e.g. DOCX -> PDF, MD -> PDF, CSV -> XLSX)."""
-        art = artifact_registry.get(artifact_id)
+        art = self.registry.get(artifact_id)
         if not art:
             return False, None, f"Artifact {artifact_id} not found"
 
         source_path = Path(art.storage_path)
         target_ext = target_extension.lower().lstrip(".")
-        target_adapter = adapter_registry.get(target_ext)
+        target_adapter = self.adapters.get(target_ext)
         if not target_adapter:
             return False, None, f"Target format .{target_ext} not supported for conversion"
 
@@ -174,7 +176,7 @@ class ArtifactEditorService:
                 preview_data=preview,
                 content_summary=f"Converted from {art.filename}"
             )
-            saved = artifact_registry.register_artifact(new_meta)
+            saved = self.registry.register_artifact(new_meta)
             return True, saved, f"Converted to {output_filename}"
 
         except Exception as e:

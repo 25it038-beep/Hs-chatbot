@@ -16,7 +16,6 @@ from app.services.artifacts.models import ArtifactMetadata, ArtifactCategory, Ar
 from app.services.artifacts.registry import artifact_registry
 from app.services.artifacts.adapters import adapter_registry
 from app.services.artifacts.preview import artifact_preview
-from app.services.artifacts.editor import artifact_editor
 
 logger = logging.getLogger("hsbot.artifacts")
 
@@ -90,6 +89,7 @@ class UniversalArtifactEngine:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.registry = artifact_registry
         self.adapters = adapter_registry
+        from app.services.artifacts.editor import artifact_editor
         self.editor = artifact_editor
         self.preview = artifact_preview
 

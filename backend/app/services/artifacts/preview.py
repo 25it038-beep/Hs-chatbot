@@ -6,8 +6,12 @@ from app.services.artifacts.registry import artifact_registry
 from app.services.artifacts.adapters import adapter_registry
 
 class ArtifactPreviewService:
+    def __init__(self, registry=None, adapters=None):
+        self.registry = registry or artifact_registry
+        self.adapters = adapters or adapter_registry
+
     def get_preview(self, artifact_id: str) -> Optional[Dict[str, Any]]:
-        art = artifact_registry.get(artifact_id)
+        art = self.registry.get(artifact_id)
         if not art:
             return None
 
@@ -19,7 +23,7 @@ class ArtifactPreviewService:
                 "error": "Artifact storage file missing on disk"
             }
 
-        adapter = adapter_registry.get(art.extension)
+        adapter = self.adapters.get(art.extension)
         preview_data = {}
         if adapter:
             try:
@@ -27,7 +31,7 @@ class ArtifactPreviewService:
             except Exception as e:
                 preview_data = {"error": f"Preview rendering failed: {e}"}
 
-        return {
+        res = {
             "artifact_id": art.artifact_id,
             "filename": art.filename,
             "extension": art.extension,
@@ -38,9 +42,14 @@ class ArtifactPreviewService:
             "preview": preview_data,
             "download_url": f"/api/agent/artifacts/{art.artifact_id}/download"
         }
+        if isinstance(preview_data, dict):
+            for k, v in preview_data.items():
+                if k not in res or k == "type":
+                    res[k] = v
+        return res
 
     def get_content(self, artifact_id: str) -> Optional[Dict[str, Any]]:
-        art = artifact_registry.get(artifact_id)
+        art = self.registry.get(artifact_id)
         if not art:
             return None
 

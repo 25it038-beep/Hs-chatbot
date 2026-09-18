@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "prebuild": "node ../scripts/install-native.cjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

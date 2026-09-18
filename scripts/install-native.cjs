@@ -3,15 +3,23 @@
  * Ensures platform-specific native binaries are installed before the build.
  * Works around the npm optional-dependency skip bug on Linux CI/CD environments.
  * See: https://github.com/npm/cli/issues/4828
+ *
+ * Always installs into the REPO ROOT node_modules (one level up from this
+ * script's location) so that lightningcss / esbuild / rollup can resolve them,
+ * regardless of which working directory Render or any other CI uses.
  */
 "use strict";
 const { execSync } = require("child_process");
+const path = require("path");
 const { platform, arch } = require("process");
 
 if (platform !== "linux" || arch !== "x64") {
   console.log("[native] Not linux-x64, skipping native binary check.");
   process.exit(0);
 }
+
+// __dirname = <repo-root>/scripts  =>  repoRoot = <repo-root>
+const repoRoot = path.resolve(__dirname, "..");
 
 const BINARIES = [
   "@esbuild/linux-x64@0.25.12",
@@ -22,10 +30,11 @@ const BINARIES = [
   "lightningcss-linux-x64-musl@1.32.0",
 ];
 
+// Check from repoRoot so Node resolves against root node_modules
 const missing = BINARIES.filter((pkg) => {
   const name = pkg.replace(/@[^@]+$/, "");
   try {
-    require.resolve(name);
+    require.resolve(name, { paths: [repoRoot] });
     return false;
   } catch {
     return true;
@@ -33,13 +42,14 @@ const missing = BINARIES.filter((pkg) => {
 });
 
 if (missing.length === 0) {
-  console.log("[native] All linux-x64 binaries present. ?");
+  console.log("[native] All linux-x64 binaries present. OK");
   process.exit(0);
 }
 
-console.log("[native] Installing missing linux-x64 binaries:", missing);
-execSync(`npm install --no-save --prefer-offline ${missing.join(" ")}`, {
+console.log("[native] Installing missing linux-x64 binaries:", missing.join(", "));
+// Install at repo root so binaries land in root node_modules (not workspace-local)
+execSync(`npm install --no-save ${missing.join(" ")}`, {
   stdio: "inherit",
-  cwd: process.cwd(),
+  cwd: repoRoot,
 });
-console.log("[native] Done. ?");
+console.log("[native] Done.");

@@ -53,10 +53,10 @@ NVIDIA_MODELS = {
         "default_temp": 0.7,
     },
     "muse-glimmer": {
-        "id": "meta/muse-glimmer-30b",
-        "name": "Muse Glimmer 30B",
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B (Fast)",
         "type": "chat",
-        "capabilities": ["chat", "streaming"],
+        "capabilities": ["chat", "streaming", "json", "tools", "vision"],
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
@@ -125,15 +125,15 @@ NVIDIA_MODELS = {
 # Task routing configuration
 TASK_ROUTES = {
     "chat": {
-        "default": "muse-glimmer",
+        "default": "llama-3.2-11b",
         "fallback": ["llama-3.2-vision"],
     },
     "coding": {
-        "default": "muse-glimmer",
+        "default": "llama-3.2-11b",
         "fallback": ["llama-3.2-vision"],
     },
     "reasoning": {
-        "default": "muse-glimmer",
+        "default": "llama-3.2-11b",
         "fallback": ["llama-3.2-vision"],
     },
     "vision": {
@@ -146,7 +146,7 @@ TASK_ROUTES = {
         "fallback": ["flux-2-klein", "flux-1-schnell"],
     },
     "web_images": {
-        "default": "muse-glimmer",
+        "default": "llama-3.2-11b",
         "fallback": ["llama-3.2-vision"],
     },
     "embeddings": {

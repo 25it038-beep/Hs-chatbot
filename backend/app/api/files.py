@@ -40,7 +40,7 @@ async def analyze_file_text(text: str, filename: str) -> Optional[str]:
     try:
         response = await chat_provider.generate(
             messages=messages,
-            model="muse-glimmer",
+            model="llama-3.2-11b",
             system_prompt="You are a thorough document analyst. Provide a clear, structured analysis report.",
             max_tokens=2048,
         )

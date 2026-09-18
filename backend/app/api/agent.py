@@ -21,7 +21,7 @@ class RunAgentRequest(BaseModel):
     workspace_id: Optional[str] = "default"
     chat_id: Optional[str] = None
     autonomy_mode: Optional[str] = "AUTO"
-    model: Optional[str] = "llama-3.1-70b"
+    model: Optional[str] = "llama-3.2-11b"
 
 class PlanRequest(BaseModel):
     prompt: str
@@ -115,7 +115,7 @@ async def run_agent(
                 user_request=req.prompt,
                 chat_id=req.chat_id,
                 user_id=user.id,
-                model=req.model or "llama-3.1-70b"
+                model=req.model or "llama-3.2-11b"
             ):
                 data = json.dumps(chunk)
                 yield f"data: {data}\n\n"

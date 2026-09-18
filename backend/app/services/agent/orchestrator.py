@@ -105,7 +105,7 @@ class AgentOrchestrator:
         user_request: str,
         chat_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        model: str = "llama-3.1-70b"
+        model: str = "llama-3.2-11b"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Executes the autonomous agent engineering loop with real-time SSE event emissions.
@@ -187,7 +187,7 @@ class AgentOrchestrator:
 
         generated_files_count = 0
         try:
-            resp = await self.llm.generate(code_prompt, model=model or "llama-3.1-70b", temperature=0.2)
+            resp = await self.llm.generate(code_prompt, model=model or "llama-3.2-11b", temperature=0.2)
             raw_text = resp.content.strip()
             # Clean possible markdown block
             if raw_text.startswith("```"):

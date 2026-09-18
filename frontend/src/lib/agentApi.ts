@@ -1171,7 +1171,7 @@ export const agentApi = {
     onComplete: () => void,
     workspaceId: string = 'default',
     autonomyMode: string = 'AUTO',
-    model: string = 'llama-3.1-70b',
+    model: string = 'llama-3.2-11b',
     targetFile?: string,
     scope: 'file' | 'project' = 'file'
   ) {

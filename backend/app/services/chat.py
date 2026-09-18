@@ -667,7 +667,7 @@ class ChatService:
                             fb_provider = get_provider("nvidia")
                             # Hardcoded verified model — the env default may point
                             # at a retired model id (404).
-                            fb_model = "llama-3.1-70b"
+                            fb_model = "llama-3.2-11b"
                         except ValueError:
                             fb_provider = None
                     try:

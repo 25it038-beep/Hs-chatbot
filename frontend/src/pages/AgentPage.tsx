@@ -83,7 +83,7 @@ export function AgentPage() {
   const [agentState, setAgentState] = useState<string>('IDLE')
   const [agentMessage, setAgentMessage] = useState<string>('')
   const [autonomyMode, setAutonomyMode] = useState<'AUTO' | 'SUPERVISED' | 'ASK'>('AUTO')
-  const [selectedModel, setSelectedModel] = useState<string>('llama-3.1-70b')
+  const [selectedModel, setSelectedModel] = useState<string>('llama-3.2-11b')
 
   // Section 0 - 48: Prompt Understanding & Adaptive Quiz State
   const [understanding, setUnderstanding] = useState<UnderstandingModel | null>(null)
@@ -125,7 +125,7 @@ export function AgentPage() {
 
   // Model catalog
   const models = [
-    { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', badge: 'Fast Reasoning', latency: '4s' },
+    { id: 'llama-3.2-11b', name: 'Llama 3.2 11B', badge: 'Ultra Fast', latency: '1s' },
     { id: 'DeepSeek-V3.2', name: 'DeepSeek V3.2', badge: 'High Throughput', latency: '3s' },
     { id: 'mistral-large', name: 'Mistral Large 2', badge: 'Precision Architect', latency: '6s' },
     { id: 'glm-5.2', name: 'GLM 5.2 / Coder', badge: 'Code Synthesis', latency: '5s' },

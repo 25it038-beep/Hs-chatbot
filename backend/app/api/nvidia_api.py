@@ -484,7 +484,7 @@ async def nvidia_chat(
             model = mapped
         else:
             # Fall back to a known working chat model
-            model = "llama-3.1-70b"
+            model = "llama-3.2-11b"
 
     reasoning = False  # Always hide reasoning from user
 
@@ -531,7 +531,7 @@ async def nvidia_chat(
                         )
                         async for chunk in chat_provider.generate_stream(
                             messages=[{"role": "user", "content": caption_prompt}],
-                            model="llama-3.1-70b",
+                            model="llama-3.2-11b",
                             system_prompt="You are HS ChatBot, a helpful image assistant.",
                             temperature=0.7,
                             max_tokens=300,

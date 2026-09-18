@@ -7,7 +7,8 @@
   ],
   "description": "HSBot Multi-provider AI Assistant Workspace",
   "scripts": {
-    "build": "npm --prefix frontend run build && rm -rf dist && cp -r frontend/dist dist",
+    "prebuild": "node scripts/install-native.cjs",
+    "build": "npm --prefix frontend run build",
     "dev": "npm --prefix frontend run dev",
     "lint": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview"

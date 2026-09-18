@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 /**
- * Ensures platform-specific native binaries are installed before the build.
- * Works around the npm optional-dependency skip bug on Linux CI/CD environments.
- * See: https://github.com/npm/cli/issues/4828
+ * Force-installs linux-x64 native binaries before the vite build.
+ * Runs only on linux-x64 (Render / CI). No-ops on Windows/macOS.
  *
- * Always installs into the REPO ROOT node_modules (one level up from this
- * script's location) so that lightningcss / esbuild / rollup can resolve them,
- * regardless of which working directory Render or any other CI uses.
+ * WHY --force:
+ *   npm caches optional-dependency stubs (directory exists, package.json present)
+ *   but skips downloading the actual .node binary when the lock was generated on
+ *   a different platform. require.resolve() returns true for these stubs, so a
+ *   simple presence-check gives false positives. --force bypasses the cache and
+ *   ensures the real binary tarball is downloaded and extracted every time.
+ *
+ * WHY repoRoot cwd:
+ *   Render sets root dir = frontend/, so this script runs from frontend/.
+ *   npm install must run at the REPO ROOT so binaries land in root node_modules
+ *   where lightningcss / esbuild / rollup actually resolve them from.
  */
 "use strict";
 const { execSync } = require("child_process");
@@ -14,11 +21,11 @@ const path = require("path");
 const { platform, arch } = require("process");
 
 if (platform !== "linux" || arch !== "x64") {
-  console.log("[native] Not linux-x64, skipping native binary check.");
+  console.log("[native] Not linux-x64 — skipping.");
   process.exit(0);
 }
 
-// __dirname = <repo-root>/scripts  =>  repoRoot = <repo-root>
+// __dirname = <repo>/scripts  =>  repoRoot = <repo>/
 const repoRoot = path.resolve(__dirname, "..");
 
 const BINARIES = [
@@ -30,26 +37,9 @@ const BINARIES = [
   "lightningcss-linux-x64-musl@1.32.0",
 ];
 
-// Check from repoRoot so Node resolves against root node_modules
-const missing = BINARIES.filter((pkg) => {
-  const name = pkg.replace(/@[^@]+$/, "");
-  try {
-    require.resolve(name, { paths: [repoRoot] });
-    return false;
-  } catch {
-    return true;
-  }
-});
-
-if (missing.length === 0) {
-  console.log("[native] All linux-x64 binaries present. OK");
-  process.exit(0);
-}
-
-console.log("[native] Installing missing linux-x64 binaries:", missing.join(", "));
-// Install at repo root so binaries land in root node_modules (not workspace-local)
-execSync(`npm install --no-save ${missing.join(" ")}`, {
-  stdio: "inherit",
-  cwd: repoRoot,
-});
+console.log("[native] Force-installing linux-x64 native binaries into", repoRoot);
+execSync(
+  "npm install --no-save --force " + BINARIES.join(" "),
+  { stdio: "inherit", cwd: repoRoot }
+);
 console.log("[native] Done.");

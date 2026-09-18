@@ -138,3 +138,35 @@ async def test_session_barge_in_cancellation():
     last_status = status_msgs[-1]
     assert last_status["state"] == "LISTENING"
     await session.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_session_initial_greeting():
+    ws = MockWebSocket()
+    session = LiveVoiceSession("test_session_greeting", ws)
+    assert session._greeting_sent is False
+
+    await session.send_greeting()
+    assert session._greeting_sent is True
+
+    # Verify transcript sent
+    transcripts = ws.get_messages_by_type("transcript")
+    assert len(transcripts) >= 1
+    assert transcripts[0]["role"] == "assistant"
+    assert "HSBot" in transcripts[0]["text"]
+    assert "Hello" in transcripts[0]["text"]
+
+    # Verify conversation history recorded greeting
+    assert len(session.conversation_history) == 1
+    assert session.conversation_history[0]["role"] == "assistant"
+    assert "HSBot" in session.conversation_history[0]["content"]
+
+    # Verify state transitions back to LISTENING
+    assert session.turn_manager.get_state() == "LISTENING"
+
+    # Verify greeting is only sent once
+    await session.send_greeting()
+    transcripts_after = ws.get_messages_by_type("transcript")
+    assert len(transcripts_after) == 1
+
+    await session.cleanup()

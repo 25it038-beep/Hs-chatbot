@@ -79,7 +79,7 @@ export class LiveVoiceSession {
     try {
       await this.transport.connect(this.engine)
       await this.audio.startMicrophone()
-      if (this.state !== 'ERROR') {
+      if (this.state !== 'ERROR' && this.state !== 'SPEAKING' && !this.audio.isPlaybackActive) {
         this.setState('LISTENING')
       }
     } catch (err: any) {

@@ -77,6 +77,7 @@ class LiveVoiceSession:
         self._t_asr_final = 0.0
         self._t_llm_first = 0.0
         self._first_audio_sent = False
+        self._greeting_sent = False
 
     async def start(self):
         """Main WebSocket loop for session."""
@@ -84,6 +85,7 @@ class LiveVoiceSession:
         await self.send_status("LISTENING", "Connected to NVIDIA live engine")
 
         self.silence_monitor_task = asyncio.create_task(self._monitor_silence())
+        asyncio.create_task(self.send_greeting())
 
         try:
             while self.is_active:
@@ -341,6 +343,75 @@ class LiveVoiceSession:
                 self._pre_speech_buffer.clear()
                 self._speech_onset_frames = 0
                 asyncio.create_task(self.execute_turn(pcm_bytes=pcm_bytes, turn_id=turn_id))
+
+    async def finalize_user_speech(self):
+        """Finalizes buffered user speech and triggers turn execution."""
+        if not self._turn_in_progress and (self._has_voice_in_turn or len(self._speech_buffer) >= 3200):
+            turn_id = self._current_turn_id or f"turn_{int(time.time() * 1000)}"
+            pcm_bytes = bytes(self._speech_buffer)
+            self._speech_buffer.clear()
+            self._has_voice_in_turn = False
+            self._speech_onset_frames = 0
+            await self.execute_turn(pcm_bytes=pcm_bytes, turn_id=turn_id)
+
+    async def send_greeting(self, text: Optional[str] = None):
+        """
+        Synthesizes and delivers an initial spoken greeting when the live voice session connects.
+        """
+        if self._greeting_sent:
+            return
+        self._greeting_sent = True
+
+        greeting_text = text or (
+            "வணக்கம்! நான் HSBot. நான் உங்களுக்கு எவ்வாறு உதவ முடியும்?"
+            if self.language == "ta"
+            else "Hello! I am HSBot. How can I help you today?"
+        )
+        turn_id = f"greeting_{int(time.time() * 1000)}"
+        self.generation_id += 1
+        turn_gen_id = self.generation_id
+
+        logger.info(f"[LIVE][session={self.session_id}] Delivering greeting: '{greeting_text}'")
+
+        try:
+            # 1. Send assistant transcript to frontend
+            await self.websocket.send_json({
+                "type": "transcript",
+                "role": "assistant",
+                "text": greeting_text,
+                "isFinal": True,
+                "turnId": turn_id,
+            })
+            self.conversation_history.append({"role": "assistant", "content": greeting_text})
+
+            # 2. Transition state to SPEAKING
+            self.turn_manager.transition_to("SPEAKING", "Greeting user")
+            await self.send_status("SPEAKING", "HSBot speaking...")
+
+            chunk_index = 0
+            async for pcm_chunk in self.voice_engine.stream_synthesize(greeting_text, voice=self.voice):
+                if self.generation_id != turn_gen_id or not self.is_active:
+                    logger.info(f"[LIVE][session={self.session_id}] Greeting interrupted, aborting audio stream")
+                    break
+                if not pcm_chunk:
+                    continue
+                audio_b64 = base64.b64encode(pcm_chunk).decode("ascii")
+                await self.websocket.send_json({
+                    "type": "audio_chunk",
+                    "audio": audio_b64,
+                    "sampleRate": 24000,
+                    "index": chunk_index,
+                    "turnId": turn_id,
+                    "generationId": turn_gen_id,
+                })
+                chunk_index += 1
+        except Exception as e:
+            logger.error(f"[LIVE][session={self.session_id}] Error streaming greeting audio: {e}")
+        finally:
+            # 3. Transition back to LISTENING once finished if still active and on same generation
+            if self.generation_id == turn_gen_id and self.is_active:
+                self.turn_manager.transition_to("LISTENING", "Greeting complete")
+                await self.send_status("LISTENING", "Listening...")
 
     async def execute_turn(
         self,

@@ -119,6 +119,13 @@ export class LiveVoiceSession {
   }
 
   /**
+   * Sets active language on the backend session without disconnecting.
+   */
+  public setLanguage(language: string): void {
+    this.transport.setLanguage(language)
+  }
+
+  /**
    * Retries availability probe when in error state.
    */
   public retry(): void {

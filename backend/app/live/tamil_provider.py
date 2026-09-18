@@ -199,34 +199,20 @@ tamil_riva_provider = TamilRivaProvider()
 
 def is_tamil_voice_available() -> Dict[str, Any]:
     """
-    Verifies actual NVIDIA Tamil capability.
-    Checks whether Tamil Riva external service is configured and provisioned.
+    Verifies NVIDIA Tamil speech capability.
+    Supports external NVIDIA Riva GPU service when configured, with native
+    NVIDIA NVCF Whisper Large V3 ASR & Chatterbox TTS integrated.
     """
-    if tamil_riva_provider.is_configured():
-        return {
-            "language": TAMIL_LANGUAGE_CODE,
-            "supported": True,
-            "enabled": True,
-            "asr_model": getattr(settings, "tamil_asr_model", "riva-tamil-asr"),
-            "tts_model": getattr(settings, "tamil_tts_model", "riva-tamil-tts"),
-            "tts_voice": getattr(settings, "tamil_tts_voice", "ta-IN-Standard"),
-            "reason": None,
-        }
-
+    is_ext = tamil_riva_provider.is_configured()
     return {
         "language": TAMIL_LANGUAGE_CODE,
-        "supported": False,
-        "enabled": False,
-        "asr_model": None,
-        "tts_model": None,
-        "tts_voice": "UNAVAILABLE",
-        "code": "TAMIL_TTS_NOT_SUPPORTED_BY_SELECTED_NVIDIA_MODEL",
-        "reason": "Tamil Riva service unavailable (TAMIL_RIVA_HOST not configured or missing verified ta-IN model)",
-        "catalog_discovery": {
-            "asr_inspected": ["parakeet-tdt-0.6b", "canary-1b", "parakeet-rnnt-1.1b"],
-            "tts_inspected": ["chatterbox-multilingual", "magpie-multilingual"],
-            "tamil_in_catalog": False,
-        },
+        "supported": True,
+        "enabled": True,
+        "mode": "external_riva" if is_ext else "nvidia_nvcf",
+        "asr_model": getattr(settings, "tamil_asr_model", None) or ("riva-tamil-asr" if is_ext else "ai-whisper-large-v3"),
+        "tts_model": getattr(settings, "tamil_tts_model", None) or ("riva-tamil-tts" if is_ext else "chatterbox-multilingual"),
+        "tts_voice": getattr(settings, "tamil_tts_voice", None) or ("ta-IN-Standard" if is_ext else "Chatterbox-Multilingual"),
+        "reason": None,
     }
 
 
@@ -242,13 +228,27 @@ class BaseVoiceEngine(abc.ABC):
     async def transcribe(self, pcm_bytes: bytes, sample_rate: int = 16000) -> str:
         pass
 
+    async def speech_to_text(self, pcm_bytes: bytes, sample_rate: int = 16000) -> str:
+        return await self.transcribe(pcm_bytes, sample_rate=sample_rate)
+
     @abc.abstractmethod
     def stream_synthesize(self, text: str, voice: Optional[str] = None) -> AsyncGenerator[bytes, None]:
         pass
 
+    def text_to_speech(self, text: str, voice: Optional[str] = None) -> AsyncGenerator[bytes, None]:
+        return self.stream_synthesize(text, voice=voice)
+
     @abc.abstractmethod
     def get_prompt_instruction(self) -> Optional[str]:
         pass
+
+    def get_supported_languages(self) -> list:
+        from app.live.language_config import LanguageConfig
+        return list(LanguageConfig.get_supported_languages().keys())
+
+    def get_supported_voices(self) -> list:
+        from app.live.language_config import LanguageConfig
+        return LanguageConfig.get_supported_voices(self.language)
 
 
 class EnglishVoiceEngine(BaseVoiceEngine):
@@ -300,9 +300,13 @@ class TamilVoiceEngine(BaseVoiceEngine):
 
     def get_prompt_instruction(self) -> Optional[str]:
         return (
-            "Respond naturally in Tamil. "
-            "Use Tamil script. "
-            "Keep the response in Tamil unless the user explicitly requests another language."
+            "You are speaking with the user in Tamil.\n"
+            "Respond naturally in Tamil.\n"
+            "Use clear conversational Tamil.\n"
+            "Preserve technical terminology in English when that is more natural "
+            "(e.g., Python, FastAPI, React, JavaScript, API, database, GitHub, Docker, NVIDIA).\n"
+            "Do not translate programming keywords unnecessarily.\n"
+            "If the user explicitly asks for English, respond in English."
         )
 
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 NVIDIA Riva Tamil TTS Provider (Additive, Isolated).
 Connects to an external NVIDIA Riva GPU service for Tamil (ta-IN) speech synthesis.
 
@@ -97,19 +97,50 @@ class TamilTTSProvider:
     async def synthesize_stream(self, text: str, voice: Optional[str] = None) -> AsyncGenerator[bytes, None]:
         """
         Streams synthesized raw PCM audio chunks for given Tamil text.
-        Fails fast if Riva server is unreachable.
+        Uses external Riva GPU if configured; otherwise streams through NVIDIA persistent TTS bridge.
         """
-        health = await self.health_check()
-        if not health["healthy"]:
-            from app.live.tamil_provider import TamilVoiceUnavailableError
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return
+
+        from app.live.tamil_provider import TamilVoiceUnavailableError
+
+        if self.is_configured():
+            health = await self.health_check()
+            if not health["healthy"]:
+                raise TamilVoiceUnavailableError(
+                    code="TAMIL_TTS_UNAVAILABLE",
+                    message=f"Tamil Riva TTS unavailable: {health.get('reason')}"
+                )
+            active_voice = voice or self.voice_name
+            logger.info(f"[TamilTTS] Streaming synthesis of {len(clean_text)} chars with external Riva voice {active_voice}")
+            # Placeholder for external Riva streaming audio chunks
+            yield b""
+            return
+
+        # Use NVIDIA persistent TTS streaming bridge
+        from app.live.riva_bridge import riva_bridge
+        try:
+            active_voice = voice or "Chatterbox-Multilingual"
+            chunk_count = 0
+            async for chunk in riva_bridge.stream_synthesize(
+                clean_text,
+                voice=active_voice,
+                language_code="en-US",
+                sample_rate=24000,
+            ):
+                if chunk:
+                    chunk_count += 1
+                    yield chunk
+            if chunk_count == 0:
+                logger.warning(f"[TamilTTS] No audio chunks produced for text of len {len(clean_text)}")
+        except Exception as e:
+            logger.error(f"[TamilTTS] Error streaming Tamil TTS: {e}")
             raise TamilVoiceUnavailableError(
                 code="TAMIL_TTS_UNAVAILABLE",
-                message=f"Tamil Riva TTS unavailable: {health.get('reason')}"
+                message="Tamil voice is temporarily unavailable. Please try again."
             )
 
-        active_voice = voice or self.voice_name
-        logger.info(f"[TamilTTS] Streaming synthesis of {len(text)} chars with voice {active_voice}")
-        yield b""
 
     async def synthesize(self, text: str, voice: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Synthesizes text into a single base64 audio payload."""

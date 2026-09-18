@@ -222,6 +222,16 @@ export class LiveVoiceTransport {
   }
 
   /**
+   * Sends language change request to backend.
+   */
+  public setLanguage(language: string): void {
+    this.send({
+      type: 'set_language',
+      language: language,
+    })
+  }
+
+  /**
    * Retries availability check for Nemotron VoiceChat.
    */
   public retryAvailability(): void {

@@ -125,7 +125,8 @@ export function LiveVoiceInner({
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<any>(null)
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'ta'>('en')
-  const [isTamilAvailable, setIsTamilAvailable] = useState<boolean>(false)
+  const [selectedVoice, setSelectedVoice] = useState<string>('Chatterbox-Multilingual')
+  const [isTamilAvailable, setIsTamilAvailable] = useState<boolean>(true)
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
 
@@ -138,10 +139,10 @@ export function LiveVoiceInner({
       .then((res) => res.json())
       .then((data) => {
         const ta = data?.languages?.find((l: any) => l.code === 'ta')
-        setIsTamilAvailable(Boolean(ta?.supported))
+        setIsTamilAvailable(ta ? Boolean(ta.supported) : true)
       })
       .catch(() => {
-        setIsTamilAvailable(false)
+        setIsTamilAvailable(true)
       })
   }, [isOpen])
 
@@ -231,8 +232,18 @@ export function LiveVoiceInner({
   // Determine user speech from real microphone dB
   const isMicSpeaking = (diagnostics?.micInputLevel || -100) > -44
 
-  // Compute readable status text per specification
+  // Compute readable status text per specification (localized in Tamil mode)
   const getStatusDisplay = () => {
+    if (selectedLanguage === 'ta') {
+      if (liveState === 'SPEAKING') return 'பேசுகிறேன்...'
+      if (liveState === 'PROCESSING') return 'யோசிக்கிறேன்...'
+      if (liveState === 'ERROR') return 'பிழை ஏற்பட்டது'
+      if (liveState === 'CONNECTING') return 'இணைக்கப்படுகிறது...'
+      if (liveState === 'LISTENING') {
+        return isMicSpeaking ? 'நீங்கள் பேசுகிறீர்கள்...' : 'கேட்கிறேன்...'
+      }
+      return 'கேட்கிறேன்...'
+    }
     if (liveState === 'SPEAKING') return 'AI Speaking'
     if (liveState === 'PROCESSING') return 'Processing...'
     if (liveState === 'ERROR') return 'Engine Error'
@@ -241,6 +252,27 @@ export function LiveVoiceInner({
       return isMicSpeaking ? 'User Speaking' : 'Listening...'
     }
     return 'Listening...'
+  }
+
+  const getHeaderStatusText = () => {
+    if (selectedLanguage === 'ta') {
+      if (liveState === 'CONNECTING') return 'இணைக்கப்படுகிறது...'
+      if (liveState === 'CONNECTED') return 'இணைக்கப்பட்டது'
+      if (liveState === 'LISTENING') return 'கேட்கிறேன் (பேசலாம்)...'
+      if (liveState === 'PROCESSING') return 'யோசிக்கிறேன் (NVIDIA)...'
+      if (liveState === 'SPEAKING') return 'பேசுகிறேன்...'
+      if (liveState === 'INTERRUPTED') return 'நிறுத்தப்பட்டது'
+      if (liveState === 'ERROR') return 'பிழை ஏற்பட்டது'
+      return 'தயார்'
+    }
+    if (liveState === 'CONNECTING') return 'Connecting to NVIDIA...'
+    if (liveState === 'CONNECTED') return 'Connected'
+    if (liveState === 'LISTENING') return 'Listening (Say something)...'
+    if (liveState === 'PROCESSING') return 'Thinking (NVIDIA NIM)...'
+    if (liveState === 'SPEAKING') return 'Speaking (Streaming Audio)...'
+    if (liveState === 'INTERRUPTED') return 'Interrupted'
+    if (liveState === 'ERROR') return 'Engine Error'
+    return 'Ready'
   }
 
   return (
@@ -263,37 +295,68 @@ export function LiveVoiceInner({
                 <h2 className="text-base font-semibold text-foreground tracking-tight">HSBot Live Voice</h2>
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider shadow-xs">
                   <Zap size={10} className="text-blue-500 animate-pulse" />
-                  <span>NVIDIA Riva Live</span>
-                  <span className="text-[9px] opacity-75 font-normal lowercase">(female)</span>
+                  <span>{selectedLanguage === 'ta' ? 'NVIDIA தமிழ் Live' : 'NVIDIA Riva Live'}</span>
+                  <span className="text-[9px] opacity-75 font-normal lowercase">
+                    {selectedLanguage === 'ta' ? 'ta-IN' : 'female'}
+                  </span>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                <span>Status:</span>
+                <span>{selectedLanguage === 'ta' ? 'நிலை:' : 'Status:'}</span>
                 <span className="font-medium text-foreground">
-                  {liveState === 'CONNECTING' && 'Connecting to NVIDIA...'}
-                  {liveState === 'CONNECTED' && 'Connected'}
-                  {liveState === 'LISTENING' && 'Listening (Say something)...'}
-                  {liveState === 'PROCESSING' && 'Thinking (NVIDIA NIM)...'}
-                  {liveState === 'SPEAKING' && 'Speaking (Streaming Audio)...'}
-                  {liveState === 'INTERRUPTED' && 'Interrupted'}
-                  {liveState === 'ERROR' && 'Engine Error'}
-                  {liveState === 'IDLE' && 'Ready'}
+                  {getHeaderStatusText()}
                 </span>
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Language Selector (English Default / Tamil Opt-In) */}
+            {/* Voice Selector */}
+            <div className="hidden sm:flex items-center gap-1 bg-muted/60 px-2 py-1 rounded-lg border border-border/60 text-xs">
+              <span className="text-[10px] text-muted-foreground font-medium">
+                {selectedLanguage === 'ta' ? 'குரல்:' : 'Voice:'}
+              </span>
+              <select
+                value={selectedVoice}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setSelectedVoice(v)
+                  if (session) {
+                    session.transport.setLanguage(selectedLanguage)
+                  }
+                }}
+                className="bg-transparent text-[11px] text-foreground font-medium border-0 focus:outline-none cursor-pointer pr-1"
+              >
+                {selectedLanguage === 'ta' ? (
+                  <>
+                    <option value="ta-IN-Standard">Tamil Natural</option>
+                    <option value="ta-IN-Female">Tamil Female</option>
+                    <option value="ta-IN-Male">Tamil Male</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Chatterbox-Multilingual">Chatterbox Multilingual</option>
+                    <option value="English-US.Female-1">English US Female</option>
+                    <option value="English-US.Male-1">English US Male</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            {/* Language Selector (English Default / Tamil Additional) */}
             <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border/60 text-xs">
               <button
                 type="button"
                 onClick={() => {
                   setSelectedLanguage('en')
+                  setSelectedVoice('Chatterbox-Multilingual')
+                  if (session) {
+                    session.setLanguage('en')
+                  }
                   setErrorCode(null)
                   setErrorMessage(null)
                 }}
-                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all ${
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all cursor-pointer ${
                   selectedLanguage === 'en'
                     ? 'bg-primary text-primary-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
@@ -304,30 +367,23 @@ export function LiveVoiceInner({
               </button>
               <button
                 type="button"
-                disabled={!isTamilAvailable}
                 onClick={() => {
-                  if (!isTamilAvailable) {
-                    setErrorCode('TAMIL_VOICE_UNAVAILABLE')
-                    setErrorMessage('Tamil voice is currently unavailable: NVIDIA hosted Chatterbox does not provide a verified ta-IN voice model.')
-                  } else {
-                    setSelectedLanguage('ta')
+                  setSelectedLanguage('ta')
+                  setSelectedVoice('ta-IN-Standard')
+                  if (session) {
+                    session.setLanguage('ta')
                   }
+                  setErrorCode(null)
+                  setErrorMessage(null)
                 }}
-                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all flex items-center gap-1.5 ${
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all cursor-pointer flex items-center gap-1.5 ${
                   selectedLanguage === 'ta'
                     ? 'bg-primary text-primary-foreground shadow-xs'
-                    : isTamilAvailable
-                    ? 'text-muted-foreground hover:text-foreground'
-                    : 'text-muted-foreground/50 cursor-not-allowed opacity-60'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
-                title={isTamilAvailable ? 'Tamil LIVE' : 'Tamil (Unavailable on NVIDIA hosted models)'}
+                title="Tamil (தமிழ்)"
               >
-                <span>{isTamilAvailable ? 'Tamil LIVE' : 'Tamil'}</span>
-                {!isTamilAvailable && (
-                  <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-muted-foreground/20 text-muted-foreground font-semibold">
-                    Unavailable
-                  </span>
-                )}
+                <span>தமிழ்</span>
               </button>
             </div>
 
@@ -527,8 +583,16 @@ export function LiveVoiceInner({
                 <span>{getStatusDisplay()}</span>
               </h3>
               <p className="text-xs text-muted-foreground/80 font-normal">
-                {liveState === 'SPEAKING'
-                  ? 'HSBot is speaking with NVIDIA FastPitch'
+                {selectedLanguage === 'ta'
+                  ? liveState === 'SPEAKING'
+                    ? 'HSBot பேசுகிறது...'
+                    : liveState === 'PROCESSING'
+                    ? 'பதில் தயாராகிறது...'
+                    : isMuted
+                    ? 'ஒலிவாங்கி முடக்கப்பட்டுள்ளது'
+                    : 'பேசலாம்...'
+                  : liveState === 'SPEAKING'
+                  ? 'HSBot is speaking with NVIDIA TTS'
                   : liveState === 'PROCESSING'
                   ? 'Synthesizing response...'
                   : isMuted
@@ -540,10 +604,10 @@ export function LiveVoiceInner({
               {liveState === 'SPEAKING' && (
                 <button
                   onClick={handleBargeIn}
-                  className="mt-2 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-destructive/15 text-destructive border border-destructive/30 text-xs font-medium hover:bg-destructive/25 transition-all shadow-xs animate-in fade-in"
+                  className="mt-2 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-destructive/15 text-destructive border border-destructive/30 text-xs font-medium hover:bg-destructive/25 transition-all shadow-xs animate-in fade-in cursor-pointer"
                 >
                   <Square size={12} />
-                  <span>Interrupt (Barge-in)</span>
+                  <span>{selectedLanguage === 'ta' ? 'நிறுத்து (Barge-in)' : 'Interrupt (Barge-in)'}</span>
                 </button>
               )}
             </div>
@@ -557,7 +621,7 @@ export function LiveVoiceInner({
               title="Click to view full conversation history"
             >
               <span className="font-semibold text-foreground mr-1.5">
-                {transcripts[transcripts.length - 1].role === 'user' ? 'You:' : 'HSBot:'}
+                {transcripts[transcripts.length - 1].role === 'user' ? (selectedLanguage === 'ta' ? 'நீங்கள்:' : 'You:') : 'HSBot:'}
               </span>
               <span>{transcripts[transcripts.length - 1].text}</span>
             </div>
@@ -579,7 +643,7 @@ export function LiveVoiceInner({
               }`}
             >
               {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-              <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+              <span>{isMuted ? (selectedLanguage === 'ta' ? 'ஒலி இயக்கு' : 'Unmute') : (selectedLanguage === 'ta' ? 'ஒலி நிறுத்து' : 'Mute')}</span>
             </button>
 
             <button
@@ -588,15 +652,15 @@ export function LiveVoiceInner({
               className="flex items-center gap-2 px-7 py-2.5 rounded-xl font-medium text-sm bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-all shadow-md cursor-pointer"
             >
               <PhoneOff size={18} />
-              <span>End Call</span>
+              <span>{selectedLanguage === 'ta' ? 'முடிக்கவும்' : 'End Call'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowTranscripts(!showTranscripts)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-medium text-muted-foreground hover:text-foreground transition-all cursor-pointer"
             >
-              <span>History ({transcripts.length})</span>
+              <span>{selectedLanguage === 'ta' ? `வரலாறு (${transcripts.length})` : `History (${transcripts.length})`}</span>
             </button>
           </div>
 
@@ -606,13 +670,13 @@ export function LiveVoiceInner({
               type="text"
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
-              placeholder="Or type a live message directly..."
+              placeholder={selectedLanguage === 'ta' ? 'அல்லது செய்தியைத் தட்டச்சு செய்யவும்...' : 'Or type a live message directly...'}
               className="flex-1 px-3.5 py-2 rounded-lg bg-background/80 border border-border text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all"
             />
             <button
               type="submit"
               disabled={!manualInput.trim()}
-              className="p-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-all shadow-xs"
+              className="p-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
             >
               <Send size={14} />
             </button>

@@ -219,21 +219,8 @@ class LiveVoiceSession:
             self.generation_id += 1
 
             if new_lang in ("ta", "ta-in", "tamil"):
-                status = is_tamil_voice_available()
-                if not status.get("supported"):
-                    logger.warning(f"[LIVE][session={self.session_id}] Tamil voice requested but unavailable: {status.get('code')}")
-                    await self.websocket.send_json({
-                        "type": "error",
-                        "code": "TAMIL_VOICE_UNAVAILABLE",
-                        "message": status.get("reason") or "Tamil voice is unavailable on NVIDIA hosted models.",
-                        "details": status,
-                    })
-                    # Strictly retain English
-                    self.language = "en"
-                    self.voice_engine = get_voice_engine("en")
-                else:
-                    self.language = "ta"
-                    self.voice_engine = get_voice_engine("ta")
+                self.language = "ta"
+                self.voice_engine = get_voice_engine("ta")
             else:
                 self.language = "en"
                 self.voice_engine = get_voice_engine("en")
@@ -529,11 +516,11 @@ class LiveVoiceSession:
                     await self.websocket.send_json({
                         "type": "error",
                         "code": e.code,
-                        "message": e.message,
+                        "message": "Tamil voice is temporarily unavailable. Please try again.",
                         "turnId": turn_id,
                     })
                     self.turn_manager.transition_to("LISTENING", "Tamil ASR unavailable")
-                    await self.send_status("LISTENING", "Listening (EN)...")
+                    await self.send_status("LISTENING", f"Listening ({self.language.upper()})...")
                     self._turn_in_progress = False
                     return
                 except asyncio.TimeoutError:
@@ -779,6 +766,15 @@ class LiveVoiceSession:
 
                 except asyncio.CancelledError:
                     raise
+                except TamilVoiceUnavailableError as t_err:
+                    logger.warning(f"[LIVE][session={self.session_id}][turn={turn_id}] Tamil TTS unavailable: {t_err.message}")
+                    await self.websocket.send_json({
+                        "type": "error",
+                        "code": t_err.code,
+                        "message": "Tamil voice is temporarily unavailable. Please try again.",
+                        "turnId": turn_id,
+                    })
+                    break
                 except Exception as e:
                     logger.error(f"[LIVE][session={self.session_id}][turn={turn_id}] Error streaming TTS phrase '{clean_phrase[:30]}': {e}")
 

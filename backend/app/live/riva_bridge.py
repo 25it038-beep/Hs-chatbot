@@ -136,7 +136,15 @@ class PersistentRivaBridge:
         self._proc.stdin.write(line.encode('utf-8'))
         await self._proc.stdin.drain()
 
-    async def transcribe(self, pcm_bytes: bytes, sample_rate: int = 16000, timeout: float = 8.0) -> str:
+    async def transcribe(
+        self,
+        pcm_bytes: bytes,
+        sample_rate: int = 16000,
+        language_code: str = 'en-US',
+        function_id: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout: float = 8.0,
+    ) -> str:
         if not pcm_bytes:
             return ''
 
@@ -148,13 +156,20 @@ class PersistentRivaBridge:
         fut = loop.create_future()
         self._pending_asr[req_id] = fut
 
+        payload = {
+            'action': 'asr',
+            'id': req_id,
+            'audio': audio_b64,
+            'sample_rate': sample_rate,
+            'language_code': language_code,
+        }
+        if function_id:
+            payload['function_id'] = function_id
+        if model:
+            payload['model'] = model
+
         try:
-            await self._send_json({
-                'action': 'asr',
-                'id': req_id,
-                'audio': audio_b64,
-                'sample_rate': sample_rate,
-            })
+            await self._send_json(payload)
             return await asyncio.wait_for(fut, timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning(f'ASR request {req_id} timed out after {timeout}s')
@@ -171,6 +186,8 @@ class PersistentRivaBridge:
         text: str,
         voice: str = 'Chatterbox-Multilingual',
         sample_rate: int = 24000,
+        language_code: str = 'en-US',
+        function_id: Optional[str] = None,
         timeout: float = 12.0
     ) -> AsyncGenerator[bytes, None]:
         clean_text = text.strip()
@@ -182,14 +199,19 @@ class PersistentRivaBridge:
         q = asyncio.Queue()
         self._pending_tts_queues[req_id] = q
 
+        tts_req = {
+            'action': 'tts_stream',
+            'id': req_id,
+            'text': clean_text,
+            'voice': voice,
+            'sample_rate': sample_rate,
+            'language_code': language_code,
+        }
+        if function_id:
+            tts_req['function_id'] = function_id
+
         try:
-            await self._send_json({
-                'action': 'tts_stream',
-                'id': req_id,
-                'text': clean_text,
-                'voice': voice,
-                'sample_rate': sample_rate,
-            })
+            await self._send_json(tts_req)
 
             while True:
                 try:

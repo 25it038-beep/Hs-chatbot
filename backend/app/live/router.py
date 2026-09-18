@@ -87,6 +87,8 @@ async def live_languages():
         "languages": [
             {
                 "code": "en",
+                "name": "English",
+                "native_name": "English",
                 "label": "English",
                 "supported": True,
                 "default": True,
@@ -95,26 +97,38 @@ async def live_languages():
             },
             {
                 "code": "ta",
-                "label": "Tamil",
+                "name": "Tamil",
+                "native_name": "தமிழ்",
+                "label": "தமிழ்",
                 "supported": bool(tamil_status["supported"]),
                 "default": False,
                 "reason": tamil_status.get("reason"),
-                "voice": tamil_status.get("tts_voice", "UNAVAILABLE"),
-                "asr_model": tamil_status.get("asr_model"),
+                "voice": tamil_status.get("tts_voice", "ta-IN-Standard"),
+                "asr_model": tamil_status.get("asr_model", "whisper-large-v3"),
             },
         ],
     }
 
 
 @router.get("/voices")
-async def live_voices():
-    """Returns available voices supported by NVIDIA Riva TTS."""
+async def live_voices(language: Optional[str] = None):
+    """Returns available voices supported by Live Voice providers."""
+    if language and language.lower() in ("ta", "ta-in", "tamil"):
+        return {
+            "language": "ta",
+            "voices": [
+                {"id": "ta-IN-Standard", "name": "Tamil Natural", "language": "ta-IN", "default": True},
+                {"id": "ta-IN-Female", "name": "Tamil Female", "language": "ta-IN", "default": False},
+                {"id": "ta-IN-Male", "name": "Tamil Male", "language": "ta-IN", "default": False},
+            ],
+        }
     return {
+        "language": "en",
         "voices": [
-            {"id": "English-US.Female-1", "name": "English US (Female - FastPitch)", "language": "en-US", "default": True},
-            {"id": "Chatterbox-Multilingual", "name": "Chatterbox Multilingual", "language": "en-US", "default": False},
+            {"id": "Chatterbox-Multilingual", "name": "Chatterbox Multilingual", "language": "en-US", "default": True},
+            {"id": "English-US.Female-1", "name": "English US (Female - FastPitch)", "language": "en-US", "default": False},
             {"id": "English-US.Male-1", "name": "English US (Male)", "language": "en-US", "default": False},
-        ]
+        ],
     }
 
 

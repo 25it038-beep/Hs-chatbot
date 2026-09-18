@@ -70,6 +70,15 @@ NVIDIA_MODELS = {
         "default_temp": 0.2,
         "supports_thinking": True,
     },
+    # Best dedicated code model on NVIDIA — Mistral's code specialist
+    "codestral": {
+        "id": "mistralai/codestral-22b-instruct-v0.1",
+        "name": "Codestral 22B",
+        "type": "coding",
+        "capabilities": ["chat", "streaming", "code", "json"],
+        "max_tokens": 32768,
+        "default_temp": 0.2,
+    },
     # Vision
     "nemotron-vl": {
         "id": "nvidia/nemotron-nano-12b-v2-vl",
@@ -129,12 +138,14 @@ TASK_ROUTES = {
         "fallback": ["llama-3.2-vision"],
     },
     "coding": {
-        "default": "llama-3.2-11b",
-        "fallback": ["llama-3.2-vision"],
+        # codestral: Mistral's dedicated 22B code model — 32k context, low temp
+        # Fallback: glm-coder (GLM 5.2 with thinking) → llama-3.2-11b as last resort
+        "default": "codestral",
+        "fallback": ["glm-coder", "llama-3.2-11b"],
     },
     "reasoning": {
-        "default": "llama-3.2-11b",
-        "fallback": ["llama-3.2-vision"],
+        "default": "glm-5.2",
+        "fallback": ["llama-3.2-11b"],
     },
     "vision": {
         "default": "llama-3.2-vision",

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     nvidia_api_keys: str = os.getenv("NVIDIA_API_KEYS") or os.getenv("NVIDIA_API_KEY") or ""
     nvidia_default_chat_model: str = "llama-3.2-11b"
-    nvidia_default_code_model: str = "glm-5.2"
+    nvidia_default_code_model: str = "codestral"       # Mistral Codestral 22B — best code model on NVIDIA
     nvidia_default_vision_model: str = "llama-3.2-vision"
     nvidia_default_image_model: str = "flux-1-dev"
     nvidia_default_embed_model: str = "nv-embed-v1"
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
 
     sambanova_api_key: Optional[str] = None
     sambanova_base_url: str = "https://api.sambanova.ai/v1"
-    sambanova_default_model: str = "Meta-Llama-3.3-70B-Instruct"
+    sambanova_default_model: str = "DeepSeek-V3.2"     # ~4s, fast default per AGENTS.md
 
     cloudflare_gateway_api_key: Optional[str] = None
     cloudflare_gateway_account_id: str = "21e5f9f23e1d60cb56bf1200e89255f3"

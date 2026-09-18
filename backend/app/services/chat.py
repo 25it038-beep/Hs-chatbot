@@ -242,6 +242,30 @@ class ChatService:
         if url_context:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
+        # Web site / project intent detection
+        is_web_project_request = any(
+            re.search(pat, request.message.lower())
+            for pat in [
+                r"\b(create|build|make|generate|code|design)\s+(a\s+)?(website|site|landing\s*page|web\s*app|portfolio|webpage|web\s*page|frontend|web\s*project)\b",
+                r"\b(website|site|landing\s*page|web\s*app|portfolio)\s+(project|template|scaffold)\b",
+                r"\b(html|css|javascript)\s+(site|website|project)\b",
+            ]
+        )
+        if is_web_project_request:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "CRITICAL PROJECT DELIVERY REQUIREMENT:\n"
+                "The user has asked to create or build a website/site project. "
+                "You MUST deliver the ENTIRE, COMPLETE multi-file project workspace — never just a fragment, partial snippet, or single file. "
+                "Structure your response with clear headings and output each individual file in its own markdown code block with the exact filename in a comment on line 1:\n"
+                "1. `index.html`: Fully semantic HTML5 with responsive viewport, metadata, Google Fonts / Tailwind CDN, header, nav, hero, feature/content sections, interactive elements, and footer.\n"
+                "2. `styles.css`: Complete modern CSS with CSS variables, responsive breakpoints, smooth transitions, and polished styling.\n"
+                "3. `script.js`: Complete interactive JavaScript (navigation toggle, event handlers, interactive states, modals, zero stubs).\n"
+                "4. `package.json`: Valid project manifest with start/dev scripts.\n"
+                "5. `README.md`: Clear setup and running instructions.\n"
+                "Provide all code completely with zero truncated sections or placeholder comments."
+            )
+
         # Document generation intent detection
         from app.services.document_service import document_service
         from app.models.file import GeneratedFile
@@ -741,6 +765,73 @@ class ChatService:
                 if full_content:
                     latency = (time.time() - start) * 1000
                     user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+                    
+                    # Check if response generated web site files to bundle as an artifact ZIP
+                    extra_data = None
+                    try:
+                        import tempfile
+                        from pathlib import Path
+                        from app.services.artifacts.engine import artifact_engine
+
+                        code_blocks = re.findall(r'```([a-zA-Z0-9_\.\-]+)?\s*\n([\s\S]*?)```', full_content)
+                        found_files = []
+                        for lang, code in code_blocks:
+                            c = code.strip()
+                            if not c:
+                                continue
+                            fname = ""
+                            first_line = c.split("\n")[0].strip()
+                            m = re.match(r'(?:<!--|\/\*|\/\/|#)\s*([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)', first_line)
+                            if m:
+                                fname = m.group(1).strip()
+                            elif lang and lang.lower() == "html" or "<!doctype" in c.lower() or "<html" in c.lower():
+                                fname = "index.html"
+                            elif lang and lang.lower() == "css":
+                                fname = "styles.css"
+                            elif lang and lang.lower() in ("js", "javascript", "ts", "typescript"):
+                                fname = "script.js"
+                            elif lang and lang.lower() == "json":
+                                fname = "package.json"
+                            elif lang and lang.lower() in ("md", "markdown"):
+                                fname = "README.md"
+
+                            if fname:
+                                found_files.append({"path": fname, "content": c})
+
+                        if any(f["path"].endswith(".html") for f in found_files):
+                            with tempfile.TemporaryDirectory() as tmpdir:
+                                for f in found_files:
+                                    tp = Path(tmpdir) / f["path"]
+                                    tp.parent.mkdir(parents=True, exist_ok=True)
+                                    tp.write_text(f["content"], encoding="utf-8")
+
+                                if not (Path(tmpdir) / "index.html").exists():
+                                    html_f = next(f for f in found_files if f["path"].endswith(".html"))
+                                    (Path(tmpdir) / "index.html").write_text(html_f["content"], encoding="utf-8")
+
+                                zip_res = artifact_engine.create_zip_project(
+                                    workspace_dir=tmpdir,
+                                    zip_filename="website-project.zip",
+                                    chat_id=str(chat_id),
+                                    user_id=str(user_id) if user_id else None
+                                )
+                                if zip_res.get("success"):
+                                    art = zip_res["artifact"]
+                                    extra_data = {
+                                        "attachments": [{
+                                            "id": art["id"],
+                                            "name": art["filename"],
+                                            "filename": art["filename"],
+                                            "url": art["download_url"],
+                                            "size": art.get("file_size", 0),
+                                            "type": "application/zip",
+                                            "preview_type": "zip",
+                                            "artifact_id": art["id"],
+                                        }]
+                                    }
+                    except Exception as e:
+                        _logger.warning("Failed to auto-package website project zip: %s", e)
+
                     assistant_msg = Message(
                         chat_id=chat_id,
                         role="assistant",
@@ -750,6 +841,7 @@ class ChatService:
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         latency_ms=latency,
+                        extra_data=extra_data,
                     )
                     self.db.add(user_msg)
                     self.db.add(assistant_msg)
@@ -801,6 +893,72 @@ class ChatService:
                     )
                     return
             user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+            extra_data = None
+            if response.content:
+                try:
+                    import tempfile
+                    from pathlib import Path
+                    from app.services.artifacts.engine import artifact_engine
+
+                    code_blocks = re.findall(r'```([a-zA-Z0-9_\.\-]+)?\s*\n([\s\S]*?)```', response.content)
+                    found_files = []
+                    for lang, code in code_blocks:
+                        c = code.strip()
+                        if not c:
+                            continue
+                        fname = ""
+                        first_line = c.split("\n")[0].strip()
+                        m = re.match(r'(?:<!--|\/\*|\/\/|#)\s*([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)', first_line)
+                        if m:
+                            fname = m.group(1).strip()
+                        elif lang and lang.lower() == "html" or "<!doctype" in c.lower() or "<html" in c.lower():
+                            fname = "index.html"
+                        elif lang and lang.lower() == "css":
+                            fname = "styles.css"
+                        elif lang and lang.lower() in ("js", "javascript", "ts", "typescript"):
+                            fname = "script.js"
+                        elif lang and lang.lower() == "json":
+                            fname = "package.json"
+                        elif lang and lang.lower() in ("md", "markdown"):
+                            fname = "README.md"
+
+                        if fname:
+                            found_files.append({"path": fname, "content": c})
+
+                    if any(f["path"].endswith(".html") for f in found_files):
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            for f in found_files:
+                                tp = Path(tmpdir) / f["path"]
+                                tp.parent.mkdir(parents=True, exist_ok=True)
+                                tp.write_text(f["content"], encoding="utf-8")
+
+                            if not (Path(tmpdir) / "index.html").exists():
+                                html_f = next(f for f in found_files if f["path"].endswith(".html"))
+                                (Path(tmpdir) / "index.html").write_text(html_f["content"], encoding="utf-8")
+
+                            zip_res = artifact_engine.create_zip_project(
+                                workspace_dir=tmpdir,
+                                zip_filename="website-project.zip",
+                                chat_id=str(chat_id),
+                                user_id=str(user_id) if user_id else None
+                            )
+                            if zip_res.get("success"):
+                                art = zip_res["artifact"]
+                                extra_data = {
+                                    "attachments": [{
+                                        "id": art["id"],
+                                        "name": art["filename"],
+                                        "filename": art["filename"],
+                                        "url": art["download_url"],
+                                        "size": art.get("file_size", 0),
+                                        "type": "application/zip",
+                                        "preview_type": "zip",
+                                        "artifact_id": art["id"],
+                                    }]
+                                }
+                except Exception as e:
+                    _logger.warning("Failed to auto-package website project zip in non-stream: %s", e)
+
             assistant_msg = Message(
                 chat_id=chat_id,
                 role="assistant",
@@ -810,6 +968,7 @@ class ChatService:
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 latency_ms=response.latency_ms,
+                extra_data=extra_data,
             )
             self.db.add(user_msg)
             self.db.add(assistant_msg)

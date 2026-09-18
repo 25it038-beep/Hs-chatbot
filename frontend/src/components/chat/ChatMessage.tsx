@@ -6,6 +6,8 @@ import type { Message, Attachment } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
 import { FileAttachmentCard } from './FileAttachmentCard'
 import { useVoiceStore } from '@/lib/speech'
+import { extractWebProject } from '@/lib/webProject'
+import { WebProjectCard } from './WebProjectCard'
 
 
 interface ChatMessageProps {
@@ -56,6 +58,11 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
   const { isSpeaking, speakingMessageId, speakText, stopSpeaking, synthesisSupported } = useVoiceStore()
   const isThisSpeaking = isSpeaking && speakingMessageId === message.id
 
+  const webProject = React.useMemo(() => {
+    if (isUser || isStreaming || !message.content) return null
+    return extractWebProject(message.content)
+  }, [isUser, isStreaming, message.content])
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content)
     setCopied(true)
@@ -104,6 +111,9 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
         ) : (
           <div className="min-w-0">
             <MarkdownRenderer content={message.content} allowImages={showImages} />
+            {webProject && (
+              <WebProjectCard project={webProject} messageId={message.id} />
+            )}
             {(() => {
               const atts: Attachment[] =
                 message.attachments ||

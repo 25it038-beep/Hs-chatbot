@@ -79,7 +79,7 @@ export class LiveVoiceSession {
     try {
       await this.transport.connect(this.engine)
       await this.audio.startMicrophone()
-      if (this.state !== 'ERROR' && this.state !== 'SPEAKING' && !this.audio.isPlaybackActive) {
+      if (this.state !== 'ERROR') {
         this.setState('LISTENING')
       }
     } catch (err: any) {
@@ -116,13 +116,6 @@ export class LiveVoiceSession {
     } else {
       this.transport.connect(newEngine)
     }
-  }
-
-  /**
-   * Sets active language on the backend session without disconnecting.
-   */
-  public setLanguage(language: string): void {
-    this.transport.setLanguage(language)
   }
 
   /**

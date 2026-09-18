@@ -1,6 +1,6 @@
 {
   "name": "HSBot AI Assistant",
-  "description": "Multi-provider AI chat assistant with RAG and NVIDIA-powered Live Voice",
+  "description": "Multi-provider AI chat assistant with autonomous software engineering agent, RAG, and universal artifact engine",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

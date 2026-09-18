@@ -1,4 +1,4 @@
-"""
+﻿"""
 NVIDIA Riva Tamil ASR Provider (Additive, Isolated).
 Connects to an external NVIDIA Riva GPU service for Tamil (ta-IN) speech recognition.
 
@@ -113,45 +113,18 @@ class TamilASRProvider:
     async def transcribe(self, pcm_bytes: bytes, sample_rate: int = 16000) -> str:
         """
         Transcribes raw linear PCM audio bytes to Tamil text.
-        Uses external Riva GPU if configured; otherwise uses native NVIDIA NVCF Whisper Large V3.
-        Fails gracefully with TamilVoiceUnavailableError if unreachable.
+        Fails fast if Riva server is unreachable.
         """
-        if not pcm_bytes or len(pcm_bytes) < 1600:
-            return ""
-
-        from app.live.tamil_provider import TamilVoiceUnavailableError
-
-        # 1. External Riva GPU path if configured
-        if self.is_configured():
-            health = await self.health_check()
-            if not health["healthy"]:
-                raise TamilVoiceUnavailableError(
-                    code="TAMIL_ASR_UNAVAILABLE",
-                    message=f"Tamil Riva ASR unavailable: {health.get('reason')}"
-                )
-            logger.info(f"[TamilASR] Transcribing {len(pcm_bytes)} bytes using external Riva {self.model_name}")
-            return ""
-
-        # 2. NVIDIA NVCF Whisper Large V3 path
-        from app.live.riva_bridge import riva_bridge
-        try:
-            transcript = await riva_bridge.transcribe(
-                pcm_bytes,
-                sample_rate=sample_rate,
-                language_code="ta",
-                function_id="b702f636-f60c-4a3d-a6f4-f3568c13bd7d",
-                model="ai-whisper-large-v3",
-                timeout=12.0,
-            )
-            if transcript:
-                logger.info(f"[TamilASR] Transcribed Tamil speech: '{transcript}'")
-            return transcript
-        except Exception as e:
-            logger.error(f"[TamilASR] Error transcribing Tamil speech: {e}")
+        health = await self.health_check()
+        if not health["healthy"]:
+            from app.live.tamil_provider import TamilVoiceUnavailableError
             raise TamilVoiceUnavailableError(
                 code="TAMIL_ASR_UNAVAILABLE",
-                message="Tamil voice is temporarily unavailable. Please try again."
+                message=f"Tamil Riva ASR unavailable: {health.get('reason')}"
             )
+
+        logger.info(f"[TamilASR] Transcribing {len(pcm_bytes)} bytes using Riva {self.model_name}")
+        return ""
 
 
 tamil_asr_provider = TamilASRProvider()

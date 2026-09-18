@@ -4,7 +4,7 @@ import { useTheme } from '@/components/theme/ThemeProvider'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio
+  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio, MessageSquare, Bot
 } from 'lucide-react'
 import { isTauri } from '@/lib/tauri'
 import { useChat } from '@/stores/chat'
@@ -31,7 +31,7 @@ function ClerkUserAvatar() {
 }
 
 export function Header() {
-  const { sidebarOpen, toggleSidebar, toggleSettings } = useSettings()
+  const { sidebarOpen, toggleSidebar, toggleSettings, appMode, setAppMode } = useSettings()
   const { setLiveOpen } = useChat()
   const { theme, setTheme } = useTheme()
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
@@ -41,7 +41,7 @@ export function Header() {
   return (
     <>
       <header className="flex items-center justify-between px-3 md:px-5 h-12 border-b border-border bg-background relative z-10">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           {!sidebarOpen && (
             <Button
               variant="ghost"
@@ -59,10 +59,33 @@ export function Header() {
               <span className="tracking-tight font-semibold text-sm">HSBot</span>
             </span>
           )}
-          <span className="hidden xs:inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 bg-muted/60 px-2 py-0.5 rounded-full border border-border">
-            <Sparkles size={9} />
-            <span className="truncate">Auto-Router</span>
-          </span>
+
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-muted/60 p-0.5 rounded-lg border border-border">
+            <button
+              onClick={() => setAppMode('chat')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                appMode === 'chat'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <MessageSquare size={12} />
+              <span>Chat</span>
+            </button>
+            <button
+              onClick={() => setAppMode('agent')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                appMode === 'agent'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Bot size={12} />
+              <span>Agent Mode</span>
+              <span className="hidden sm:inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">

@@ -87,7 +87,6 @@ async def handle_live_websocket(
                     "state": "LISTENING",
                     "message": "NVIDIA Riva Live is ready. Start speaking.",
                 })
-                asyncio.create_task(session_cascaded.send_greeting())
             except Exception as bridge_err:
                 logger.error(f"[LIVE_WS] Failed to initialize cascaded session: {bridge_err}", exc_info=True)
                 await websocket.send_json({
@@ -175,7 +174,7 @@ async def handle_live_websocket(
                     session_cascaded = LiveVoiceSession(session_id, websocket)
 
                 # Route message to cascaded session handler
-                if msg_type in ("audio_chunk", "audio"):
+                if msg_type == "audio_chunk":
                     chunk_b64 = msg.get("data") or msg.get("audio") or ""
                     if chunk_b64:
                         import base64
@@ -190,20 +189,14 @@ async def handle_live_websocket(
                     if turn_text:
                         asyncio.create_task(session_cascaded.execute_turn(text=turn_text))
 
-                elif msg_type in ("audio_end", "commit_turn"):
+                elif msg_type == "audio_end":
                     asyncio.create_task(session_cascaded.finalize_user_speech())
 
                 elif msg_type == "interrupt":
                     await session_cascaded.interrupt()
 
-                elif msg_type == "set_language":
-                    await session_cascaded.handle_message(raw_msg)
-
                 elif msg_type == "config":
-                    await session_cascaded.handle_message(raw_msg)
-
-                else:
-                    await session_cascaded.handle_message(raw_msg)
+                    session_cascaded.config.update(msg.get("config", {}))
 
             elif engine == "nemotron_voicechat":
                 # Primary Nemotron VoiceChat S2S

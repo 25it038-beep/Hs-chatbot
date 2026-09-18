@@ -7,7 +7,7 @@
   ],
   "description": "HSBot Multi-provider AI Assistant Workspace",
   "scripts": {
-    "build": "npm --prefix frontend run build",
+    "build": "npm --prefix frontend run build && rm -rf dist && cp -r frontend/dist dist",
     "dev": "npm --prefix frontend run dev",
     "lint": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview"
@@ -16,6 +16,11 @@
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
     "@types/ws": "^8.18.1",
+    "jszip": "^3.10.2",
+    "katex": "^0.18.7",
     "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/jszip": "^3.4.1"
   }
 }

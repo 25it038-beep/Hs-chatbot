@@ -71,10 +71,10 @@ try {
 const activeCalls = new Map();
 
 function handleTtsStream(req) {
-  const { id, text, voice = 'Chatterbox-Multilingual', sample_rate = 24000, language_code = 'en-US', function_id } = req;
+  const { id, text, voice = 'Chatterbox-Multilingual', sample_rate = 24000 } = req;
   const meta = new grpc.Metadata();
   meta.add('authorization', 'Bearer ' + DEFAULT_KEY);
-  meta.add('function-id', function_id || FUNCTION_TTS);
+  meta.add('function-id', FUNCTION_TTS);
 
   const t0 = Date.now();
   let chunkCount = 0;
@@ -109,10 +109,10 @@ function handleTtsStream(req) {
 
     call.write({
       text: text,
-      language_code: language_code || 'en-US',
+      language_code: 'en-US',
       encoding: 'LINEAR_PCM',
       sample_rate_hz: sample_rate,
-      voice_name: voice || 'Chatterbox-Multilingual',
+      voice_name: 'Chatterbox-Multilingual',
     });
     call.end();
   } catch (err) {
@@ -122,15 +122,10 @@ function handleTtsStream(req) {
 }
 
 function handleAsr(req) {
-  const { id, audio, sample_rate = 16000, language_code = 'en-US', function_id, model } = req;
-  const isTamil = language_code === 'ta' || language_code === 'ta-IN' || language_code === 'tamil';
-  const targetFunctionId = function_id || (isTamil ? 'b702f636-f60c-4a3d-a6f4-f3568c13bd7d' : FUNCTION_ASR);
-  const targetLangCode = isTamil ? 'ta' : (language_code || 'en-US');
-  const targetModel = model || (isTamil ? 'ai-whisper-large-v3' : 'parakeet-tdt-0.6b-en-US-asr-offline');
-
+  const { id, audio, sample_rate = 16000 } = req;
   const meta = new grpc.Metadata();
   meta.add('authorization', 'Bearer ' + DEFAULT_KEY);
-  meta.add('function-id', targetFunctionId);
+  meta.add('function-id', FUNCTION_ASR);
 
   const t0 = Date.now();
   const audioBuffer = Buffer.from(audio, 'base64');
@@ -140,9 +135,9 @@ function handleAsr(req) {
       config: {
         encoding: 'LINEAR_PCM',
         sample_rate_hertz: sample_rate,
-        language_code: targetLangCode,
+        language_code: 'en-US',
         max_alternatives: 1,
-        model: targetModel,
+        model: 'parakeet-tdt-0.6b-en-US-asr-offline',
       },
       audio: audioBuffer,
     },

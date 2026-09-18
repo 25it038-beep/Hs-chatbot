@@ -8,13 +8,17 @@ import 'katex/dist/katex.min.css'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { cn } from '@/lib/utils'
-import { Copy, Check, Terminal } from 'lucide-react'
+import { Copy, Check, Terminal, Eye, Code as CodeIcon, Download } from 'lucide-react'
+import { saveAs } from 'file-saver'
 
 function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLElement>) {
   const [copied, setCopied] = React.useState(false)
+  const [activeTab, setActiveTab] = React.useState<'code' | 'preview'>('code')
   const match = /language-(\w+)/.exec(className || '')
   const language = match ? match[1] : ''
   const code = String(children).replace(/\n$/, '')
+
+  const isHtml = language === 'html' || code.includes('<!DOCTYPE') || code.includes('<html')
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(code)
@@ -22,7 +26,14 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (match) {
+  const handleDownloadFile = () => {
+    const ext = language === 'html' ? 'html' : language === 'css' ? 'css' : language === 'javascript' || language === 'js' ? 'js' : 'txt'
+    const fileName = language === 'html' ? 'index.html' : `file.${ext}`
+    const blob = new Blob([code], { type: ext === 'html' ? 'text/html' : 'text/plain' })
+    saveAs(blob, fileName)
+  }
+
+  if (match || isHtml) {
     return (
       <div className="relative group rounded-xl overflow-hidden my-3 sm:my-4 border border-border/50 shadow-md max-w-full">
         <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-[#282c34] border-b border-black/40">
@@ -34,29 +45,87 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
             </span>
             <span className="flex items-center gap-1.5 text-xs font-medium text-[#abb2bf]">
               <Terminal size={12} />
-              {language}
+              {language || (isHtml ? 'html' : 'code')}
             </span>
+
+            {/* If HTML, offer Code vs Live Preview switch */}
+            {isHtml && (
+              <div className="ml-2 flex items-center bg-black/30 rounded-lg p-0.5 border border-white/5">
+                <button
+                  onClick={() => setActiveTab('code')}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-all ${
+                    activeTab === 'code' ? 'bg-primary text-white shadow-xs' : 'text-[#abb2bf] hover:text-white'
+                  }`}
+                  title="View Source Code"
+                >
+                  <CodeIcon size={11} />
+                  <span>Code</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('preview')}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-all ${
+                    activeTab === 'preview' ? 'bg-indigo-600 text-white shadow-xs' : 'text-[#abb2bf] hover:text-white'
+                  }`}
+                  title="Interactive Live Preview"
+                >
+                  <Eye size={11} />
+                  <span>Live Preview</span>
+                </button>
+              </div>
+            )}
           </div>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 text-xs text-[#abb2bf] hover:text-white hover:bg-white/10 px-2 py-1 rounded-lg transition-all"
-            aria-label={`Copy ${language || 'code'}`}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
+
+          <div className="flex items-center gap-1.5">
+            {isHtml && (
+              <button
+                onClick={handleDownloadFile}
+                className="flex items-center gap-1 text-xs text-[#abb2bf] hover:text-white hover:bg-white/10 px-2 py-1 rounded-lg transition-all"
+                title="Download HTML file"
+                aria-label="Download HTML file"
+              >
+                <Download size={12} />
+                <span className="hidden xs:inline">Save</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 text-xs text-[#abb2bf] hover:text-white hover:bg-white/10 px-2 py-1 rounded-lg transition-all"
+              aria-label={`Copy ${language || 'code'}`}
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         </div>
-        <div className="overflow-x-auto scrollbar-thin max-w-full">
-          <SyntaxHighlighter
-            style={oneDark}
-            language={language}
-            PreTag="div"
-            customStyle={{ margin: 0, borderRadius: 0, fontSize: '0.8125rem', lineHeight: 1.6, backgroundColor: '#282c34' }}
-            showLineNumbers={code.split('\n').length > 3}
-          >
-            {code}
-          </SyntaxHighlighter>
-        </div>
+
+        {/* Tab Content */}
+        {isHtml && activeTab === 'preview' ? (
+          <div className="w-full bg-white h-[380px] sm:h-[450px] relative overflow-hidden">
+            <iframe
+              title="Code Preview"
+              srcDoc={
+                code.includes('<!DOCTYPE') || code.includes('<html')
+                  ? code
+                  : `<!DOCTYPE html><html><head><meta charset="utf-8"/><script src="https://cdn.tailwindcss.com"></script></head><body>${code}</body></html>`
+              }
+              className="w-full h-full border-0"
+              sandbox="allow-scripts allow-modals allow-forms allow-same-origin"
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto scrollbar-thin max-w-full">
+            <SyntaxHighlighter
+              style={oneDark}
+              language={language || 'html'}
+              PreTag="div"
+              customStyle={{ margin: 0, borderRadius: 0, fontSize: '0.8125rem', lineHeight: 1.6, backgroundColor: '#282c34' }}
+              showLineNumbers={code.split('\n').length > 3}
+            >
+              {code}
+            </SyntaxHighlighter>
+          </div>
+        )}
       </div>
     )
   }

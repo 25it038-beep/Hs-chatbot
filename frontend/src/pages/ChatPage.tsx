@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { ChatContainer } from '@/components/chat/ChatContainer'
+import { AgentPage } from '@/pages/AgentPage'
 import { TitleBar } from '@/components/desktop/TitleBar'
 import { BrowserTabs } from '@/components/desktop/BrowserTabs'
 import { useSettings } from '@/stores/settings'
@@ -9,7 +10,7 @@ import { isTauri } from '@/lib/tauri'
 import { Download } from 'lucide-react'
 
 export function ChatPage() {
-  const { setSidebarOpen } = useSettings()
+  const { setSidebarOpen, appMode } = useSettings()
   const [compact, setCompact] = useState(false)
 
   useEffect(() => {
@@ -31,7 +32,7 @@ export function ChatPage() {
         {isTauri && <BrowserTabs />}
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
-          <ChatContainer />
+          {appMode === 'agent' ? <AgentPage /> : <ChatContainer />}
         </main>
         {!compact && (
           <footer className="flex items-center justify-between px-4 py-2 border-t border-border bg-background relative z-10 text-[11px] text-muted-foreground/50">

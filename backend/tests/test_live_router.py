@@ -73,27 +73,28 @@ def test_non_live_queries():
     assert loc is None
 
 
-def test_tamil_availability_check():
+def test_tamil_availability_check_default():
     from app.live.tamil_provider import is_tamil_voice_available, TAMIL_LANGUAGE_CODE
     status = is_tamil_voice_available()
     assert status["language"] == TAMIL_LANGUAGE_CODE
-    assert status["supported"] is True
-    assert status["enabled"] is True
+    assert status["supported"] is False
+    assert status["code"] == "TAMIL_TTS_NOT_SUPPORTED_BY_SELECTED_NVIDIA_MODEL"
+    assert "Tamil Riva" in status["reason"] or "unavailable" in status["reason"]
 
 
 @pytest.mark.asyncio
-async def test_tamil_provider_capabilities():
-    from app.live.tamil_provider import TamilVoiceProvider
+async def test_tamil_provider_raises_when_unsupported():
+    from app.live.tamil_provider import TamilVoiceProvider, TamilVoiceUnavailableError
     provider = TamilVoiceProvider()
-    assert provider.language == "ta"
-    prompt = provider.get_prompt_instruction()
-    assert prompt is not None
-    assert "Tamil" in prompt
-    # Languages list contains both en and ta
-    langs = provider.get_supported_languages()
-    assert "en" in langs
-    assert "ta" in langs
 
+    with pytest.raises(TamilVoiceUnavailableError) as exc_asr:
+        await provider.transcribe(b"fake_pcm")
+    assert exc_asr.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_ASR_UNAVAILABLE")
+
+    with pytest.raises(TamilVoiceUnavailableError) as exc_tts:
+        async for _ in provider.stream_synthesize("வணக்கம்"):
+            pass
+    assert exc_tts.value.code in ("TAMIL_VOICE_UNAVAILABLE", "TAMIL_TTS_UNAVAILABLE")
 
 
 @pytest.mark.asyncio
@@ -109,11 +110,12 @@ async def test_live_languages_endpoint():
     assert langs["en"]["default"] is True
     assert langs["en"]["voice"] == "Chatterbox-Multilingual"
 
-    # Tamil must be present and supported
+    # Tamil must be present, unsupported, and not default
     assert "ta" in langs
-    assert langs["ta"]["supported"] is True
+    assert langs["ta"]["supported"] is False
     assert langs["ta"]["default"] is False
-    assert langs["ta"]["native_name"] == "தமிழ்"
+    assert langs["ta"]["voice"] == "UNAVAILABLE"
+    assert "Tamil Riva" in langs["ta"]["reason"] or "unavailable" in langs["ta"]["reason"]
 
 
 @pytest.mark.asyncio
@@ -127,8 +129,8 @@ async def test_live_health_endpoint_tamil_flag():
     assert health["asr_configured"] is True
     assert health["llm_configured"] is True
     assert health["tts_configured"] is True
-    # Tamil supported flag is now true
-    assert health["tamil_supported"] is True
+    # Tamil supported flag is accurately false
+    assert health["tamil_supported"] is False
 
 
 @pytest.mark.asyncio
@@ -149,19 +151,21 @@ async def test_session_language_switch_and_isolation():
     assert session.language == "en"
     assert session.voice_engine == english_voice_engine
 
-    # Switch to Tamil
+    # User attempts to switch to Tamil (which is unprovisioned)
     import json
     await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
 
-    # Session switches smoothly to Tamil
-    assert session.language == "ta"
-    assert session.voice_engine == tamil_voice_engine
-    lang_msgs = [m for m in ws.sent if m.get("type") == "language_changed"]
-    assert len(lang_msgs) >= 1
-    assert lang_msgs[-1]["language"] == "ta"
+    # Error message emitted, session remains safely on English
+    errors = [m for m in ws.sent if m.get("type") == "error"]
+    assert len(errors) == 1
+    assert errors[0]["code"] == "TAMIL_VOICE_UNAVAILABLE"
+    assert session.language == "en"
+    assert session.voice_engine == english_voice_engine
 
-    # Switch back to English
+    # Switch explicitly to English works cleanly
     await session.handle_message(json.dumps({"type": "set_language", "language": "en"}))
+    lang_changes = [m for m in ws.sent if m.get("type") == "language_changed"]
+    assert len(lang_changes) >= 1
     assert session.language == "en"
     assert session.voice_engine == english_voice_engine
 
@@ -169,34 +173,39 @@ async def test_session_language_switch_and_isolation():
 @pytest.mark.asyncio
 async def test_tamil_riva_health():
     from app.live.router import live_tamil_health
+    from app.live.tamil_provider import tamil_riva_provider
     h = await live_tamil_health()
     assert "enabled" in h
     assert h["language"] == "ta-IN"
+    if not h["enabled"]:
+        assert "reason" in h
+        assert "Tamil Riva" in h["reason"]
+    else:
+        assert h["asr"] == "healthy"
+        assert h["tts"] == "healthy"
+        assert h["riva"] == "healthy"
 
 
 @pytest.mark.asyncio
-async def test_tamil_asr_handling():
-    from app.live.tamil_provider import tamil_voice_engine
-    assert tamil_voice_engine.language == "ta"
-    # Empty audio returns empty
-    res = await tamil_voice_engine.transcribe(b"")
-    assert res == ""
+async def test_tamil_asr():
+    from app.live.tamil_provider import tamil_riva_provider, TamilVoiceUnavailableError
+    with pytest.raises(TamilVoiceUnavailableError) as exc:
+        await tamil_riva_provider.transcribe(b"dummy_pcm_bytes")
+    assert exc.value.code == "TAMIL_ASR_UNAVAILABLE"
 
 
 @pytest.mark.asyncio
-async def test_tamil_tts_stream():
-    from app.live.tamil_provider import tamil_voice_engine
-    # Empty text yields nothing without error
-    chunks = []
-    async for c in tamil_voice_engine.stream_synthesize(""):
-        chunks.append(c)
-    assert len(chunks) == 0
+async def test_tamil_tts():
+    from app.live.tamil_provider import tamil_riva_provider, TamilVoiceUnavailableError
+    with pytest.raises(TamilVoiceUnavailableError) as exc:
+        async for _ in tamil_riva_provider.stream_synthesize("வணக்கம்"):
+            pass
+    assert exc.value.code == "TAMIL_TTS_UNAVAILABLE"
 
 
 @pytest.mark.asyncio
 async def test_tamil_roundtrip():
     from app.live.session import LiveVoiceSession
-    from app.live.tamil_provider import tamil_voice_engine
     import json
     class MockWS:
         def __init__(self):
@@ -205,17 +214,20 @@ async def test_tamil_roundtrip():
             self.sent.append(data)
     ws = MockWS()
     session = LiveVoiceSession("test_roundtrip", ws)
-    # Switch to Tamil
+    # Attempt switch to Tamil
     await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
-    assert session.language == "ta"
-    assert session.voice_engine == tamil_voice_engine
+    errs = [m for m in ws.sent if m.get("type") == "error"]
+    assert len(errs) >= 1
+    assert errs[0]["code"] == "TAMIL_VOICE_UNAVAILABLE"
+    # Live session remains intact and responsive
     assert session.is_active is True
+    assert session.language == "en"
 
 
 @pytest.mark.asyncio
 async def test_english_after_tamil():
     from app.live.session import LiveVoiceSession
-    from app.live.tamil_provider import english_voice_engine, tamil_voice_engine
+    from app.live.tamil_provider import english_voice_engine
     import json
     class MockWS:
         def __init__(self):
@@ -224,19 +236,21 @@ async def test_english_after_tamil():
             self.sent.append(data)
     ws = MockWS()
     session = LiveVoiceSession("test_en_after_ta", ws)
-    # Switch to Tamil
+    # Try switching to Tamil
     await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
-    assert session.language == "ta"
-    # Switch back to English
-    await session.handle_message(json.dumps({"type": "set_language", "language": "en"}))
+    # Then execute English text turn
+    await session.execute_turn(text="Hello world", turn_id="t_en_after")
     assert session.language == "en"
     assert session.voice_engine == english_voice_engine
+    transcripts = [m for m in ws.sent if m.get("type") == "transcript" and m.get("role") == "user"]
+    assert len(transcripts) >= 1
+    assert transcripts[0]["text"] == "Hello world"
 
 
 @pytest.mark.asyncio
 async def test_tamil_after_english():
     from app.live.session import LiveVoiceSession
-    from app.live.tamil_provider import english_voice_engine, tamil_voice_engine
+    from app.live.tamil_provider import english_voice_engine
     import json
     class MockWS:
         def __init__(self):
@@ -245,13 +259,14 @@ async def test_tamil_after_english():
             self.sent.append(data)
     ws = MockWS()
     session = LiveVoiceSession("test_ta_after_en", ws)
+    # Execute English turn first
+    await session.execute_turn(text="What time is it?", turn_id="t_en_first")
+    assert session.language == "en"
+    # Try switching to Tamil
+    await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
+    # English pipeline remains untouched
     assert session.language == "en"
     assert session.voice_engine == english_voice_engine
-    # Switch to Tamil
-    await session.handle_message(json.dumps({"type": "set_language", "language": "ta"}))
-    assert session.language == "ta"
-    assert session.voice_engine == tamil_voice_engine
-
 
 
 @pytest.mark.asyncio

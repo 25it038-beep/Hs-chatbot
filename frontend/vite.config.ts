@@ -12,14 +12,21 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    host: '127.0.0.1',
+    port: 3000,
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_URL || 'https://hs-chatbot-2.onrender.com',
         changeOrigin: true,
+        secure: false,
         ws: true,
       },
     },
+  },
+  preview: {
+    port: 3000,
+    host: '0.0.0.0',
+    allowedHosts: true,
   },
 })

@@ -312,7 +312,7 @@ class ChatService:
             try:
                 _logger.info("[CHAT] generating content")
                 if not structured_content:
-                    structured_content = await document_service.synthesize_content(doc_intent)
+                    structured_content = await document_service.synthesize_content(doc_intent, user_prompt=request.message)
                 
                 file_info = await document_service.generate_file(
                     fmt=doc_intent.format,

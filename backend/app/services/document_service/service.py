@@ -170,7 +170,7 @@ class DocumentService:
                 count_unit = count_match.group(2)
 
         # Extract topic/subject
-        strip_pattern = r'^(?:please\s+)?(?:create|make|generate|build|write|produce|prepare|export|save|convert|turn(?:\s+this)?(?:\s+into)?)\s+(?:a|an|the|my)?\s*(?:\d+\s*(?:-| )*(?:page|slide|sheet)s?\s*)?(?:pdf|word\s+doc(?:ument)?|docx?|powerpoint|pptx?|presentation|excel|xlsx?|spreadsheet|csv|markdown|md|report|resume|expense\s+tracker)?\s*(?:about|on|explaining|for|of|with)?\s*'
+        strip_pattern = r'^(?:please\s+)?(?:create|make|generate|build|write|produce|prepare|export|save|convert|turn(?:\s+this)?(?:\s+into)?)\s+(?:\b(?:a|an|the|my)\b\s*)?(?:\d+\s*(?:-| )*(?:page|slide|sheet)s?\s*)?(?:(?:\b(?:pdf|word\s+doc(?:ument)?|docx?|powerpoint|pptx?|presentation|excel|xlsx?|spreadsheet|csv|markdown|md|report|resume|expense\s+tracker|budget(?:\s+sheet|\s+tracker|\s+spreadsheet)?|file|document)\b)\s*)*(?:about|on|explaining|for|of|with|showing|covering)?\s*'
         clean_topic = re.sub(strip_pattern, '', msg, flags=re.IGNORECASE).strip()
         if clean_topic:
             first_line = clean_topic.splitlines()[0].strip()
@@ -623,8 +623,8 @@ class DocumentService:
 
         return preview
 
-    async def synthesize_content(self, intent: DocumentIntent) -> Any:
-        """Synthesizes structured content tailored to the document type.
+    async def synthesize_content(self, intent: DocumentIntent, user_prompt: str = "") -> Any:
+        """Synthesizes structured content tailored to the document type and user's prompt.
 
         Uses LLM if available, otherwise generates rich, topic-specific multi-layout content.
         """
@@ -636,23 +636,38 @@ class DocumentService:
             import asyncio
             from app.services.nvidia.chat import NvidiaChatProvider
             provider = NvidiaChatProvider()
-            prompt = self._build_synthesis_prompt(intent)
+            prompt = self._build_synthesis_prompt(intent, user_prompt=user_prompt)
             resp = await asyncio.wait_for(
                 provider.generate(
                     messages=[{"role": "user", "content": prompt}],
                     model=settings.nvidia_default_chat_model,
-                    system_prompt="You are a principal document and presentation architect. Output pure JSON matching the requested structure without markdown formatting or code fences.",
-                    max_tokens=2500,
+                    system_prompt=(
+                        "You are an expert document architect and technical writer. "
+                        "Produce comprehensive, detailed, highly accurate, and domain-appropriate content matching the user prompt and topic. "
+                        "Output pure JSON matching the requested structure without markdown formatting or code fences."
+                    ),
+                    max_tokens=3000,
                     temperature=0.3,
                 ),
-                timeout=7.0,
+                timeout=45.0,
             )
             raw = resp.content.strip()
-            if raw.startswith("```"):
-                raw = re.sub(r'^```(?:json)?\s*', '', raw)
-                raw = re.sub(r'\s*```$', '', raw)
-            data = json.loads(raw)
-            if self._validate_structured_data(fmt, data):
+            # Clean markdown fences or surrounding commentary
+            if "```" in raw:
+                raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE)
+                raw = re.sub(r'\s*```$', '', raw).strip()
+
+            data = None
+            try:
+                data = json.loads(raw)
+            except Exception:
+                # Fallback: extract the outermost JSON object or array
+                match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', raw)
+                if match:
+                    data = json.loads(match.group(1))
+
+            if data and self._validate_structured_data(fmt, data):
+                logger.info("[DOCUMENT] Successfully synthesized structured content via LLM for topic='%s'", intent.topic)
                 return data
         except Exception as e:
             logger.warning("[DOCUMENT] LLM content synthesis skipped/failed (%s), using rich deterministic fallback", e)
@@ -660,61 +675,140 @@ class DocumentService:
         # High quality deterministic fallback matching the request
         return self._generate_fallback_content(intent)
 
-    def _build_synthesis_prompt(self, intent: DocumentIntent) -> str:
+    def _build_synthesis_prompt(self, intent: DocumentIntent, user_prompt: str = "") -> str:
         fmt = intent.format
         count = intent.count
+        instructions = user_prompt.strip() if user_prompt else f"Create a comprehensive document about {intent.topic}."
+
         if fmt in ("pdf", "docx"):
             pages = count or 3
             return (
-                f"Create comprehensive, professional document content about '{intent.topic}'. "
-                f"Target approximately {pages} sections. "
-                "Output ONLY a JSON object with this exact schema: "
+                f"You are an expert document author creating an authoritative, comprehensive {fmt.upper()} document.\n"
+                f"Topic: {intent.topic}\n"
+                f"User Request: {instructions}\n\n"
+                f"Strict Instructions:\n"
+                f"1. Generate realistic, detailed, and factually sound content strictly addressing '{intent.topic}' and any user specifications.\n"
+                f"2. DO NOT output generic IT infrastructure, microservices, latency benchmarks, or HSBot architecture unless the topic is specifically about software/IT.\n"
+                f"3. All section headings, descriptive paragraphs, KPIs, workflow steps, and table rows must be customized specifically for '{intent.topic}'.\n"
+                f"4. Provide approximately {pages} full, substantive sections.\n\n"
+                "Output ONLY a valid JSON object matching this schema (no markdown formatting, no code fences):\n"
                 "{\n"
-                '  "title": "' + intent.title + '",\n'
-                '  "subtitle": "Comprehensive Architecture & Analysis",\n'
-                '  "author": "HSBot Intelligence",\n'
-                '  "organization": "Enterprise AI Solutions",\n'
+                f'  "title": "{intent.title}",\n'
+                f'  "subtitle": "Comprehensive Guide & Analysis",\n'
+                f'  "author": "HSBot Research",\n'
+                f'  "organization": "Specialized Knowledge Services",\n'
                 '  "sections": [\n'
-                '    {"heading": "Executive Summary", "content": "Detailed paragraphs...", "callout": "Key strategic takeaway...", "kpis": [{"metric": "99.9%", "label": "Availability"}, {"metric": "<1s", "label": "Latency"}]},\n'
-                '    {"heading": "System Workflow & Pipeline", "content": "Thorough operational discussion...", "steps": [{"title": "Ingestion", "description": "High-throughput stream processing"}, {"title": "Inference", "description": "Zero-shot model routing"}], "page_break": true},\n'
-                '    {"heading": "Impact Assessment & Benchmarks", "content": "In-depth details...", "table": [["Category", "Target", "Achieved"], ["Latency", "<2s", "<0.8s"], ["Accuracy", ">95%", "99.2%"]]}\n'
+                '    {\n'
+                '      "heading": "<Topic-Specific Section 1 Heading (e.g. Overview / Fundamentals)>",\n'
+                '      "content": "<Detailed, informative multi-sentence paragraphs covering this section in depth>",\n'
+                '      "callout": "<Key insight or critical takeaway specifically about this section>",\n'
+                '      "kpis": [{"metric": "<Value>", "label": "<Topic-specific KPI label>"}]\n'
+                '    },\n'
+                '    {\n'
+                '      "heading": "<Topic-Specific Section 2 Heading (e.g. Methodology / Process / Implementation)>",\n'
+                '      "content": "<In-depth step-by-step technical or operational explanation>",\n'
+                '      "steps": [{"title": "<Step 1 Name>", "description": "<Detailed step explanation>"}, {"title": "<Step 2 Name>", "description": "<Detailed step explanation>"}],\n'
+                '      "page_break": true\n'
+                '    },\n'
+                '    {\n'
+                '      "heading": "<Topic-Specific Section 3 Heading (e.g. Evaluation / Comparison / Costs / Best Practices)>",\n'
+                '      "content": "<Comprehensive comparative, analytical, or evaluative discussion>",\n'
+                '      "table": [["<Column 1>", "<Column 2>", "<Column 3>"], ["<Row 1 Val 1>", "<Row 1 Val 2>", "<Row 1 Val 3>"], ["<Row 2 Val 1>", "<Row 2 Val 2>", "<Row 2 Val 3>"]]\n'
+                '    }\n'
                 '  ]\n'
                 "}"
             )
         elif fmt == "pptx":
             slides = count or 6
             return (
-                f"Create a high-impact presentation about '{intent.topic}' with exactly {slides} slides. "
-                "Output ONLY a JSON object with dynamic layouts (cover, three_card, process, architecture, kpis, conclusion): "
+                f"You are a professional presentation designer creating a high-impact presentation deck.\n"
+                f"Topic: {intent.topic}\n"
+                f"User Request: {instructions}\n\n"
+                f"Strict Instructions:\n"
+                f"1. Generate realistic, detailed content strictly addressing '{intent.topic}'.\n"
+                f"2. DO NOT output generic software architecture or IT jargon unless the topic is software engineering.\n"
+                f"3. Generate exactly {slides} slides utilizing dynamic layouts (cards, process, kpis, two_column, architecture, conclusion).\n\n"
+                "Output ONLY a valid JSON object matching this schema (no markdown, no code fences):\n"
                 "{\n"
-                '  "title": "' + intent.title + '",\n'
-                '  "subtitle": "Strategic Insights & Key Findings",\n'
+                f'  "title": "{intent.title}",\n'
+                f'  "subtitle": "Key Concepts & Strategic Insights",\n'
                 '  "slides": [\n'
-                '    {"title": "Executive Overview", "layout": "cards", "cards": [{"title": "Vision", "points": ["Pillar 1", "Pillar 2"]}, {"title": "Execution", "points": ["Action 1", "Action 2"]}, {"title": "Outcome", "points": ["Result 1", "Result 2"]}]},\n'
-                '    {"title": "Core Pipeline Workflow", "layout": "process", "steps": [{"title": "Auth", "description": "Token verification"}, {"title": "Routing", "description": "Intent classification"}, {"title": "AI Execution", "description": "Multi-model reasoning"}, {"title": "Delivery", "description": "SSE Streaming"}]},\n'
-                '    {"title": "Key Performance Metrics", "layout": "kpis", "kpis": [{"metric": "99.9%", "label": "Uptime"}, {"metric": "10x", "label": "Speedup"}, {"metric": "<100ms", "label": "Cold Start"}, {"metric": "0%", "label": "Data Leakage"}]},\n'
-                '    {"title": "System Architecture Layers", "layout": "architecture", "layers": [{"name": "Client Layer", "components": "React 19 • Desktop Overlay"}, {"name": "Gateway", "components": "FastAPI • Rate Limiter"}, {"name": "AI Engine", "components": "NVIDIA NIM • SambaNova"}, {"name": "Data Layer", "components": "Qdrant • SQLite"}]},\n'
-                '    {"title": "Conclusion & Next Steps", "layout": "two_column", "columns": [{"title": "Immediate Priorities", "content": ["Deployment", "Observability"]}, {"title": "Long-Term Vision", "content": ["Multi-agent mesh", "Global scaling"]}]}\n'
+                '    {\n'
+                '      "title": "<Slide 1 Title - Executive Overview / Core Concept>",\n'
+                '      "layout": "cards",\n'
+                '      "cards": [\n'
+                '        {"title": "<Pillar 1>", "points": ["<Key Point A>", "<Key Point B>"]},\n'
+                '        {"title": "<Pillar 2>", "points": ["<Key Point C>", "<Key Point D>"]},\n'
+                '        {"title": "<Pillar 3>", "points": ["<Key Point E>", "<Key Point F>"]}\n'
+                '      ]\n'
+                '    },\n'
+                '    {\n'
+                '      "title": "<Slide 2 Title - Lifecycle / Process Workflow>",\n'
+                '      "layout": "process",\n'
+                '      "steps": [\n'
+                '        {"title": "<Stage 1>", "description": "<Action description>"},\n'
+                '        {"title": "<Stage 2>", "description": "<Action description>"},\n'
+                '        {"title": "<Stage 3>", "description": "<Action description>"}\n'
+                '      ]\n'
+                '    },\n'
+                '    {\n'
+                '      "title": "<Slide 3 Title - Key Metrics & Impact>",\n'
+                '      "layout": "kpis",\n'
+                '      "kpis": [\n'
+                '        {"metric": "<Metric 1>", "label": "<Label 1>", "subtext": "<Context 1>"},\n'
+                '        {"metric": "<Metric 2>", "label": "<Label 2>", "subtext": "<Context 2>"},\n'
+                '        {"metric": "<Metric 3>", "label": "<Label 3>", "subtext": "<Context 3>"}\n'
+                '      ]\n'
+                '    },\n'
+                '    {\n'
+                '      "title": "<Slide 4 Title - Comparative Analysis>",\n'
+                '      "layout": "two_column",\n'
+                '      "columns": [\n'
+                '        {"title": "<Category A>", "content": ["<Point 1>", "<Point 2>"]},\n'
+                '        {"title": "<Category B>", "content": ["<Point 1>", "<Point 2>"]}\n'
+                '      ]\n'
+                '    },\n'
+                '    {\n'
+                '      "title": "<Slide 5 Title - Recommendations & Next Steps>",\n'
+                '      "layout": "cards",\n'
+                '      "cards": [\n'
+                '        {"title": "<Immediate Priorities>", "points": ["<Action 1>", "<Action 2>"]},\n'
+                '        {"title": "<Long-Term Roadmap>", "points": ["<Milestone 1>", "<Milestone 2>"]}\n'
+                '      ]\n'
+                '    }\n'
                 '  ]\n'
                 "}"
             )
         elif fmt == "xlsx":
             return (
-                f"Create a realistic, well-organized spreadsheet dataset for '{intent.topic}'. "
-                "Output ONLY a JSON object with this exact schema: "
+                f"You are a senior data analyst creating a spreadsheet dataset.\n"
+                f"Topic: {intent.topic}\n"
+                f"User Request: {instructions}\n\n"
+                f"Strict Instructions:\n"
+                f"Generate a realistic, comprehensive spreadsheet dataset specifically for '{intent.topic}'. "
+                f"All column names, rows, and KPI metrics must be directly tailored to this topic.\n\n"
+                "Output ONLY a valid JSON object matching this schema (no markdown, no code fences):\n"
                 "{\n"
-                '  "kpis": [{"metric": "$2.4M", "label": "Total Budget"}, {"metric": "98.5%", "label": "Execution Rate"}],\n'
-                '  "Overview": [\n'
-                '    ["Item", "Category", "Date", "Cost", "Status"],\n'
-                '    ["Compute Cluster", "Infrastructure", "2026-01-15", 150000.00, "Approved"],\n'
-                '    ["API Subscriptions", "Services", "2026-01-20", 25000.00, "Active"]\n'
+                '  "kpis": [{"metric": "<Value>", "label": "<Topic-specific KPI>"}],\n'
+                '  "Data": [\n'
+                '    ["<Column 1>", "<Column 2>", "<Column 3>", "<Column 4>", "<Column 5>"],\n'
+                '    ["<Row 1 Val 1>", "<Row 1 Val 2>", "<Row 1 Val 3>", 100.0, "<Status>"],\n'
+                '    ["<Row 2 Val 1>", "<Row 2 Val 2>", "<Row 2 Val 3>", 250.0, "<Status>"],\n'
+                '    ["<Row 3 Val 1>", "<Row 3 Val 2>", "<Row 3 Val 3>", 400.0, "<Status>"]\n'
                 '  ]\n'
                 "}"
             )
         elif fmt == "csv":
-            return f"Create a 5-row realistic CSV dataset for '{intent.topic}'. Output ONLY a JSON array of arrays: [[\"Col1\", \"Col2\"], [\"Val1\", \"Val2\"]]"
+            return (
+                f"Create a realistic 6-to-10 row CSV dataset specifically for '{intent.topic}'. User Request: {instructions}.\n"
+                "Output ONLY a valid JSON 2D array of strings and numbers matching the topic: [[\"Col1\", \"Col2\", ...], [\"Val1\", \"Val2\", ...]]"
+            )
         else:
-            return f"Write a comprehensive, professional summary of '{intent.topic}' with structured markdown headings."
+            return (
+                f"Write comprehensive, authoritative, detailed documentation about '{intent.topic}'.\n"
+                f"User Request: {instructions}\n"
+                "Use structured markdown headings (H1, H2, H3), bullet points, and practical explanations."
+            )
 
     def _validate_structured_data(self, fmt: str, data: Any) -> bool:
         """Validates that parsed JSON matches generator expectations."""
@@ -732,7 +826,7 @@ class DocumentService:
 
     def _generate_fallback_content(self, intent: DocumentIntent) -> Any:
         """Generates rich, topic-specific multi-layout content when LLM is unavailable."""
-        topic = (intent.topic or "System Architecture").strip()[:80]
+        topic = (intent.topic or "Topic Overview").strip()[:80]
         title = intent.title or topic
         fmt = intent.format
         count = intent.count
@@ -740,65 +834,64 @@ class DocumentService:
         if fmt in ("pdf", "docx"):
             return {
                 "title": title,
-                "subtitle": f"Executive Technical Report & Architecture Analysis",
-                "author": "HSBot Document Architect",
-                "organization": "Enterprise AI Systems",
+                "subtitle": f"Comprehensive Overview & Analysis: {topic}",
+                "author": "HSBot Analysis",
+                "organization": "Research & Documentation",
                 "sections": [
                     {
                         "heading": "Executive Summary",
                         "content": (
-                            f"This document presents a comprehensive operational overview and architectural blueprint for {topic}. "
-                            "In contemporary technology environments, organizations require robust, scalable, and resilient systems capable of "
-                            "delivering continuous intelligence while maintaining strict security, data governance, and regulatory compliance.\n\n"
-                            "Our technical evaluation establishes clear baselines across latency, fault tolerance, resource efficiency, and user experience. "
-                            "Through methodical architectural separation, the solution achieves unprecedented performance."
+                            f"This document presents a structured operational overview and analysis of {topic}. "
+                            f"It outlines the fundamental principles, essential requirements, implementation considerations, and "
+                            f"industry standards necessary for successful execution.\n\n"
+                            f"A methodical approach ensures quality, consistency, and alignment with established benchmarks across all phases."
                         ),
-                        "callout": f"Key Finding: Implementation of automated pipeline validation reduces regression risk by 84% while accelerating time-to-market for {topic}."[:250],
+                        "callout": f"Key Finding: Methodical planning and phased implementation are critical to ensuring optimal outcomes for {topic}."[:250],
                         "kpis": [
-                            {"metric": "99.95%", "label": "System SLA"},
-                            {"metric": "< 1.2s", "label": "Median Latency"},
-                            {"metric": "100%", "label": "Data Isolation"},
-                            {"metric": "12.4x", "label": "Throughput Gain"},
+                            {"metric": "100%", "label": "Scope Coverage"},
+                            {"metric": "Standard", "label": "Quality Benchmark"},
+                            {"metric": "Phased", "label": "Execution Model"},
+                            {"metric": "Optimal", "label": "Resource Efficiency"},
                         ],
                     },
                     {
-                        "heading": "Pipeline Architecture & Execution Flow",
+                        "heading": "Core Components & Execution Flow",
                         "content": (
-                            f"The operational workflow for {topic} relies on a decoupled multi-stage execution pipeline designed for deterministic reproducibility. "
-                            "Each transaction is verified through cryptographically enforced schemas and monitored via distributed tracing.\n\n"
-                            "The following sequence illustrates the end-to-end lifecycle from ingestion to delivery:"
+                            f"The operational workflow for {topic} relies on a structured, phased execution methodology. "
+                            f"Each phase is designed to ensure thorough verification, minimal operational risk, and predictable outcomes.\n\n"
+                            f"The following sequence illustrates the end-to-end lifecycle:"
                         ),
                         "steps": [
-                            {"title": "Ingestion & Security Gate", "description": "Token verification, rate-limiting, and payload sanitization."},
-                            {"title": "Intent & Route Classification", "description": "High-speed semantic routing to optimal microservices."},
-                            {"title": "Core Intelligence Processing", "description": "Multi-provider LLM inference with automated fallbacks."},
-                            {"title": "Structured File Compilation", "description": "Native binary rendering and binary structural validation."},
+                            {"title": "Discovery & Planning", "description": f"Initial requirements assessment, feasibility evaluation, and scoping for {topic}."},
+                            {"title": "Design & Preparation", "description": "Detailed specifications, resource allocation, and risk management planning."},
+                            {"title": "Implementation & Rollout", "description": "Execution in accordance with quality standards and safety guidelines."},
+                            {"title": "Review & Optimization", "description": "Performance verification, quality audits, and ongoing improvements."},
                         ],
                     },
                     {
-                        "heading": "Performance Benchmarks & Key Findings",
+                        "heading": "Evaluation Criteria & Best Practices",
                         "content": (
-                            f"Comparative analysis demonstrates significant improvements across all critical operating vectors. "
-                            "The table below outlines our empirical findings evaluated against standard industry configurations:"
+                            f"To maintain excellence in {topic}, ongoing monitoring and adherence to established criteria are essential. "
+                            f"The table below outlines key evaluation standards across each operational phase:"
                         ),
                         "table": [
-                            ["Operating Metric", "Industry Baseline", "HSBot Architecture", "Net Advantage"],
-                            ["Response Latency", "4.8 - 8.2s", "< 1.1s", "78% Faster"],
-                            ["Document Formatting", "Plain Text Dumps", "Native Binary Engine", "100% Native Quality"],
-                            ["Memory Footprint", "1.4 GB / Worker", "180 MB / Worker", "87% Memory Reduction"],
-                            ["Service Availability", "99.1%", "99.95%", "+0.85% Uptime SLA"],
+                            ["Phase / Area", "Key Objective", "Standard Criteria", "Status / Target"],
+                            ["Initial Assessment", "Scope Definition", "Documented & Approved", "Completed"],
+                            ["Execution Phase", "Standard Compliance", "Best Practice Standards", "In Progress"],
+                            ["Quality Assurance", "Validation & Testing", "Full Inspection", "Scheduled"],
+                            ["Post-Review", "Outcome Assessment", "Performance Targets Met", "Ongoing"],
                         ],
                     },
                     {
-                        "heading": "Strategic Roadmap & Conclusion",
+                        "heading": "Strategic Recommendations & Conclusion",
                         "content": (
-                            f"In conclusion, the deployment of {topic} establishes a high-performance, future-proof foundation. "
-                            "Immediate next steps focus on expanding horizontal edge nodes, integrating automated telemetry alerts, and continuous capability upgrades."
+                            f"In conclusion, successful execution of {topic} requires disciplined adherence to standards and continuous monitoring. "
+                            f"Immediate follow-up actions should focus on finalizing timelines, assigning key responsibilities, and establishing measurable feedback loops."
                         ),
                         "items": [
-                            "Phase 1: Production deployment across dual-redundant cloud infrastructure.",
-                            "Phase 2: Fine-grained usage accounting and dynamic capacity autoscaling.",
-                            "Phase 3: Autonomous self-healing workflows and edge retrieval caching.",
+                            f"Phase 1: Finalize scoping and establish clear milestones for all stages of {topic}.",
+                            "Phase 2: Implement standardized quality checklists and review protocols.",
+                            "Phase 3: Conduct post-implementation review and document learnings for ongoing optimization.",
                         ],
                     },
                 ],
@@ -808,134 +901,124 @@ class DocumentService:
             slide_count = count or 6
             slides = [
                 {
-                    "title": "Executive Vision & Strategic Pillars",
+                    "title": f"Executive Overview: {topic}",
                     "layout": "cards",
                     "cards": [
                         {
-                            "title": "Scalable Intelligence",
+                            "title": "Core Purpose",
                             "points": [
-                                f"Autonomous reasoning for {topic}",
-                                "Sub-second response pipelines",
-                                "Zero cold-start penalty"
+                                f"Clear strategic focus on {topic}",
+                                "Methodical, structured approach",
+                                "Targeted outcomes and deliverables"
                             ]
                         },
                         {
-                            "title": "Enterprise Security",
+                            "title": "Guiding Principles",
                             "points": [
-                                "Cryptographic data isolation",
-                                "Zero telemetry leakage",
-                                "Role-based access verification"
+                                "Quality assurance and reliability",
+                                "Resource efficiency and optimization",
+                                "Compliance with recognized standards"
                             ]
                         },
                         {
-                            "title": "Native Experience",
+                            "title": "Expected Outcomes",
                             "points": [
-                                "Professional binary document output",
-                                "16:9 widescreen presentation design",
-                                "Instant interactive previews"
+                                "Measurable performance gains",
+                                "Risk mitigation and dependability",
+                                "Sustainable long-term value"
                             ]
                         },
                     ]
                 },
                 {
-                    "title": "System Architecture & Layering",
-                    "layout": "architecture",
-                    "layers": [
-                        {"name": "Client Presentation Layer", "components": "React 19 SPA • Tauri 2 Desktop Overlay • Responsive Mobile"},
-                        {"name": "API Gateway & Security", "components": "FastAPI Orchestrator • Rate Limiting • JWT Auth • Tracing"},
-                        {"name": "Intelligence & Synthesis Engine", "components": "NVIDIA NIM / SambaNova • RAG Pipeline • Hybrid Retrieval"},
-                        {"name": "Storage & Persistence Layer", "components": "PostgreSQL / SQLite • Qdrant Vector Store • File Vault"},
-                    ]
-                },
-                {
-                    "title": "End-to-End Execution Workflow",
+                    "title": "Phased Implementation Workflow",
                     "layout": "process",
                     "steps": [
-                        {"title": "Request Ingestion", "description": "Intent classification & design spec inference"},
-                        {"title": "Content Synthesis", "description": "Structured JSON multi-layout generation"},
-                        {"title": "Binary Rendering", "description": "Native shapes, cards, and styling compilation"},
-                        {"title": "Validation & Delivery", "description": "Magic byte checks & instant download link"},
+                        {"title": "Phase 1: Planning", "description": f"Scoping, requirements gathering, and initial assessment for {topic}"},
+                        {"title": "Phase 2: Setup", "description": "Resource preparation, tooling configuration, and milestone alignment"},
+                        {"title": "Phase 3: Rollout", "description": "Active deployment following standard guidelines and quality checks"},
+                        {"title": "Phase 4: Review", "description": "Verification, performance monitoring, and outcome validation"},
                     ]
                 },
                 {
-                    "title": "Key Performance Indicators",
+                    "title": "Key Indicators & Targets",
                     "layout": "kpis",
                     "kpis": [
-                        {"metric": "99.95%", "label": "Availability", "subtext": "Zero-downtime SLA"},
-                        {"metric": "< 1.2s", "label": "Generation Time", "subtext": "Real-time binary build"},
-                        {"metric": "100%", "label": "Valid Binaries", "subtext": "Magic byte verified"},
-                        {"metric": "12.4x", "label": "Throughput", "subtext": "Asynchronous concurrency"},
+                        {"metric": "100%", "label": "Scope Coverage", "subtext": "Complete alignment"},
+                        {"metric": "High", "label": "Quality Standard", "subtext": "Verified criteria"},
+                        {"metric": "On Schedule", "label": "Milestone Delivery", "subtext": "Phased timeline"},
+                        {"metric": "Optimal", "label": "Resource Use", "subtext": "Efficient execution"},
                     ]
                 },
                 {
-                    "title": "Traditional Approach vs HSBot Solution",
+                    "title": "Strategic Considerations & Solutions",
                     "layout": "two_column",
                     "columns": [
                         {
-                            "title": "Traditional Plain Converters",
+                            "title": "Key Considerations & Risks",
                             "content": [
-                                "Dumps plain unformatted text into files",
-                                "Single bullet-list slide layout for everything",
-                                "Text overflows and falls outside slide bounds",
-                                "No curated palettes or typography hierarchy",
+                                "Complexity and dependency management",
+                                "Resource availability and scheduling",
+                                "Adherence to technical specifications",
+                                "Quality control throughout the lifecycle",
                             ]
                         },
                         {
-                            "title": "HSBot AI Design Engine",
+                            "title": "Mitigation & Best Practices",
                             "content": [
-                                "WCAG-curated color palettes (Midnight Tech, Executive Blue)",
-                                "12+ dynamic layouts (Cards, KPIs, Workflows, Diagrams)",
-                                "Mathematical bounds ensure zero text overflow",
-                                "Interactive frontend preview before downloading",
+                                "Standardized operating procedures",
+                                "Proactive stakeholder communication",
+                                "Continuous verification at each gate",
+                                "Documented post-implementation reviews",
                             ]
                         }
                     ]
                 },
                 {
-                    "title": "Conclusion & Strategic Milestones",
+                    "title": "Conclusion & Action Plan",
                     "layout": "cards",
                     "cards": [
-                        {"title": "Immediate Impact", "points": [f"Full operational readiness for {topic}", "Elimination of manual formatting overhead"]},
-                        {"title": "Near-term Rollout", "points": ["Multi-tenant team workspaces", "Custom company palette templates"]},
-                        {"title": "Long-term Scale", "points": ["Autonomous multi-agent orchestration", "Global edge caching & distribution"]},
+                        {"title": "Immediate Actions", "points": [f"Finalize operational plan for {topic}", "Assign lead owners and set deliverables"]},
+                        {"title": "Near-term Focus", "points": ["Establish progress reporting cadences", "Conduct milestone quality reviews"]},
+                        {"title": "Long-term Vision", "points": ["Iterative optimization based on data", "Scale best practices across future initiatives"]},
                     ]
                 },
             ]
             return {
                 "title": title,
-                "subtitle": f"Strategic Architecture & Implementation Blueprint",
+                "subtitle": f"Strategic Overview & Practical Guide: {topic}",
                 "slides": slides[:slide_count],
             }
 
         elif fmt == "xlsx":
             return {
                 "kpis": [
-                    {"metric": "$1,450,000", "label": "Total Allocated Budget"},
-                    {"metric": "96.4%", "label": "Execution Efficiency"},
-                    {"metric": "18", "label": "Active Workstreams"},
-                    {"metric": "0", "label": "Overdue Items"},
+                    {"metric": "100%", "label": "Project Health"},
+                    {"metric": "5", "label": "Total Phases"},
+                    {"metric": "Active", "label": "Current Status"},
+                    {"metric": "0", "label": "Critical Blockers"},
                 ],
-                "Executive Summary": [
-                    ["Workstream ID", "Initiative Name", "Department", "Start Date", "Target Completion", "Allocated Budget", "Status"],
-                    ["WS-101", f"{topic} Core Infrastructure", "Engineering", "2026-01-10", "2026-03-31", 450000.00, "In Progress"],
-                    ["WS-102", "Security & Penetration Testing", "InfoSec", "2026-01-15", "2026-02-28", 120000.00, "Completed"],
-                    ["WS-103", "AI Synthesis Pipeline", "Machine Learning", "2026-02-01", "2026-04-15", 380000.00, "In Progress"],
-                    ["WS-104", "UI/UX & Desktop Shell Integration", "Product", "2026-02-10", "2026-04-30", 220000.00, "In Progress"],
-                    ["WS-105", "Quality Assurance & Compliance", "Operations", "2026-03-01", "2026-05-15", 280000.00, "Scheduled"],
+                "Overview": [
+                    ["Item ID", "Category", "Description", "Priority", "Target Date", "Status"],
+                    ["ITM-01", "Planning", f"Define core scope and requirements for {topic}", "High", "2026-02-01", "Completed"],
+                    ["ITM-02", "Preparation", "Resource allocation and prerequisites setup", "High", "2026-02-15", "In Progress"],
+                    ["ITM-03", "Execution", "Primary implementation and rollout phase", "Medium", "2026-03-01", "In Progress"],
+                    ["ITM-04", "Testing", "Validation, quality assurance, and verification", "High", "2026-03-15", "Pending"],
+                    ["ITM-05", "Handover", "Final documentation and operational handover", "Medium", "2026-03-31", "Scheduled"],
                 ]
             }
 
         elif fmt == "csv":
             return [
-                ["ID", "Metric", "Target", "Current", "Variance", "Status"],
-                ["M-01", "Availability", "99.90%", "99.96%", "+0.06%", "Exceeded"],
-                ["M-02", "Median Latency", "1.5s", "1.1s", "-0.4s", "Optimal"],
-                ["M-03", "Error Rate", "<0.05%", "0.01%", "-0.04%", "Optimal"],
-                ["M-04", "Throughput", "500 req/s", "620 req/s", "+24%", "Exceeded"],
+                ["ID", "Topic Item", "Category", "Priority", "Status"],
+                ["1", f"{topic} - Scoping", "Planning", "High", "Completed"],
+                ["2", f"{topic} - Implementation", "Execution", "High", "In Progress"],
+                ["3", f"{topic} - Quality Review", "Validation", "High", "Pending"],
+                ["4", f"{topic} - Final Documentation", "Handover", "Medium", "Scheduled"],
             ]
 
         else:
-            return f"# {title}\n\nComprehensive technical documentation and operational overview for {topic}."
+            return f"# {title}\n\nComprehensive overview and detailed analysis for {topic}."
 
     # Convenience helper methods
     async def generate_pdf(self, title: str, sections: list, conversation_id: str = "general", user_id: str = "default_user", db=None, filename="Document.pdf", design_spec=None):

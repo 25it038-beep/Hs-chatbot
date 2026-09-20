@@ -346,7 +346,7 @@ async def nvidia_chat(
                         nonlocal structured_content, design_spec
                         current_content = structured_content
                         if not current_content:
-                            current_content = await document_service.synthesize_content(intent_item)
+                            current_content = await document_service.synthesize_content(intent_item, user_prompt=request.message)
 
                         file_info = await document_service.generate_file(
                             fmt=intent_item.format,
@@ -441,7 +441,7 @@ async def nvidia_chat(
             try:
                 _log.info("[CHAT] generating content")
                 if not structured_content:
-                    structured_content = await document_service.synthesize_content(doc_intent)
+                    structured_content = await document_service.synthesize_content(doc_intent, user_prompt=request.message)
                 file_info = await document_service.generate_file(
                     fmt=doc_intent.format,
                     filename=doc_intent.filename,

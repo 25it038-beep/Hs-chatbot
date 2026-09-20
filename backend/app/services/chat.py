@@ -528,9 +528,27 @@ class ChatService:
         is_image_task = task == "image_generation"
         _logger.info("[CHAT] provider=%s model=%s task=%s stream=%s", provider_name, model or chat.model, task, request.stream)
 
+        # Auto-select the best model for the detected task when the user hasn't
+        # pinned a specific model (i.e., the chat model is still the generic default).
+        # This wires the ai_router decision into the actual model used per message.
+        _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision",
+                              "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
+        user_pinned_model = model and model not in _generic_defaults
         model_to_use = model or chat.model
-        if provider_name == "cloudflare" and task == "coding":
-            model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
+
+        if not user_pinned_model:
+            if provider_name == "nvidia":
+                if task == "coding":
+                    model_to_use = settings.nvidia_default_code_model or "codestral"
+                elif task == "reasoning":
+                    model_to_use = "glm-5.2"
+            elif provider_name == "sambanova":
+                # SambaNova: DeepSeek-V3.2 handles code well and is fastest
+                model_to_use = settings.sambanova_default_model or "DeepSeek-V3.2"
+            elif provider_name == "cloudflare" and task == "coding":
+                model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
+
+        _logger.info("[CHAT] resolved_model=%s task=%s pinned=%s", model_to_use, task, user_pinned_model)
 
         if request.stream:
             full_content = ""

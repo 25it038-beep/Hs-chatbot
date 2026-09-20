@@ -334,6 +334,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
 
         // Detect explicit image generation requests (shared helper)
         const isImageRequestForChat = isImageRequest(content)
+        const isGenericDefaultModel = !chat.model || ['llama-3.2-11b', 'llama-3.1-70b', 'llama-3.2-vision', 'DeepSeek-V3.2', 'Meta-Llama-3.3-70B-Instruct'].includes(chat.model)
+        const shouldAutoRoute = isGenericDefaultModel || isImageRequestForChat
 
         const getReader = async (useFallbackProvider = false) => {
           const city = localStorage.getItem('hsbot_location') || undefined
@@ -345,7 +347,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               chat_id: chat.id,
               model,
               stream: true,
-              auto_route: isImageRequestForChat,
+              auto_route: shouldAutoRoute,
               location: city,
               timezone,
             }, controller.signal)

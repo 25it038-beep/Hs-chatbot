@@ -241,15 +241,9 @@ class ChatService:
         if url_context:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
-        # Web site / project intent detection
-        is_web_project_request = any(
-            re.search(pat, request.message.lower())
-            for pat in [
-                r"\b(create|build|make|generate|code|design)\s+(a\s+)?(website|site|landing\s*page|web\s*app|portfolio|webpage|web\s*page|frontend|web\s*project)\b",
-                r"\b(website|site|landing\s*page|web\s*app|portfolio)\s+(project|template|scaffold)\b",
-                r"\b(html|css|javascript)\s+(site|website|project)\b",
-            ]
-        )
+        # Web site / project intent detection (uses typo-tolerant WEB_PROJECT_RE from router)
+        from app.services.nvidia.router import WEB_PROJECT_RE
+        is_web_project_request = bool(WEB_PROJECT_RE.search(request.message))
         if is_web_project_request:
             system_prompt = (
                 f"{system_prompt}\n\n"

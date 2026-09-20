@@ -52,6 +52,23 @@ _NO_FAKE_VIDEOS_NOTE = (
     "links, YouTube links, or placeholders like [Video: ...] anywhere in your response."
 )
 
+_PROJECT_DELIVERY_REQUIREMENT = (
+    "CRITICAL PROJECT DELIVERY REQUIREMENT:\n"
+    "The user has asked to create or build a project or website. "
+    "You MUST deliver the ENTIRE, COMPLETE multi-file project workspace — never just a fragment, high-level overview, outline, design advice, wireframe sketch, or placeholder stubs.\n\n"
+    "For a WEBSITE / WEB APP / PORTFOLIO, deliver all of these complete files:\n"
+    "1. `index.html`: Fully semantic HTML5 with responsive viewport, metadata, Google Fonts / Tailwind CDN or modern CSS classes, header, nav, hero, about, projects/work showcase, skills, contact form, interactive elements, and footer.\n"
+    "2. `styles.css`: Complete modern CSS with CSS custom properties (variables), responsive media queries, smooth animations/transitions, and polished styling.\n"
+    "3. `script.js`: Complete interactive JavaScript (navigation toggle, smooth scrolling, project filters, contact form handler, dark mode toggle, zero stubs).\n"
+    "4. `package.json`: Valid project manifest with scripts.\n"
+    "5. `README.md`: Clear setup and running instructions.\n\n"
+    "RULES:\n"
+    "- Every single file must be 100% complete and immediately runnable.\n"
+    "- Output each file in its own markdown code block with the filename as a comment on line 1.\n"
+    "- NEVER output high-level step-by-step design instructions or Figma frames instead of real code.\n"
+    "- Deliver working code directly."
+)
+
 
 async def _browser_events(browser_service, request, db, chat, user, full_message: str):
     """Stream browser-agent events as SSE JSON lines.
@@ -477,6 +494,9 @@ async def nvidia_chat(
                 _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
 
+    from app.services.nvidia.router import WEB_PROJECT_RE
+    is_web_project_req = bool(WEB_PROJECT_RE.search(request.message))
+
     if request.auto_route:
 
         # Load recent user messages for context-aware routing ("create an image of it")
@@ -496,6 +516,8 @@ async def nvidia_chat(
                 context = []
         decision = ai_router.classify(request.message, context=context)
         task = ai_router.detect_task(request.message, context=context)
+        if is_web_project_req:
+            task = "coding"
         auto_model = ai_router.get_best_model(task)
         if task == "image_generation":
             model = auto_model or "flux-1-dev"
@@ -503,8 +525,12 @@ async def nvidia_chat(
             model = auto_model
     else:
         decision = ai_router.classify(request.message)
-        model = request.model or "glm-5.2"
-        task = "chat"
+        task = "coding" if is_web_project_req else ai_router.detect_task(request.message)
+        _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision", "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
+        if is_web_project_req or (task == "coding" and (not request.model or request.model in _generic_defaults)):
+            model = "codestral"
+        else:
+            model = request.model or "glm-5.2"
 
     # Sanitize model name – fallback to a verified NVIDIA model if the stored model is retired/invalid
     valid_models = set(NVIDIA_MODELS.keys()) | {v["id"] for v in NVIDIA_MODELS.values()}
@@ -700,6 +726,9 @@ async def nvidia_chat(
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
+        if is_web_project_req:
+            system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
+
         result = await db.execute(
             select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
         )
@@ -874,6 +903,9 @@ async def nvidia_chat(
             web_context = await WebSearchService().search(request.message, with_images=True)
         if web_context:
             system_prompt = f"{system_prompt}\n\n{web_context}"
+
+    if is_web_project_req:
+        system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
 
     if request.stream:
         async def generate():

@@ -28,7 +28,25 @@ SEARCH_VERBS = r"show|find|search|get|give|fetch|locate"
 # Existing-image nouns (retrieval)
 RETRIEVAL_NOUNS = r"\b(?:i[am]*g[e]*s?|pictures?|photos?|pics?|photographs?|examples?|diagrams?|wallpapers?|screenshots?)\b"
 
-# Technical topics that mention "image generation" but are NOT image requests
+# Verbs for creating software, websites, projects (handles common typos like cretea, biuld, mak)
+CODE_CREATE_VERBS = (
+    r"(?:create|cretea|creat|crying|build|biuld|buid|make|mak|generate|generat|code|design|develop|scaffold|setup|set\s+up)"
+)
+
+# Website, app, portfolio nouns (handles common typos like protofilo, portofolio, webiste, websit)
+CODE_PROJECT_NOUNS = (
+    r"(?:website|webiste|websit|site|web\s*site|landing\s*page|portfolio|protofilo|portofolio|portfilo|"
+    r"web\s*app|webapp|webpage|web\s*page|frontend|backend|fullstack|full\s*stack|project|app|application|"
+    r"dashboard|portal|api|rest\s*api|fastapi|flask|express|react\s*app|nextjs|next\.js)"
+)
+
+WEB_PROJECT_RE = re.compile(
+    rf"\b{CODE_CREATE_VERBS}\s+(?:a\s+|an\s+|the\s+|my\s+)?{CODE_PROJECT_NOUNS}\b|"
+    rf"\b{CODE_PROJECT_NOUNS}\s+(?:project|template|scaffold|boilerplate|code)\b|"
+    r"\b(?:html|css|javascript|react|vue|angular|svelte|nextjs|tailwind)\s+(?:site|website|project|portfolio|protofilo)\b",
+    re.I,
+)
+
 TECHNICAL_IMAGE_TOPIC = re.compile(
     r"\b(?:api|endpoint|function|code|library|sdk|program|script|app|application|tool|website|service|system|module|package|pipeline|workflow)\b"
     r"|image[- ]generation|generate images",
@@ -120,7 +138,10 @@ class AIRouter:
         if re.search(r"\b(what is in this image|describe this image|analyze this image|what do you see|ocr|extract text from image)\b", text):
             return self._vision(0.92)
 
-        # ── Technical guard: "create an image-generation API" is NOT an image request ──
+        # ── Technical guard & Coding / Project creation (checked BEFORE image gen) ──
+        if WEB_PROJECT_RE.search(text) or self._looks_coding(text):
+            return self._coding(0.95 if WEB_PROJECT_RE.search(text) else 0.88)
+
         if TECHNICAL_IMAGE_TOPIC.search(text) and (
             TECHNICAL_ASK.search(text) or re.search(r"\b(api|endpoint|function|code|library|sdk|program|script)\b", text)
         ):
@@ -343,6 +364,8 @@ class AIRouter:
         }
 
     def _looks_coding(self, text: str) -> bool:
+        if WEB_PROJECT_RE.search(text):
+            return True
         for kw in TASK_PATTERNS["coding"]:
             if " " in kw:
                 if kw in text:

@@ -255,15 +255,21 @@ class ChatService:
             system_prompt = (
                 f"{system_prompt}\n\n"
                 "CRITICAL PROJECT DELIVERY REQUIREMENT:\n"
-                "The user has asked to create or build a website/site project. "
-                "You MUST deliver the ENTIRE, COMPLETE multi-file project workspace — never just a fragment, partial snippet, or single file. "
-                "Structure your response with clear headings and output each individual file in its own markdown code block with the exact filename in a comment on line 1:\n"
-                "1. `index.html`: Fully semantic HTML5 with responsive viewport, metadata, Google Fonts / Tailwind CDN, header, nav, hero, feature/content sections, interactive elements, and footer.\n"
-                "2. `styles.css`: Complete modern CSS with CSS variables, responsive breakpoints, smooth transitions, and polished styling.\n"
-                "3. `script.js`: Complete interactive JavaScript (navigation toggle, event handlers, interactive states, modals, zero stubs).\n"
-                "4. `package.json`: Valid project manifest with start/dev scripts.\n"
-                "5. `README.md`: Clear setup and running instructions.\n"
-                "Provide all code completely with zero truncated sections or placeholder comments."
+                "The user has asked to create or build a project. "
+                "You MUST deliver the ENTIRE, COMPLETE multi-file project — never fragments, stubs, or 'TODO' placeholders.\n\n"
+                "For a WEBSITE / WEB APP, deliver all of these files:\n"
+                "1. `index.html`: Full semantic HTML5 — responsive viewport, Google Fonts/CDN links, nav, hero, sections, footer.\n"
+                "2. `styles.css`: Complete CSS — variables, media queries, transitions, hover effects, mobile-first.\n"
+                "3. `script.js`: All interactive JS — nav toggle, event handlers, animations, modals. Zero stubs.\n"
+                "4. `package.json`: Valid manifest with name, version, description, scripts (start/dev/build).\n"
+                "5. `README.md`: Clear setup, install, and run instructions.\n\n"
+                "For a BACKEND / API project, deliver:\n"
+                "- Main entry file, route files, model/schema files, config, requirements.txt/package.json, README.\n\n"
+                "For a FULL-STACK project, deliver both frontend and backend files.\n\n"
+                "For a MOBILE / CLI / BOT project, deliver all source files needed to run it.\n\n"
+                "RULES: Every file must be complete. No truncation. No '// rest of code here'. "
+                "Use proper imports, error handling, and production-quality patterns. "
+                "Output each file in its own markdown code block with the filename as a comment on line 1."
             )
 
         # Document generation intent detection
@@ -526,7 +532,21 @@ class ChatService:
         task, _ = ai_router.get_model_for_message(request.message)
         task_decision = ai_router.classify(request.message)
         is_image_task = task == "image_generation"
-        _logger.info("[CHAT] provider=%s model=%s task=%s stream=%s", provider_name, model or chat.model, task, request.stream)
+
+        # Project / site creation always needs the best code model,
+        # even if the router classified it as "normal_chat".
+        if is_web_project_request:
+            task = "coding"
+            # Switch provider to nvidia to reach codestral (SambaNova has no code specialist)
+            if provider_name == "sambanova":
+                provider_name = "nvidia"
+                try:
+                    provider = get_provider(provider_name)
+                except ValueError:
+                    pass  # keep sambanova if nvidia key is missing
+
+        _logger.info("[CHAT] provider=%s model=%s task=%s stream=%s web_project=%s",
+                     provider_name, model or chat.model, task, request.stream, is_web_project_request)
 
         # Auto-select the best model for the detected task when the user hasn't
         # pinned a specific model (i.e., the chat model is still the generic default).

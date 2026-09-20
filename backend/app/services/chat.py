@@ -190,8 +190,7 @@ class ChatService:
         model = request.model
         default_models = {
             "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-            "sambanova": settings.sambanova_default_model or "Meta-Llama-3.3-70B-Instruct",
-            "nvidia": settings.nvidia_default_chat_model or "llama-3.1-70b",
+            "nvidia": settings.nvidia_default_chat_model or "llama-3.2-11b",
             "gemini": settings.google_default_model,
             "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
         }
@@ -537,34 +536,23 @@ class ChatService:
         # even if the router classified it as "normal_chat".
         if is_web_project_request:
             task = "coding"
-            # Switch provider to nvidia to reach codestral (SambaNova has no code specialist)
-            if provider_name == "sambanova":
-                provider_name = "nvidia"
-                try:
-                    provider = get_provider(provider_name)
-                except ValueError:
-                    pass  # keep sambanova if nvidia key is missing
 
         _logger.info("[CHAT] provider=%s model=%s task=%s stream=%s web_project=%s",
                      provider_name, model or chat.model, task, request.stream, is_web_project_request)
 
         # Auto-select the best model for the detected task when the user hasn't
         # pinned a specific model (i.e., the chat model is still the generic default).
-        # This wires the ai_router decision into the actual model used per message.
         _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision",
                               "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
         user_pinned_model = model and model not in _generic_defaults
         model_to_use = model or chat.model
 
         if not user_pinned_model:
-            if provider_name == "nvidia":
-                if task == "coding":
-                    model_to_use = settings.nvidia_default_code_model or "codestral"
-                elif task == "reasoning":
-                    model_to_use = "glm-5.2"
-            elif provider_name == "sambanova":
-                # SambaNova: DeepSeek-V3.2 handles code well and is fastest
-                model_to_use = settings.sambanova_default_model or "DeepSeek-V3.2"
+            if task == "coding":
+                model_to_use = settings.nvidia_default_code_model or "codestral"
+            elif task == "reasoning":
+                model_to_use = "glm-5.2"
+            # All other tasks: keep llama-3.2-11b (fast general NVIDIA model)
             elif provider_name == "cloudflare" and task == "coding":
                 model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
 

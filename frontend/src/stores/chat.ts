@@ -224,7 +224,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     },
 
     createChat: async (continueFromLast = false) => {
-      const chat = await api.createChat({ model: 'DeepSeek-V3.2', provider: 'sambanova' })
+      const chat = await api.createChat({ model: 'llama-3.2-11b', provider: 'nvidia' })
       let initialMessages: Message[] = []
       if (continueFromLast && get().chats.length > 0) {
         const lastChat = get().chats[0]

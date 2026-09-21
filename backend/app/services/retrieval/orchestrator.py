@@ -76,6 +76,7 @@ class RetrievalOrchestrator:
         max_results: Optional[int] = None,
         location: Optional[str] = None,
         as_of: Optional[str] = None,
+        chat_history: Optional[list[dict]] = None,
     ) -> RetrievalResult:
         timer = StageTimer()
         timer.start("routing")
@@ -132,9 +133,9 @@ class RetrievalOrchestrator:
 
         # ── Query generation ──
         timer.start("querygen")
-        queries = generate_queries(query, complexity)
+        queries = generate_queries(query, complexity, types=types, chat_history=chat_history)
         timer.stop("querygen")
-        await self._notify(status_cb, "Searching the web for updated data...")
+        await self._notify(status_cb, "Searching reliable web sources...")
 
         # ── Parallel search (section 2) ──
         timer.start("search")
@@ -182,7 +183,7 @@ class RetrievalOrchestrator:
         ranked = score_results(deduped, query, current=current, complexity=complexity)
         top = select_top(ranked, _DEPTH[complexity])
         timer.stop("ranking")
-        await self._notify(status_cb, f"Found {len(deduped)} sources, reading the most relevant...")
+        await self._notify(status_cb, f"Found {len(deduped)} sources, reading evidence...")
 
         # ── Parallel page fetching + extraction under one global deadline ──
         # (section 6: one slow source must never block the answer)
@@ -213,6 +214,7 @@ class RetrievalOrchestrator:
         timer.stop("fetch")
 
         # ── Extract + rerank (sections 9, 10) ──
+        await self._notify(status_cb, "Verifying facts & synthesizing context...")
         timer.start("extraction")
         timer.start("reranking")
         context, sources = build_evidence(fetched, query)

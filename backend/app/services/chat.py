@@ -448,17 +448,22 @@ class ChatService:
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
-        if not skip_retrieval and (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
-            web_context = await WebSearchService().search(request.message, with_images=True)
-            if web_context:
-                system_prompt = f"{system_prompt}\n\n{web_context}"
-
         messages_result = await self.db.execute(
             select(Message)
             .where(Message.chat_id == chat_id)
             .order_by(Message.created_at)
         )
         all_messages = messages_result.scalars().all()
+        recent_history = [{"role": m.role, "content": m.content} for m in all_messages[-6:]]
+
+        if not skip_retrieval and (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
+            web_context = await WebSearchService().search(
+                request.message,
+                with_images=True,
+                chat_history=recent_history,
+            )
+            if web_context:
+                system_prompt = f"{system_prompt}\n\n{web_context}"
 
         api_messages = self._prepare_messages(
             all_messages,
@@ -655,6 +660,7 @@ class ChatService:
                                 status_cb=_cb,
                                 as_of=now_iso,
                                 location=request.location,
+                                chat_history=recent_history,
                             )
                         )
                         async for ev in _chat_status_events(status_q, retrieval_task):

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.api import auth, chats, models, files, nvidia_api, browser, documents, live, agent
+from app.web.api import web_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.tracing import RequestTracingMiddleware
@@ -97,6 +98,7 @@ app.include_router(browser.router)
 app.include_router(documents.router)
 app.include_router(live.router)
 app.include_router(agent.router)
+app.include_router(web_router)
 
 
 @app.get("/api/health")

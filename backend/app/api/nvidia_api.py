@@ -718,25 +718,28 @@ async def nvidia_chat(
                     if all_texts:
                         system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
-        if WebSearchService.needs_web_search(request.message):
+        result = await db.execute(
+            select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
+        )
+        all_messages = result.scalars().all()
+        recent_history = [{"role": m.role, "content": m.content} for m in all_messages[-6:]]
+
+        for msg in all_messages:
+            if "data:image/png;base64" in (msg.content or ""):
+                msg.content = "[Generated image]"
+
+        if not request.stream and WebSearchService.needs_web_search(request.message):
             force_images_here = bool(decision.get("requires_images")) and task != "web_images"
             web_context = await WebSearchService().search(
-                request.message, with_images=not force_images_here
+                request.message,
+                with_images=not force_images_here,
+                chat_history=recent_history,
             )
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
         if is_web_project_req:
             system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
-
-        result = await db.execute(
-            select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
-        )
-        all_messages = result.scalars().all()
-
-        for msg in all_messages:
-            if "data:image/png;base64" in (msg.content or ""):
-                msg.content = "[Generated image]"
 
         api_messages = svc._prepare_messages(
             all_messages,
@@ -781,6 +784,7 @@ async def nvidia_chat(
                             force_images=force_images,
                             with_videos=with_videos,
                             status_cb=_cb,
+                            chat_history=recent_history,
                         )
                     )
                     async for ev in _retrieval_status_events(status_q, retrieval_task):
@@ -893,7 +897,7 @@ async def nvidia_chat(
     messages = [{"role": "user", "content": request.message}]
     force_images = bool(decision.get("requires_images")) and task != "web_images"
 
-    if WebSearchService.needs_web_search(request.message) or force_images:
+    if not request.stream and (WebSearchService.needs_web_search(request.message) or force_images):
         if force_images:
             if WebSearchService.needs_web_search(request.message):
                 web_context = await WebSearchService().search(request.message, with_images=False)

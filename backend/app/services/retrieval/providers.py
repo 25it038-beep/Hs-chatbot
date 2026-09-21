@@ -95,8 +95,8 @@ class TavilyBase(SearchProvider):
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(url, json=payload, headers=headers)
-                if resp.status_code in (401, 403, 429):
-                    if resp.status_code != 429:  # 429 = key fine, limit hit; retry once
+                if resp.status_code in (401, 403, 429, 432):
+                    if resp.status_code != 429:  # 429 = retry once, 401/403/432 = rotate key
                         logger.warning("tavily key rejected (http {}), rotating", resp.status_code)
                         key = await self._keys.rotate()
                         headers["Authorization"] = f"Bearer {key}"
@@ -436,8 +436,9 @@ class WikipediaProvider(SearchProvider):
     async def search(self, query: str, limit: int, kind: str) -> list[SearchResult]:
         import httpx
 
+        headers = {"User-Agent": "HSBot/1.0 (https://github.com/25it038-beep/Hs-chatbot; contact: hsbot@example.com)"}
         try:
-            async with httpx.AsyncClient(timeout=4.0) as client:
+            async with httpx.AsyncClient(timeout=4.0, headers=headers) as client:
                 resp = await client.get(
                     self.API,
                     params={
@@ -610,7 +611,7 @@ class ProviderPool:
                     primary_ok = False
                 break
         if pending:
-            grace = 1.5 if primary_ok else max(deadline - time.perf_counter(), 0.05)
+            grace = 1.5 if primary_ok else max(deadline - time.perf_counter(), 4.5)
             _, pending = await asyncio.wait(pending, timeout=grace)
         for t in pending:
             t.cancel()

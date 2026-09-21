@@ -102,6 +102,12 @@ def extract_text(html: str) -> str:
     return "\n".join(lines)
 
 
+_DATE_RE = re.compile(
+    r'<meta[^>]+(?:property|name)=["\'](?:article:published_time|pubdate|date|sailthru\.date|dc\.date)["\'][^>]*content=["\']([^"\']*)',
+    re.I,
+)
+
+
 def extract_meta(html: str, fallback_title: str = "") -> dict:
     title = ""
     m = _TITLE_RE.search(html[:20_000])
@@ -115,7 +121,11 @@ def extract_meta(html: str, fallback_title: str = "") -> dict:
     m = _META_RE.search(html[:20_000])
     if m:
         desc = re.sub(r"\s+", " ", m.group(1)).strip()[:300]
-    return {"title": title or fallback_title, "description": desc}
+    pub_date = ""
+    m = _DATE_RE.search(html[:20_000])
+    if m:
+        pub_date = m.group(1).strip()[:30]
+    return {"title": title or fallback_title, "description": desc, "published": pub_date}
 
 
 def chunk_passages(text: str, max_chars: Optional[int] = None) -> list[str]:

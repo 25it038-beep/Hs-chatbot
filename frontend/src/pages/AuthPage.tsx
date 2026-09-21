@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { SignIn, SignUp } from '@clerk/clerk-react'
+import React, { useState, useEffect } from 'react'
+import { SignIn, SignUp, useUser, useAuth as useClerkAuth } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,10 @@ import { setTokens } from '@/lib/api'
 
 export function AuthPage() {
   const { login, register, loading } = useAuth()
+  const { isSignedIn: isUserSignedIn } = useUser()
+  const { isSignedIn: isAuthSignedIn } = useClerkAuth()
+  const isClerkSignedIn = !!(isUserSignedIn || isAuthSignedIn)
+
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [authMethod, setAuthMethod] = useState<'clerk' | 'local'>(HAS_CLERK ? 'clerk' : 'local')
   const [email, setEmail] = useState('')
@@ -18,7 +22,17 @@ export function AuthPage() {
   const [error, setError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
+    if (HAS_CLERK && isClerkSignedIn) {
+      if (window.location.hash.includes('sign-')) {
+        window.location.hash = ''
+        window.history.replaceState(null, '', window.location.pathname || '/')
+        window.dispatchEvent(new HashChangeEvent('hashchange'))
+      }
+    }
+  }, [isClerkSignedIn])
+
+  useEffect(() => {
     const syncHash = () => {
       if (window.location.hash.includes('sign-up')) {
         setMode('register')
@@ -58,6 +72,17 @@ export function AuthPage() {
       },
       initialized: true,
     })
+  }
+
+  if (HAS_CLERK && isClerkSignedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center relative z-10">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded-full border-2 border-border border-t-foreground animate-spin" />
+          <p className="text-sm text-muted-foreground">Redirecting to HSBot...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -109,14 +134,20 @@ export function AuthPage() {
               {mode === 'login' ? (
                 <SignIn
                   routing="hash"
+                  forceRedirectUrl="/"
                   fallbackRedirectUrl="/"
                   signUpUrl="/#/sign-up"
+                  signUpForceRedirectUrl="/"
+                  signUpFallbackRedirectUrl="/"
                 />
               ) : (
                 <SignUp
                   routing="hash"
+                  forceRedirectUrl="/"
                   fallbackRedirectUrl="/"
                   signInUrl="/#/sign-in"
+                  signInForceRedirectUrl="/"
+                  signInFallbackRedirectUrl="/"
                 />
               )}
             </div>

@@ -46,35 +46,41 @@ function IntroGate({ children }: { children: React.ReactNode }) {
 }
 
 function ClerkAppInner() {
-  const { isLoaded, isSignedIn, user: clerkUser } = useUser()
-  const { getToken } = useClerkAuth()
+  const { isLoaded: isUserLoaded, isSignedIn: isUserSignedIn, user: clerkUser } = useUser()
+  const { isLoaded: isAuthLoaded, isSignedIn: isAuthSignedIn, getToken } = useClerkAuth()
   const { loadChats, loadFolders, loadModels } = useChat()
   const { user: customUser } = useAuth()
 
+  const isLoaded = isUserLoaded && isAuthLoaded
+  const isSignedIn = !!(isUserSignedIn || isAuthSignedIn)
+
   useEffect(() => {
-    if (isSignedIn && clerkUser) {
-      // Clean up any remaining sign-in/up hash from Clerk
-      if (window.location.hash.includes('sign-')) {
+    if (isSignedIn) {
+      // Clean up any remaining sign-in/up hash from Clerk immediately
+      if (window.location.hash.includes('sign-') || window.location.hash.includes('__clerk')) {
         window.location.hash = ''
-        window.history.replaceState(null, '', window.location.pathname)
+        window.history.replaceState(null, '', window.location.pathname || '/')
+        window.dispatchEvent(new HashChangeEvent('hashchange'))
       }
 
-      // Sync Clerk user profile into our auth store so Sidebar and Settings show the user
-      useAuth.setState({
-        user: {
-          id: clerkUser.id,
-          username:
-            clerkUser.username ||
-            clerkUser.firstName ||
-            clerkUser.primaryEmailAddress?.emailAddress?.split('@')[0] ||
-            'User',
-          email: clerkUser.primaryEmailAddress?.emailAddress || '',
-          display_name: clerkUser.fullName || clerkUser.firstName || undefined,
-          is_active: true,
-          created_at: clerkUser.createdAt ? new Date(clerkUser.createdAt).toISOString() : new Date().toISOString(),
-        },
-        initialized: true,
-      })
+      if (clerkUser) {
+        // Sync Clerk user profile into our auth store so Sidebar and Settings show the user
+        useAuth.setState({
+          user: {
+            id: clerkUser.id,
+            username:
+              clerkUser.username ||
+              clerkUser.firstName ||
+              clerkUser.primaryEmailAddress?.emailAddress?.split('@')[0] ||
+              'User',
+            email: clerkUser.primaryEmailAddress?.emailAddress || '',
+            display_name: clerkUser.fullName || clerkUser.firstName || undefined,
+            is_active: true,
+            created_at: clerkUser.createdAt ? new Date(clerkUser.createdAt).toISOString() : new Date().toISOString(),
+          },
+          initialized: true,
+        })
+      }
 
       // Sync Clerk session token with local storage & API client
       getToken()

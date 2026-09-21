@@ -1011,6 +1011,8 @@ class BrowserAgent:
                         from app.services.websearch import WebSearchService
                         query_to_fetch = intent.query or intent.url or intent.service or "latest information"
                         web_ctx = await WebSearchService().retrieve_for_chat(query_to_fetch, force_images=False, with_videos=False)
+                        if isinstance(web_ctx, (tuple, list)):
+                            web_ctx = web_ctx[0]
                         if web_ctx:
                             summary = f"🌐 **Opened via web retrieval fallback:**\n\n{web_ctx[:3000]}"
                         else:

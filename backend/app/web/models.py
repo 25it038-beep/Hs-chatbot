@@ -106,5 +106,6 @@ class SearchResultBundle(BaseModel):
     conflicts: List[str] = Field(default_factory=list)
     images_md: str = ""
     videos_md: str = ""
+    sources_md: str = ""
     duration_ms: float = 0.0
     research_plan: Optional[ResearchPlan] = None

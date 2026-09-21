@@ -87,8 +87,11 @@ async def get_messages(chat_id: str, current_user: User = Depends(get_current_us
     result = []
     for m in messages:
         resp = MessageResponse.model_validate(m)
-        if m.extra_data and isinstance(m.extra_data, dict) and "attachments" in m.extra_data:
-            resp.attachments = m.extra_data["attachments"]
+        if m.extra_data and isinstance(m.extra_data, dict):
+            if "attachments" in m.extra_data:
+                resp.attachments = m.extra_data["attachments"]
+            if "sources" in m.extra_data:
+                resp.sources = m.extra_data["sources"]
         result.append(resp)
     return result
 

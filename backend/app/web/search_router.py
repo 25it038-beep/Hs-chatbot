@@ -7,7 +7,18 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.web.models import SearchMode
 
 
-# ── Non-Search Bypasses (Zero unnecessary searches) ──
+from enum import Enum
+
+from app.web.models import SearchMode
+
+
+class CurrentnessClassification(str, Enum):
+    CURRENT_REQUIRED = "CURRENT_REQUIRED"
+    CURRENT_PREFERRED = "CURRENT_PREFERRED"
+    CURRENT_NOT_NEEDED = "CURRENT_NOT_NEEDED"
+
+
+# ── Non-Search Bypasses (Zero unnecessary searches for purely creative, rewrite, or chit-chat) ──
 _SMALLTALK = re.compile(
     r"^\s*(hi|hello|hey|greetings|howdy|good\s+(?:morning|afternoon|evening|night)|"
     r"how\s+are\s+you|who\s+are\s+you|what\s+is\s+your\s+name|what('?s|\s+is)\s+up|"
@@ -16,8 +27,8 @@ _SMALLTALK = re.compile(
 )
 
 _CREATIVE = re.compile(
-    r"\b(write\s+(?:me\s+)?(?:a\s+|an\s+)?(?:poem|story|song|lyrics|essay|joke|riddle|limerick|"
-    r"script|screenplay|scene|dialogue|haiku|speech)|compose\s+a\s+(?:poem|song)|"
+    r"\b(write\s+(?:me\s+)?(?:a\s+|an\s+)?(?:(?:short|long|sci-fi|funny|bedtime|original|quick)\s+)*(?:poem|story|song|lyrics|essay|joke|riddle|limerick|"
+    r"script|screenplay|scene|dialogue|haiku|speech)|compose\s+(?:a\s+)?(?:(?:short|long|funny|quick)\s+)*(?:poem|song|haiku|story|speech|melody|essay|tune)|"
     r"roleplay\s+as|pretend\s+(?:you\s+are|to\s+be)|act\s+as\s+a|brainstorm\s+(?:names|ideas)\s+for)\b",
     re.I,
 )
@@ -25,8 +36,10 @@ _CREATIVE = re.compile(
 _TRANSFORM = re.compile(
     r"\b(translate\b.*?\b(?:to|into)\b|translate\s+(?:this|the|sentence|text)?|"
     r"summarize\s+(?:this|the\s+following|the\s+text\s+below)?|"
+    r"rewrite\s+(?:this|the\s+following|the\s+sentence|the\s+text|the\s+email|the\s+paragraph)?|"
+    r"make\s+this\s+(?:email|paragraph|text|sentence|message|draft|post)?\s*(?:more\s+)?(?:professional|polite|concise|formal|better|friendly|clear)|"
     r"paraphrase\s+(?:this|the\s+following)?|proofread\s+(?:this|the\s+following)?|"
-    r"fix\s+(?:the\s+)?grammar\s+in|convert\s+to\s+(?:bullet\s+points|markdown|json))\b",
+    r"fix\s+(?:the\s+)?grammar\s+in|convert\s+to\s+(?:bullet\s+points|markdown|json|table))\b",
     re.I,
 )
 
@@ -37,13 +50,10 @@ _MATH_LOGIC = re.compile(
     re.I,
 )
 
-_STABLE_CONCEPT = re.compile(
-    r"\b((?:explain\s+how|how\s+does)\s+(?:a\s+|an\s+)?(?:ram|cpu|cache|cpu\s+cache|dns|tcp|udp|http|blockchain|photosynthesis|mitosis|osmosis|"
-    r"gravity|relativity|an?\s+engine|airplane|black\s+hole|transistor|binary\s+search|compiler|neural\s+network)\s+works?|"
-    r"explain\s+(?:the\s+)?(?:pythagorean\s+theorem|newton's\s+laws?|theory\s+of\s+relativity|water\s+cycle)|"
-    r"what\s+is\s+(?:a\s+|an\s+)?(?:photosynthesis|mitochondria|dna|rna|gravity|inertia|momentum|entropy|"
-    r"pythagorean\s+theorem|newton's\s+laws?|fibonacci|recursion|polymorphism|encapsulation|"
-    r"object\s+oriented\s+programming|binary\s+search|ram|rom|cpu|gpu))\b",
+_PURE_ALGORITHM = re.compile(
+    r"\b(write\s+(?:a\s+)?(?:python|javascript|typescript|c\+\+|java|rust|go)?\s*"
+    r"(?:function|script|code|method)\s+to\s+(?:reverse|traverse|sort|find\s+max\s+in)\s+(?:a\s+|an\s+)?"
+    r"(?:string|array|list|linked\s+list|binary\s+tree))\b",
     re.I,
 )
 
@@ -74,15 +84,48 @@ _COMPARISON_PRO = re.compile(
 _CURRENT_SIGNALS = re.compile(
     r"\b(today|tomorrow|yesterday|tonight|now|right now|current|currently|latest|recent|recently|updated|"
     r"breaking|this (?:week|month|year)|price|prices|quote|stocks|market|crypto|bitcoin|btc|eth|"
-    r"who (?:is|are|won|is leading)|release date|roadmap|changelog|patch notes)\b",
+    r"who (?:is|are|won|is leading|was|became|took over|replaced)|"
+    r"current (?:cm|chief minister|president|prime minister|pm|governor|leader|ceo)|"
+    r"release date|roadmap|changelog|patch notes)\b",
     re.I,
 )
 
 _REGIONS = [
     ("india", "IN"), ("chennai", "IN"), ("bangalore", "IN"), ("mumbai", "IN"), ("delhi", "IN"),
-    ("tamil nadu", "IN"), ("karnataka", "IN"), ("us", "US"), ("usa", "US"), ("united states", "US"),
-    ("uk", "UK"), ("united kingdom", "UK"), ("europe", "EU"), ("germany", "DE"), ("canada", "CA"),
+    ("tamil nadu", "IN"), ("tamilnadu", "IN"), ("karnataka", "IN"), ("us", "US"), ("usa", "US"),
+    ("united states", "US"), ("uk", "UK"), ("united kingdom", "UK"), ("europe", "EU"),
+    ("germany", "DE"), ("canada", "CA"),
 ]
+
+
+def classify_currentness(query: str) -> CurrentnessClassification:
+    """Classify prompt into CURRENT_REQUIRED, CURRENT_PREFERRED, or CURRENT_NOT_NEEDED."""
+    q = query.strip()
+    if not q:
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+
+    explicit = bool(_EXPLICIT_SEARCH.search(q))
+    if explicit:
+        return CurrentnessClassification.CURRENT_REQUIRED
+
+    # Check non-search bypasses (creative, transform, pure math, smalltalk)
+    if _SMALLTALK.search(q):
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+    if _CREATIVE.search(q):
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+    if _TRANSFORM.search(q):
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+    if _MATH_LOGIC.search(q):
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+    if _PURE_ALGORITHM.search(q):
+        return CurrentnessClassification.CURRENT_NOT_NEEDED
+
+    # Explicit currentness indicators
+    if _CURRENT_SIGNALS.search(q) or "202" in q:
+        return CurrentnessClassification.CURRENT_REQUIRED
+
+    # Always-Current default: factual, real-world, technical, lookups default to CURRENT_PREFERRED / CURRENT_REQUIRED
+    return CurrentnessClassification.CURRENT_PREFERRED
 
 
 def extract_constraints(query: str) -> Dict[str, Any]:
@@ -108,7 +151,7 @@ def extract_constraints(query: str) -> Dict[str, Any]:
     if budget_m:
         constraints["budget"] = budget_m.group(0).strip()
 
-    # Year
+    # Year (grounded with actual current year 2026)
     year_m = re.search(r"\b(202\d)\b", query)
     if year_m:
         constraints["year"] = year_m.group(0)
@@ -137,7 +180,7 @@ def extract_constraints(query: str) -> Dict[str, Any]:
 
 
 def determine_search_mode(query: str, user_override: Optional[str] = None) -> Tuple[SearchMode, Dict[str, Any]]:
-    """Automatically decide between FAST, PRO, DEEP, and NONE."""
+    """Automatically decide between FAST, PRO, DEEP, and NONE based on ALWAYS-CURRENT DATA MODE."""
     q = query.strip()
     constraints = extract_constraints(q)
 
@@ -152,36 +195,23 @@ def determine_search_mode(query: str, user_override: Optional[str] = None) -> Tu
         if "none" in ov or "off" in ov:
             return SearchMode.NONE, constraints
 
-    # 1. Explicit Deep Research markers
+    # 1. Non-search check
+    currentness = classify_currentness(q)
+    if currentness == CurrentnessClassification.CURRENT_NOT_NEEDED:
+        return SearchMode.NONE, constraints
+
+    # 2. Explicit Deep Research markers
     if _EXPLICIT_DEEP.search(q):
         return SearchMode.DEEP, constraints
-
-    # 2. Check non-search bypasses
-    explicit_search = bool(_EXPLICIT_SEARCH.search(q))
-    if not explicit_search:
-        if _SMALLTALK.search(q):
-            return SearchMode.NONE, constraints
-        if _CREATIVE.search(q):
-            return SearchMode.NONE, constraints
-        if _TRANSFORM.search(q):
-            return SearchMode.NONE, constraints
-        if _MATH_LOGIC.search(q):
-            return SearchMode.NONE, constraints
-        if _STABLE_CONCEPT.search(q):
-            return SearchMode.NONE, constraints
 
     # 3. Complex comparative or multi-criteria query -> PRO
     if _COMPARISON_PRO.search(q) or len(constraints["criteria"]) >= 2:
         return SearchMode.PRO, constraints
 
-    # Multi-part complex query check (length > 12 words or multiple question clauses)
+    # Multi-part complex query check (length >= 14 words with connectors)
     tokens = [t for t in re.split(r"\W+", q) if t]
     if len(tokens) >= 14 and ("and" in q.lower() or "," in q or "compare" in q.lower()):
         return SearchMode.PRO, constraints
 
-    # 4. Standard current or explicit search -> FAST
-    if explicit_search or _CURRENT_SIGNALS.search(q) or "202" in q:
-        return SearchMode.FAST, constraints
-
-    # General question fallback: if not bypassed, default to FAST
+    # 4. Standard current, factual, technical, lookup -> FAST by default
     return SearchMode.FAST, constraints

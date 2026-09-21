@@ -62,9 +62,14 @@ class QueryPlanner:
         region = constraints.get("region")
 
         if mode == SearchMode.FAST:
-            # Fast mode: primary query + optional recency tag
+            # Fast mode: primary query + year-grounded recency query for currentness
             queries = [base]
-            if "latest" in query.lower() or "current" in query.lower() or "today" in query.lower():
+            recency_words = [
+                "latest", "current", "today", "now", "recent", "who is", "who are",
+                "president", "minister", "prime minister", "cm", "pm", "governor",
+                "ceo", "price", "status", "winner", "newest", "2026"
+            ]
+            if any(w in query.lower() for w in recency_words):
                 if year not in base:
                     queries.append(f"{base} {year}")
             return queries[:2]

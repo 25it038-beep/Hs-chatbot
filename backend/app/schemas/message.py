@@ -29,6 +29,7 @@ class MessageResponse(BaseModel):
     reasoning: Optional[str] = None
     extra_data: Optional[Any] = None
     attachments: Optional[list[Attachment]] = None
+    sources: Optional[list[dict]] = None
     token_count: int
     input_tokens: int
     output_tokens: int

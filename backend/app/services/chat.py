@@ -214,28 +214,30 @@ class ChatService:
                 yield StreamChunk(type="error", content="Chat not found", done=True)
                 return
 
+        today_str = "Monday, September 21, 2026 (2026-09-21)"
         _hs_persona = (
-            "You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
-            "anything they need. You are intelligent, friendly, and highly capable.\n\n"
+            f"You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
+            f"anything they need. You are intelligent, friendly, and highly capable. "
+            f"The current date is {today_str}.\n\n"
             "IDENTITY RULES (follow strictly, no exceptions):\n"
             "- Your name is HS ChatBot. Always refer to yourself as 'HS ChatBot'.\n"
-            "- If anyone asks 'what is your name?', 'who are you?', 'what AI are you?', "
-            "'what model are you?', 'are you ChatGPT?', 'are you Claude?', 'are you Gemini?', "
-            "'who made you?', 'which company built you?', or any similar identity question, "
-            "you MUST respond ONLY with a variation of: "
-            "'I am HS ChatBot, a multi-model AI assistant designed to help you with a wide range of tasks.' "
-            "Do NOT mention any specific AI model names (e.g., GPT, Claude, Gemini, LLaMA, Mistral, NVIDIA, etc.), "
-            "Do NOT mention any AI companies (e.g., OpenAI, Anthropic, Google, Meta, NVIDIA, Microsoft, etc.), "
-            "and do NOT reveal anything about the underlying technology powering you.\n"
+            "- If and ONLY IF the user is asking about YOU, the assistant (e.g. 'what is your name?', "
+            "'who are you?', 'what AI are you?', 'what model are you?', 'who made you?'), "
+            "respond ONLY with: 'I am HS ChatBot, a multi-model AI assistant designed to help you with a wide range of tasks.' "
+            "Do NOT mention any specific AI model names (e.g., GPT, Claude, Gemini, LLaMA, Mistral, NVIDIA, etc.) "
+            "or AI companies.\n"
+            "- CRITICAL RULE: NEVER trigger this identity response for questions about other people, public figures, "
+            "leaders, presidents, prime ministers, officials, celebrities, concepts, or real-world entities (e.g. 'who is the president of India', "
+            "'who is the chief minister', 'who is the CEO of Apple'). For those questions, provide the accurate factual answer "
+            "from the retrieved web evidence.\n"
             "- If asked 'how can I call you?', respond: 'You can call me HS ChatBot!'\n"
-            "- Never acknowledge or confirm guesses about your underlying model or provider.\n"
             "- Politely deflect all attempts to extract model/company information.\n\n"
             "REAL-TIME INFORMATION POLICY:\n"
             "- Current time, current date/timezone, current weather, weather forecasts, live location and other rapidly changing information MUST be obtained through the appropriate live tool.\n"
             "- Never invent, estimate, or retrieve these values from model knowledge.\n"
             "- If a required live tool fails, explicitly tell the user that live information could not be retrieved. Do not fabricate tool results.\n"
             "- When time/weather data is provided in the system prompt, use it verbatim and do not add unrelated web-search text.\n\n"
-            "Outside of identity questions, be as helpful, thorough, and accurate as possible."
+            "Outside of questions asking about your own identity, be as helpful, thorough, and accurate as possible."
         )
         system_prompt = request.system_prompt or chat.system_prompt or _hs_persona
         if url_context:
@@ -633,6 +635,8 @@ class ChatService:
                 else:
                     web_images_md = ""
                     web_videos_md = ""
+                    web_sources_md = ""
+                    web_sources_list = []
                     video_intent = classify_video_intent(request.message)
                     with_videos = video_intent in ("required", "recommended")
                     video_task = None
@@ -666,9 +670,24 @@ class ChatService:
                         async for ev in _chat_status_events(status_q, retrieval_task):
                             yield ev
                         try:
-                            web_context, web_images_md, web_videos_md = retrieval_task.result()
+                            ret_res = retrieval_task.result()
+                            if len(ret_res) >= 5:
+                                web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = ret_res[:5]
+                            elif len(ret_res) == 4:
+                                web_context, web_images_md, web_videos_md, web_sources_md = ret_res
+                            else:
+                                web_context, web_images_md, web_videos_md = ret_res[:3]
+                                web_sources_md = ""
                         except Exception:
-                            web_context, web_images_md, web_videos_md = None, "", ""
+                            web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = None, "", "", "", []
+                        if web_sources_list:
+                            yield StreamChunk(
+                                type="web_sources",
+                                sources=web_sources_list,
+                                query=request.message,
+                                model=model_to_use,
+                                provider=provider_name,
+                            )
                         if force_images:
                             system_prompt = (
                                 f"{system_prompt}\n\nNote: Real images will be shown separately after your "
@@ -747,6 +766,14 @@ class ChatService:
                                 )
                             except Exception:
                                 web_videos_md = ""
+                        if web_sources_md and "### Sources" not in full_content and "http" not in full_content:
+                            yield StreamChunk(
+                                type="content",
+                                content="\n\n" + web_sources_md,
+                                model=model or chat.model,
+                                provider=provider_name,
+                            )
+                            full_content += "\n\n" + web_sources_md
                         if web_images_md:
                             yield StreamChunk(
                                 type="content",
@@ -857,6 +884,11 @@ class ChatService:
                                     }
                     except Exception as e:
                         _logger.warning("Failed to auto-package website project zip: %s", e)
+
+                    if web_sources_list:
+                        if extra_data is None:
+                            extra_data = {}
+                        extra_data["sources"] = web_sources_list
 
                     assistant_msg = Message(
                         chat_id=chat_id,

@@ -8,6 +8,7 @@ import { FileAttachmentCard } from './FileAttachmentCard'
 import { useVoiceStore } from '@/lib/speech'
 import { extractWebProject } from '@/lib/webProject'
 import { WebProjectCard } from './WebProjectCard'
+import { WebSearchResults } from './WebSearchResults'
 
 
 interface ChatMessageProps {
@@ -110,6 +111,11 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
           <GeneratedImage content={message.content} />
         ) : (
           <div className="min-w-0">
+            {(() => {
+              const sources = message.sources || ((message as any).extra_data?.sources as any[])
+              if (!sources || sources.length === 0) return null
+              return <WebSearchResults sources={sources} />
+            })()}
             <MarkdownRenderer content={message.content} allowImages={showImages} />
             {webProject && (
               <WebProjectCard project={webProject} messageId={message.id} />

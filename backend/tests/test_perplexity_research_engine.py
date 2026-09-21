@@ -22,12 +22,11 @@ from app.web.verifier import ClaimVerifier
 
 def test_mode_determination_none():
     non_search_queries = [
-        "Explain how RAM works",
-        "What is photosynthesis?",
         "Write a poem about rain",
         "Hello, how are you today?",
         "Calculate 50 * 12",
         "Translate hello to Spanish",
+        "make this email more professional",
     ]
     for q in non_search_queries:
         mode, _ = determine_search_mode(q)

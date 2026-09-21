@@ -141,6 +141,7 @@ class WebSearchService:
 
         # 9. Build structured citation context
         structured_context = build_research_context(ranked_sources, evidence, conflicts)
+        sources_md = format_sources_markdown(ranked_sources)
 
         bundle = SearchResultBundle(
             mode=effective_mode,
@@ -148,6 +149,7 @@ class WebSearchService:
             resolved_query=queries[0] if queries else query,
             structured_context=structured_context,
             sources=ranked_sources,
+            sources_md=sources_md,
             evidence=evidence,
             conflicts=conflicts,
             videos_md=videos_md,

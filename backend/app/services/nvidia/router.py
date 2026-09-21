@@ -212,18 +212,18 @@ class AIRouter:
         if SUMMARIZE.search(text):
             return self._summarization(0.85)
 
-        # ── Knowledge question ──
+        # ── Knowledge question (ALWAYS-CURRENT DATA MODE: fetch web data first) ──
         if re.search(r"\b(what is|what are|who is|who are|why|how does|how do|explain|define|when did|where is)\b", text):
             decision = {
                 "primary_intent": "knowledge_question",
-                "secondary_intents": [],
-                "confidence": 0.8,
-                "requires_web": False,
+                "secondary_intents": ["web_research"],
+                "confidence": 0.85,
+                "requires_web": True,
                 "requires_images": False,
                 "requires_image_generation": False,
-                "requires_verification": False,
-                "tools": [{"name": "normal_chat", "purpose": "Answer from stable general knowledge"}],
-                "workflow": ["compose_response"],
+                "requires_verification": True,
+                "tools": [{"name": "web_search", "purpose": "Fetch current authoritative information from the web"}],
+                "workflow": ["search_web", "verify_claims", "compose_response"],
             }
             return decision
 

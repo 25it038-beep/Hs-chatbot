@@ -23,6 +23,8 @@ class StreamChunk(BaseModel):
     done: bool = False
     file: dict | None = None
     attachments: list[dict] | None = None
+    sources: list[dict] | None = None
+    query: str | None = None
 
 
 

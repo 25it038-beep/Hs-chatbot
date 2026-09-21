@@ -142,6 +142,7 @@ class ResearchService:
 
         base_context = build_research_context(ranked_sources, evidence, conflicts)
         deep_context = f"{report_directives}\n\n{base_context}"
+        sources_md = format_sources_markdown(ranked_sources)
 
         bundle = SearchResultBundle(
             mode=SearchMode.DEEP,
@@ -149,6 +150,7 @@ class ResearchService:
             resolved_query=plan.topic,
             structured_context=deep_context,
             sources=ranked_sources,
+            sources_md=sources_md,
             evidence=evidence,
             conflicts=conflicts,
             duration_ms=(time.time() - start_t) * 1000,

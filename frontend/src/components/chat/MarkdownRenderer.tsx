@@ -143,6 +143,45 @@ interface MarkdownRendererProps {
   allowImages?: boolean
 }
 
+function renderChildrenWithCitations(children: React.ReactNode): React.ReactNode {
+  if (typeof children === 'string') {
+    const parts = children.split(/(\[\d+\])/g)
+    if (parts.length > 1) {
+      return parts.map((part, i) => {
+        const match = part.match(/^\[(\d+)\]$/)
+        if (match) {
+          const num = match[1]
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => {
+                const el = document.getElementById(`source-card-${num}`)
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                  el.classList.add('ring-2', 'ring-primary')
+                  setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 2000)
+                }
+              }}
+              className="inline-flex items-center justify-center min-w-[1.2rem] h-4 px-1 rounded-full text-[10px] font-bold bg-primary/15 text-primary hover:bg-primary hover:text-primary-foreground transition-all align-super mx-0.5 cursor-pointer shadow-xs border border-primary/20"
+              title={`Source [${num}]`}
+            >
+              {num}
+            </button>
+          )
+        }
+        return part
+      })
+    }
+  }
+  if (Array.isArray(children)) {
+    return children.map((c, i) => (
+      <React.Fragment key={i}>{renderChildrenWithCitations(c)}</React.Fragment>
+    ))
+  }
+  return children
+}
+
 export function MarkdownRenderer({ content, className, allowImages = true }: MarkdownRendererProps) {
   return (
     <div className={cn('markdown-content max-w-none text-[13px] sm:text-[15px] leading-7 overflow-hidden break-words text-foreground/90', className)}>
@@ -166,10 +205,10 @@ export function MarkdownRenderer({ content, className, allowImages = true }: Mar
             }
             return <input {...props} />
           },
-          p: ({ children }) => <p className="my-2 sm:my-2.5 leading-7">{children}</p>,
+          p: ({ children }) => <p className="my-2 sm:my-2.5 leading-7">{renderChildrenWithCitations(children)}</p>,
           ul: ({ children }) => <ul className="list-disc pl-5 sm:pl-6 my-2 sm:my-2.5 space-y-1.5">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal pl-5 sm:pl-6 my-2 sm:my-2.5 space-y-1.5">{children}</ol>,
-          li: ({ children }) => <li className="leading-7">{children}</li>,
+          li: ({ children }) => <li className="leading-7">{renderChildrenWithCitations(children)}</li>,
           h1: ({ children }) => <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mt-7 mb-3">{children}</h1>,
           h2: ({ children }) => <h2 className="text-lg sm:text-xl font-semibold tracking-tight mt-6 mb-2.5">{children}</h2>,
           h3: ({ children }) => <h3 className="text-base sm:text-lg font-semibold tracking-tight mt-5 mb-2">{children}</h3>,
@@ -196,6 +235,38 @@ export function MarkdownRenderer({ content, className, allowImages = true }: Mar
           hr: () => <hr className="my-4 sm:my-6 border-border/30" />,
           a: ({ href, children }) => {
             if (!href) return <span>{children}</span>;
+
+            // Check if link is an inline citation like [1] or 1
+            const childStr = typeof children === 'string'
+              ? children.trim()
+              : Array.isArray(children) && typeof children[0] === 'string'
+              ? children[0].trim()
+              : ''
+            const citationMatch = childStr.match(/^\[?(\d+)\]?$/)
+            if (citationMatch) {
+              const num = citationMatch[1]
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    const el = document.getElementById(`source-card-${num}`)
+                    if (el) {
+                      e.preventDefault()
+                      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                      el.classList.add('ring-2', 'ring-primary')
+                      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 2000)
+                    }
+                  }}
+                  className="inline-flex items-center justify-center min-w-[1.2rem] h-4 px-1 rounded-full text-[10px] font-bold bg-primary/15 text-primary hover:bg-primary hover:text-primary-foreground transition-all align-super no-underline mx-0.5 cursor-pointer shadow-xs border border-primary/20"
+                  title={`Source [${num}] - ${href}`}
+                >
+                  {num}
+                </a>
+              )
+            }
+
             const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/.test(href);
             if (isYouTube) {
               const match = href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);

@@ -34,17 +34,19 @@ _SMALLTALK = re.compile(
 )
 
 _CREATIVE = re.compile(
-    r"\b(write\s+(?:me\s+)?(?:a\s+|an\s+)?(?:poem|story|song|lyrics|essay|joke|riddle|limerick|"
-    r"script|screenplay|scene|dialogue|haiku|speech)|compose\s+a\s+(?:poem|song)|"
+    r"\b(write\s+(?:me\s+)?(?:a\s+|an\s+)?(?:(?:short|long|sci-fi|funny|bedtime|original|quick)\s+)*(?:poem|story|song|lyrics|essay|joke|riddle|limerick|"
+    r"script|screenplay|scene|dialogue|haiku|speech)|compose\s+(?:a\s+)?(?:(?:short|long|funny|quick)\s+)*(?:poem|song|haiku|story|speech|melody|essay|tune)|"
     r"roleplay\s+as|pretend\s+(?:you\s+are|to\s+be)|act\s+as\s+a|brainstorm\s+(?:names|ideas)\s+for)\b",
     re.I,
 )
 
 _TRANSFORM = re.compile(
-    r"\b(translate\s+(?:this|the\s+following)?\s*(?:to|into)\b|"
-    r"summarize\s+(?:this|the\s+following|the\s+text\s+below)|"
-    r"paraphrase\s+(?:this|the\s+following)|proofread\s+(?:this|the\s+following)|"
-    r"fix\s+(?:the\s+)?grammar\s+in|convert\s+to\s+(?:bullet\s+points|markdown|json))\b",
+    r"\b(translate\b.*?\b(?:to|into)\b|translate\s+(?:this|the|sentence|text)?|"
+    r"summarize\s+(?:this|the\s+following|the\s+text\s+below)?|"
+    r"rewrite\s+(?:this|the\s+following|the\s+sentence|the\s+text|the\s+email|the\s+paragraph)?|"
+    r"make\s+this\s+(?:email|paragraph|text|sentence|message|draft|post)?\s*(?:more\s+)?(?:professional|polite|concise|formal|better|friendly|clear)|"
+    r"paraphrase\s+(?:this|the\s+following)?|proofread\s+(?:this|the\s+following)?|"
+    r"fix\s+(?:the\s+)?grammar\s+in|convert\s+to\s+(?:bullet\s+points|markdown|json|table))\b",
     re.I,
 )
 
@@ -56,20 +58,9 @@ _MATH_LOGIC = re.compile(
 )
 
 _CODE_ALGORITHM = re.compile(
-    r"\b(write\s+(?:a\s+)?(?:python|javascript|typescript|c\+\+|java|rust|go|sql|bash|html|css)?\s*"
-    r"(?:function|script|code|class|method|program)\s+to\b|"
-    r"how\s+to\s+(?:implement|write|code|reverse|traverse|sort)\s+(?:a\s+|an\s+)?"
-    r"(?:binary\s+search|linked\s+list|tree|graph|bubble\s+sort|quicksort|merge\s+sort|stack|queue|string|array|matrix|loop)\b)",
-    re.I,
-)
-
-_STABLE_CONCEPT = re.compile(
-    r"\b((?:explain\s+how|how\s+does)\s+(?:a\s+|an\s+)?(?:ram|cpu|cache|cpu\s+cache|dns|tcp|udp|http|blockchain|photosynthesis|mitosis|osmosis|"
-    r"gravity|relativity|an?\s+engine|airplane|black\s+hole|transistor|binary\s+search|compiler|neural\s+network)\s+works?|"
-    r"explain\s+(?:the\s+)?(?:pythagorean\s+theorem|newton's\s+laws?|theory\s+of\s+relativity|water\s+cycle)|"
-    r"what\s+is\s+(?:a\s+|an\s+)?(?:photosynthesis|mitochondria|dna|rna|gravity|inertia|momentum|entropy|"
-    r"pythagorean\s+theorem|newton's\s+laws?|fibonacci|recursion|polymorphism|encapsulation|"
-    r"object\s+oriented\s+programming|binary\s+search|ram|rom|cpu|gpu))\b",
+    r"\b(write\s+(?:a\s+)?(?:python|javascript|typescript|c\+\+|java|rust|go)?\s*"
+    r"(?:function|script|code|method)\s+to\s+(?:reverse|traverse|sort|find\s+max\s+in)\s+(?:a\s+|an\s+)?"
+    r"(?:string|array|list|linked\s+list|binary\s+tree))\b",
     re.I,
 )
 
@@ -199,8 +190,6 @@ def is_non_search_intent(query: str) -> bool:
         return True
     if _MATH_LOGIC.search(q):
         return True
-    if _STABLE_CONCEPT.search(q):
-        return True
     if _CODE_ALGORITHM.search(q) and not _DOCS.search(q):
         return True
     return False
@@ -285,22 +274,9 @@ def classify(query: str) -> dict:
     current = current_any or is_current_info(q_low)
     types = list(types_set)
 
-    explicit = bool(_EXPLICIT_SEARCH.search(q) or _URL_PATTERN.search(q) or q.startswith(("/search", "/web", "/news")))
-    emerging = bool(_EMERGING_ENTITIES.search(q) or _FAST_DOMAINS.search(q))
-
-    needs_search = bool(
-        explicit
-        or current
-        or emerging
-        or "news" in types
-        or "products" in types
-        or "maps" in types
-        or "docs" in types
-        or "academic" in types
-        or (_SEARCH_VERBS.search(q) and (current or emerging or types))
-    )
-
-    if needs_search:
+    # In ALWAYS-CURRENT DATA MODE: every query that passed is_non_search_intent needs web search
+    needs_search = True
+    if "web" not in types:
         types.append("web")
 
     if _COMPLEX_SEARCH.search(q) or len(re.findall(r"\b\w+\b", q)) >= 10:

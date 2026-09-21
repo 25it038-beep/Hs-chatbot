@@ -63,14 +63,16 @@ def build_research_context(
             + "\nExplicitly disclose these contradictions in your answer.\n"
         )
 
+    today_str = "Monday, September 21, 2026 (2026-09-21)"
     directives = (
-        "PERPLEXITY-STYLE ANSWER REQUIREMENTS:\n"
-        "1. DIRECT ANSWER FIRST: Begin with the immediate, direct answer or executive summary in the opening 1-2 sentences.\n"
-        "2. INLINE CITATIONS: Attribute every key fact, statistic, release date, and price inline with brackets e.g. [1], [2].\n"
-        "3. STRUCTURED DETAILS: Use clear markdown sections, bullet points, and comparison tables where helpful.\n"
-        "4. OBJECTIVITY & CONFLICTS: Distinguish verified facts from rumors/opinions. Acknowledge conflicting claims honestly.\n"
-        "5. ZERO FABRICATION: Only cite sources [1] through [{max_src}] that actually appear above. Never invent sources or URLs.\n"
+        f"ALWAYS-CURRENT DATA & PERPLEXITY-STYLE ANSWER REQUIREMENTS (Current Date: {today_str}):\n"
+        "1. DIRECT ANSWER FIRST: State the direct, factual answer clearly in the opening 1-2 sentences.\n"
+        "2. INLINE CITATIONS: Attribute every fact, person, date, price, or specification inline with bracketed numbers, e.g. [1], [2].\n"
+        "3. SOURCES SECTION: At the bottom of your response, include a '### Sources' section listing each source with its link: - [1] [Title](url)\n"
+        "4. FACTUAL ENTITIES: Always state the actual official or public figure (e.g. President of India, Chief Minister of Tamil Nadu, CEO, etc.) based on the retrieved evidence. Never deflect to an identity statement.\n"
+        "5. OBJECTIVITY & CONFLICTS: Distinguish verified facts from rumors. Acknowledge conflicting claims honestly.\n"
+        "6. ZERO FABRICATION: Only cite sources [1] through [{max_src}] that actually appear in the evidence above. Never invent sources or URLs.\n"
     ).format(max_src=len(sources))
 
-    body = "\n\n---\n\n".join(entries) + f"\n\n{conflict_block}\n\n{directives}"
+    body = f"Current System Date: {today_str}\n\n" + "\n\n---\n\n".join(entries) + f"\n\n{conflict_block}\n\n{directives}"
     return safe_context_wrapper(body)

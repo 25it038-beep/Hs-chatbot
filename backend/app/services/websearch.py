@@ -137,6 +137,35 @@ class WebSearchService:
         )
         return result.images_md
 
+    @staticmethod
+    def _format_source_dict(s: Any) -> dict:
+        source_id = getattr(s, "source_id", 0)
+        title = getattr(s, "title", "") or ""
+        url = getattr(s, "url", "") or ""
+        domain = getattr(s, "domain", "") or ""
+        source_type = getattr(s, "source_type", "web")
+        if hasattr(source_type, "value"):
+            source_type = source_type.value
+        snippet = getattr(s, "snippet", "") or ""
+        published_date = getattr(s, "published_date", None)
+        authority_score = float(getattr(s, "authority_score", 0.0) or 0.0)
+        relevance_score = float(getattr(s, "relevance_score", 0.0) or 0.0)
+        favicon_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=32" if domain else ""
+
+        return {
+            "id": source_id,
+            "source_id": source_id,
+            "title": title,
+            "url": url,
+            "domain": domain,
+            "source_type": str(source_type),
+            "snippet": snippet,
+            "published_date": published_date,
+            "authority_score": authority_score,
+            "relevance_score": relevance_score,
+            "favicon_url": favicon_url,
+        }
+
     async def retrieve_for_chat(
         self,
         message: str,
@@ -147,7 +176,7 @@ class WebSearchService:
         location: Optional[str] = None,
         as_of: Optional[str] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
-    ) -> tuple[Optional[str], str, str]:
+    ) -> tuple[Optional[str], str, str, str, List[dict]]:
         """Run the full chat-path retrieval with Fast, Pro, or Deep Research."""
         mode, _ = determine_search_mode(message)
 
@@ -160,27 +189,29 @@ class WebSearchService:
                 chat_history=chat_history,
             )
             vids = await self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else ""
-            return bundle.structured_context or None, "", vids
+            sources_list = [self._format_source_dict(s) for s in (bundle.sources or [])]
+            return bundle.structured_context or None, "", vids, bundle.sources_md, sources_list
 
         if force_images:
             img_query = extract_image_subject(message)
             if self.needs_web_search(message):
-                ctx, md, vids = await asyncio.gather(
-                    self.search(
-                        message,
-                        with_images=False,
-                        with_videos=with_videos,
-                        status_cb=status_cb,
-                        location=location,
-                        as_of=as_of,
-                        chat_history=chat_history,
-                    ),
-                    self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of),
-                    self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else _noop_videos(),
+                bundle = await self._core.search(
+                    message,
+                    mode=mode,
+                    max_sources=self.max_results,
+                    with_images=False,
+                    with_videos=with_videos,
+                    status_cb=status_cb,
+                    location=location,
+                    as_of=as_of,
+                    chat_history=chat_history,
                 )
-                return ctx, md, vids
+                img_md = await self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of)
+                vids = await self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else ""
+                sources_list = [self._format_source_dict(s) for s in (bundle.sources or [])]
+                return bundle.structured_context or None, img_md, vids, bundle.sources_md, sources_list
             videos_md = await self.fetch_videos_markdown(message, status_cb=status_cb) if with_videos else ""
-            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of), videos_md
+            return None, await self.fetch_images_markdown(img_query, status_cb=status_cb, location=location, as_of=as_of), videos_md, "", []
 
         bundle = await self._core.search(
             message,
@@ -193,7 +224,8 @@ class WebSearchService:
             as_of=as_of,
             chat_history=chat_history,
         )
-        return bundle.structured_context or None, bundle.images_md, bundle.videos_md
+        sources_list = [self._format_source_dict(s) for s in (bundle.sources or [])]
+        return bundle.structured_context or None, bundle.images_md, bundle.videos_md, bundle.sources_md, sources_list
 
     async def fetch_videos_markdown(
         self,

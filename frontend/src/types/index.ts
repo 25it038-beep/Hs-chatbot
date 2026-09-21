@@ -124,6 +124,20 @@ export interface Attachment {
   verification?: DocumentVerificationData
 }
 
+export interface WebSourceItem {
+  id?: number | string
+  source_id?: number
+  title: string
+  url: string
+  domain: string
+  source_type?: string
+  snippet?: string
+  published_date?: string
+  relevance_score?: number
+  authority_score?: number
+  favicon_url?: string
+}
+
 export interface Message {
   id: string
   chat_id: string
@@ -133,7 +147,9 @@ export interface Message {
   provider?: string
   reasoning?: string
   metadata?: Record<string, unknown>
+  extra_data?: Record<string, any>
   attachments?: Attachment[]
+  sources?: WebSourceItem[]
   token_count: number
   input_tokens: number
   output_tokens: number
@@ -143,7 +159,7 @@ export interface Message {
 }
 
 export interface StreamChunk {
-  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta'
+  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta' | 'web_sources'
   content: string
   reasoning?: string
   model?: string
@@ -153,6 +169,8 @@ export interface StreamChunk {
   done: boolean
   file?: Attachment
   attachments?: Attachment[]
+  sources?: WebSourceItem[]
+  query?: string
 }
 
 

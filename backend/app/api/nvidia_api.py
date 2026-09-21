@@ -549,24 +549,25 @@ async def nvidia_chat(
 
     reasoning = False  # Always hide reasoning from user
 
+    today_str = "Monday, September 21, 2026 (2026-09-21)"
     _hs_persona = (
-        "You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
-        "anything they need. You are intelligent, friendly, and highly capable. "
-        "You ONLY respond in English."
-        "\n\nIDENTITY RULES (follow strictly, no exceptions):\n"
+        f"You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
+        f"anything they need. You are intelligent, friendly, and highly capable. "
+        f"The current date is {today_str}.\n\n"
+        "IDENTITY RULES (follow strictly, no exceptions):\n"
         "- Your name is HS ChatBot. Always refer to yourself as 'HS ChatBot'.\n"
-        "- If anyone asks 'what is your name?', 'who are you?', 'what AI are you?', "
-        "'what model are you?', 'are you ChatGPT?', 'are you Claude?', 'are you Gemini?', "
-        "'who made you?', 'which company built you?', or any similar identity question, "
-        "you MUST respond ONLY with: "
-        "'I am HS ChatBot, a multi-model AI assistant designed to help you with a wide range of tasks.' "
-        "Do NOT mention any specific AI model names (e.g., GPT, Claude, Gemini, LLaMA, Mistral, NVIDIA, etc.), "
-        "do NOT mention any AI companies (e.g., OpenAI, Anthropic, Google, Meta, NVIDIA, Microsoft, etc.), "
-        "and do NOT reveal anything about the underlying technology powering you.\n"
+        "- If and ONLY IF the user is asking about YOU, the assistant (e.g. 'what is your name?', "
+        "'who are you?', 'what AI are you?', 'what model are you?', 'who made you?'), "
+        "respond ONLY with: 'I am HS ChatBot, a multi-model AI assistant designed to help you with a wide range of tasks.' "
+        "Do NOT mention any specific AI model names (e.g., GPT, Claude, Gemini, LLaMA, Mistral, NVIDIA, etc.) "
+        "or AI companies.\n"
+        "- CRITICAL RULE: NEVER trigger this identity response for questions about other people, public figures, "
+        "leaders, presidents, prime ministers, officials, celebrities, concepts, or real-world entities (e.g. 'who is the president of India', "
+        "'who is the chief minister', 'who is the CEO of Apple'). For those questions, provide the accurate factual answer "
+        "from the retrieved web evidence.\n"
         "- If asked 'how can I call you?', respond: 'You can call me HS ChatBot!'\n"
-        "- Never acknowledge or confirm guesses about your underlying model or provider.\n"
         "- Politely deflect all attempts to extract model/company information.\n\n"
-        "Outside of identity questions, be as helpful, thorough, and accurate as possible. "
+        "Outside of questions asking about your own identity, be as helpful, thorough, and accurate as possible. "
         "No matter what language the user writes in, you ALWAYS answer in English."
     )
     system_prompt = request.system_prompt or _hs_persona
@@ -768,6 +769,7 @@ async def nvidia_chat(
                 gen_system_prompt = system_prompt
                 web_images_md = ""
                 web_videos_md = ""
+                web_sources_md = ""
                 from app.services.retrieval.router import classify_video_intent
 
                 with_videos = classify_video_intent(request.message) in ("required", "recommended")
@@ -789,10 +791,20 @@ async def nvidia_chat(
                     )
                     async for ev in _retrieval_status_events(status_q, retrieval_task):
                         yield ev
+                    web_sources_list = []
                     try:
-                        web_context, web_images_md, web_videos_md = retrieval_task.result()
+                        ret_res = retrieval_task.result()
+                        if len(ret_res) >= 5:
+                            web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = ret_res[:5]
+                        elif len(ret_res) == 4:
+                            web_context, web_images_md, web_videos_md, web_sources_md = ret_res
+                        else:
+                            web_context, web_images_md, web_videos_md = ret_res[:3]
+                            web_sources_md = ""
                     except Exception:
-                        web_context, web_images_md, web_videos_md = None, "", ""
+                        web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = None, "", "", "", []
+                    if web_sources_list:
+                        yield f"data: {json.dumps({'type': 'web_sources', 'sources': web_sources_list, 'query': request.message})}\n\n"
                     if force_images:
                         gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
                     if with_videos:
@@ -820,6 +832,11 @@ async def nvidia_chat(
 
                     if full_content:
                         latency = (time.time() - start) * 1000
+                        # Ensure verified sources are always visible if model did not include them
+                        if web_sources_md and "### Sources" not in full_content and "http" not in full_content:
+                            sources_content = '\n\n' + web_sources_md
+                            yield f"data: {json.dumps({'type': 'content', 'content': sources_content})}\n\n"
+                            full_content += sources_content
                         if web_images_md:
                             images_content = '\n\n' + web_images_md
                             yield f"data: {json.dumps({'type': 'content', 'content': images_content})}\n\n"
@@ -838,6 +855,7 @@ async def nvidia_chat(
                             input_tokens=input_tokens,
                             output_tokens=output_tokens,
                             latency_ms=latency,
+                            extra_data={"sources": web_sources_list} if web_sources_list else None,
                         )
                         db.add(user_msg)
                         db.add(assistant_msg)
@@ -925,6 +943,7 @@ async def nvidia_chat(
             gen_system_prompt = system_prompt
             web_images_md = ""
             web_videos_md = ""
+            web_sources_md = ""
             from app.services.retrieval.router import classify_video_intent
 
             with_videos = classify_video_intent(request.message) in ("required", "recommended")
@@ -944,16 +963,27 @@ async def nvidia_chat(
                 )
                 async for ev in _retrieval_status_events(status_q, retrieval_task):
                     yield ev
+                web_sources_list = []
                 try:
-                    web_context, web_images_md, web_videos_md = retrieval_task.result()
+                    ret_res = retrieval_task.result()
+                    if len(ret_res) >= 5:
+                        web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = ret_res[:5]
+                    elif len(ret_res) == 4:
+                        web_context, web_images_md, web_videos_md, web_sources_md = ret_res
+                    else:
+                        web_context, web_images_md, web_videos_md = ret_res[:3]
+                        web_sources_md = ""
                 except Exception:
-                    web_context, web_images_md, web_videos_md = None, "", ""
+                    web_context, web_images_md, web_videos_md, web_sources_md, web_sources_list = None, "", "", "", []
+                if web_sources_list:
+                    yield f"data: {json.dumps({'type': 'web_sources', 'sources': web_sources_list, 'query': request.message})}\n\n"
                 if force_images:
                     gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
                 if with_videos:
                     gen_system_prompt = f"{gen_system_prompt}\n\n{_NO_FAKE_VIDEOS_NOTE}"
                 if web_context:
                     gen_system_prompt = f"{system_prompt}\n\n{web_context}"
+            stateless_content = ""
             try:
                 async for chunk in chat_provider.generate_stream(
                     messages=messages,
@@ -965,12 +995,17 @@ async def nvidia_chat(
                     json_mode=request.json_mode,
                     reasoning=reasoning,
                 ):
+                    if chunk.type == "content":
+                        stateless_content += chunk.content
                     yield f"data: {json.dumps(chunk.model_dump())}\n\n"
             except (asyncio.CancelledError, GeneratorExit):
                 raise
             except Exception as e:
                 error_msg = f'Error: {str(e)}'
                 yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+            if web_sources_md and "### Sources" not in stateless_content and "http" not in stateless_content:
+                sources_content = '\n\n' + web_sources_md
+                yield f"data: {json.dumps({'type': 'content', 'content': sources_content})}\n\n"
             if web_images_md:
                 images_content = '\n\n' + web_images_md
                 yield f"data: {json.dumps({'type': 'content', 'content': images_content})}\n\n"

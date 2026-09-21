@@ -58,10 +58,10 @@ class RetrievalConfig:
     TOP_RESULTS_MEDIUM: int = _int("RETRIEVAL_TOP_MEDIUM", 6)
 
     # ── Timeouts (section 6) ──
-    SEARCH_TIMEOUT_S: float = _float("RETRIEVAL_SEARCH_TIMEOUT_S", 4.5)
+    SEARCH_TIMEOUT_S: float = _float("RETRIEVAL_SEARCH_TIMEOUT_S", 6.5)
     FETCH_TIMEOUT_S: float = _float("RETRIEVAL_FETCH_TIMEOUT_S", 5.0)
     CONNECT_TIMEOUT_S: float = _float("RETRIEVAL_CONNECT_TIMEOUT_S", 3.0)
-    GLOBAL_TIMEOUT_S: float = _float("RETRIEVAL_GLOBAL_TIMEOUT_S", 8.0)
+    GLOBAL_TIMEOUT_S: float = _float("RETRIEVAL_GLOBAL_TIMEOUT_S", 12.0)
 
     # ── Fetch safety (sections 6, 21) ──
     MAX_PAGE_BYTES: int = _int("RETRIEVAL_MAX_PAGE_BYTES", 600_000)

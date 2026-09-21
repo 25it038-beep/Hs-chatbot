@@ -75,7 +75,7 @@ function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => 
 }
 
 export function ChatContainer() {
-  const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend, isLiveOpen, setLiveOpen } = useChat()
+  const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingSources, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend, isLiveOpen, setLiveOpen } = useChat()
   const { user } = useAuth()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
@@ -349,7 +349,7 @@ export function ChatContainer() {
               />
             )
           })}
-          {streaming && (streamingContent || (streamingAttachments && streamingAttachments.length > 0)) && (
+          {streaming && (streamingContent || (streamingAttachments && streamingAttachments.length > 0) || (streamingSources && streamingSources.length > 0)) && (
             <ChatMessage
               message={{
                 id: 'streaming',
@@ -357,6 +357,7 @@ export function ChatContainer() {
                 role: 'assistant',
                 content: streamingContent,
                 attachments: streamingAttachments,
+                sources: streamingSources,
                 token_count: 0,
                 input_tokens: 0,
                 output_tokens: 0,

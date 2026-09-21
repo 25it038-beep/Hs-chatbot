@@ -23,7 +23,7 @@ from app.services.retrieval.security import safe_context_wrapper, sanitize_webpa
 # ── 1. Intent Router & Zero-Unnecessary-Search Principle ──
 
 
-def test_router_stable_concepts_do_not_search():
+def test_router_stable_concepts_search_in_always_current_mode():
     stable_queries = [
         "Explain how RAM works",
         "How does a CPU cache work?",
@@ -36,9 +36,9 @@ def test_router_stable_concepts_do_not_search():
         "How does gravity work?",
     ]
     for q in stable_queries:
-        assert is_non_search_intent(q) is True, f"Expected non-search for: {q}"
+        assert is_non_search_intent(q) is False, f"Expected search for: {q}"
         decision = classify(q)
-        assert decision["needs_search"] is False, f"Expected needs_search=False for: {q}"
+        assert decision["needs_search"] is True, f"Expected needs_search=True for: {q}"
 
 
 def test_router_creative_and_smalltalk_do_not_search():

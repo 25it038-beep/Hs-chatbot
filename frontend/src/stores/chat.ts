@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Chat, ChatFolder, Message, ModelInfo, Attachment } from '@/types'
+import type { Chat, ChatFolder, Message, ModelInfo, Attachment, WebSourceItem } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
@@ -66,12 +66,14 @@ interface ChatState {
   streaming: boolean
   streamingContent: string
   streamingAttachments: Attachment[]
+  streamingSources: WebSourceItem[]
   generatingImage: boolean
   loading: boolean
 
   chatMessages: Record<string, Message[]>
   chatStreamingContent: Record<string, string>
   chatStreamingAttachments: Record<string, Attachment[]>
+  chatStreamingSources: Record<string, WebSourceItem[]>
   streamingChatIds: string[]
   streamingPhase: Record<string, 'thinking' | 'writing' | 'searching' | 'browser_action'>
   streamingReasoning: Record<string, string>
@@ -120,9 +122,9 @@ export const useChat = create<ChatState>((set, get) => {
   const streamControllers: Record<string, AbortController> = {}
 
   const syncDisplay = () => {
-    const { currentChat, chatMessages, chatStreamingContent, chatStreamingAttachments, streamingChatIds, generatingImage } = get()
+    const { currentChat, chatMessages, chatStreamingContent, chatStreamingAttachments, chatStreamingSources, streamingChatIds, generatingImage } = get()
     if (!currentChat) {
-      set({ messages: [], streaming: false, streamingContent: '', streamingAttachments: [], generatingImage: false })
+      set({ messages: [], streaming: false, streamingContent: '', streamingAttachments: [], streamingSources: [], generatingImage: false })
       return
     }
     set({
@@ -130,6 +132,7 @@ export const useChat = create<ChatState>((set, get) => {
       streaming: streamingChatIds.includes(currentChat.id),
       streamingContent: chatStreamingContent[currentChat.id] || '',
       streamingAttachments: chatStreamingAttachments[currentChat.id] || [],
+      streamingSources: chatStreamingSources[currentChat.id] || [],
       generatingImage: generatingImage,
     })
   }
@@ -170,12 +173,14 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     streaming: false,
     streamingContent: '',
     streamingAttachments: [],
+    streamingSources: [],
     generatingImage: false,
     loading: false,
 
     chatMessages: {},
     chatStreamingContent: {},
     chatStreamingAttachments: {},
+    chatStreamingSources: {},
     streamingChatIds: [],
     streamingPhase: {},
     streamingReasoning: {},
@@ -216,7 +221,13 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       const { chats, chatMessages } = get()
       const chat = chats.find(c => c.id === id) || await api.getChat(id)
       if (!chatMessages[id]) {
-        const messages = await api.getMessages(id)
+        const rawMessages = await api.getMessages(id)
+        const messages = rawMessages.map(m => {
+          if (!m.sources && m.extra_data && Array.isArray((m.extra_data as any).sources)) {
+            return { ...m, sources: (m.extra_data as any).sources }
+          }
+          return m
+        })
         set(state => ({ chatMessages: { ...state.chatMessages, [id]: messages } }))
       }
       set({ currentChat: chat })
@@ -249,11 +260,13 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const { [id]: __, ...restStreaming } = state.chatStreamingContent
         const { [id]: ___, ...restPhase } = state.streamingPhase
         const { [id]: ____, ...restReasoning } = state.streamingReasoning
+        const { [id]: _____, ...restSources } = state.chatStreamingSources
         return {
           chats: state.chats.filter(c => c.id !== id),
           currentChat: state.currentChat?.id === id ? null : state.currentChat,
           chatMessages: restMessages,
           chatStreamingContent: restStreaming,
+          chatStreamingSources: restSources,
           streamingChatIds: state.streamingChatIds.filter(sid => sid !== id),
           streamingPhase: restPhase,
           streamingReasoning: restReasoning,
@@ -382,6 +395,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         let fullContent = ''
         let buffer = ''
         let currentAttachments: Attachment[] = []
+        let currentSources: WebSourceItem[] = []
 
         // 45-second timeout for first chunk — cancels if NVIDIA hangs
         firstChunkReceived = false
@@ -409,6 +423,18 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               if (data === '[DONE]') continue
               try {
                 const chunk = JSON.parse(data)
+                if (chunk.type === 'web_sources' || (chunk.sources && Array.isArray(chunk.sources))) {
+                  const newSources: WebSourceItem[] = chunk.sources || []
+                  if (newSources.length > 0) {
+                    currentSources = newSources
+                    set(state => ({
+                      chatStreamingSources: { ...state.chatStreamingSources, [chat.id]: currentSources },
+                    }))
+                    if (get().currentChat?.id === chat.id) {
+                      set({ streamingSources: currentSources })
+                    }
+                  }
+                }
                 if (chunk.type === 'file_created' || chunk.file) {
                   const newFile: Attachment | undefined = chunk.file
                   if (newFile && !currentAttachments.some(a => a.id === newFile.id)) {
@@ -527,6 +553,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           role: 'assistant',
           content: fullContent,
           attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+          sources: currentSources.length > 0 ? currentSources : undefined,
+          extra_data: currentSources.length > 0 ? { sources: currentSources } : undefined,
           token_count: 0,
           input_tokens: 0,
           output_tokens: 0,
@@ -539,14 +567,17 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           const { [chat.id]: __, ...restPhase } = state.streamingPhase
           const { [chat.id]: ___, ...restReasoning } = state.streamingReasoning
           const { [chat.id]: ____, ...restAttachments } = state.chatStreamingAttachments
+          const { [chat.id]: _____, ...restSources } = state.chatStreamingSources
           return {
             chatMessages: { ...state.chatMessages, [chat.id]: finalMessages },
             streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
             chatStreamingContent: rest,
             chatStreamingAttachments: restAttachments,
+            chatStreamingSources: restSources,
             streamingPhase: restPhase,
             streamingReasoning: restReasoning,
             streamingAttachments: [],
+            streamingSources: [],
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()
@@ -588,11 +619,14 @@ const DEFAULT_VOICE_STATE: VoiceState = {
             const { [chat.id]: _, ...restPhase } = state.streamingPhase
             const { [chat.id]: __, ...restReasoning } = state.streamingReasoning
             const { [chat.id]: ___, ...restStreaming } = state.chatStreamingContent
+            const { [chat.id]: ____, ...restSources } = state.chatStreamingSources
             return {
               streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
               streamingPhase: restPhase,
               streamingReasoning: restReasoning,
               chatStreamingContent: restStreaming,
+              chatStreamingSources: restSources,
+              streamingSources: [],
             }
           })
           if (get().currentChat?.id === chat.id) syncDisplay()

@@ -7,9 +7,11 @@ Integrates:
 - Reusable across Normal Chat, Agent Mode, Voice Mode, and Artifact Generation.
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
-from typing import Awaitable, Callable, Optional, List, Dict
+from typing import Awaitable, Callable, Optional, List, Dict, Any
 
 from app.web.models import SearchMode, SearchResultBundle
 from app.web.research import ResearchService

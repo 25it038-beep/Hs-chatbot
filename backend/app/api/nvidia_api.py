@@ -239,7 +239,7 @@ async def nvidia_chat(
         if not url_res["success"]:
             if request.stream:
                 async def err_generator():
-                    yield f"data: {json.dumps({'type': 'meta', 'model': request.model or 'glm-5.2', 'task': 'chat', 'chat_id': request.chat_id or ''})}\n\n"
+                    yield f"data: {json.dumps({'type': 'meta', 'model': request.model or 'llama-3.2-11b', 'task': 'chat', 'chat_id': request.chat_id or ''})}\n\n"
                     yield f"data: {json.dumps({'type': 'error', 'content': url_res['error']})}\n\n"
                     yield "data: [DONE]\n\n"
                 return StreamingResponse(err_generator(), media_type="text/event-stream", headers={
@@ -275,7 +275,7 @@ async def nvidia_chat(
                     content = f"🕐 The current time in {loc.title()} is {data['time']}.\n{data['day']}, {data['date']}\n{data['timezone']} {data['utc_offset']}"
             if request.stream:
                 async def live_gen():
-                    yield f"data: {json.dumps({'type':'meta','model':request.model or 'glm-5.2','task':'chat','chat_id':request.chat_id or ''})}\n\n"
+                    yield f"data: {json.dumps({'type':'meta','model':request.model or 'llama-3.2-11b','task':'chat','chat_id':request.chat_id or ''})}\n\n"
                     yield f"data: {json.dumps({'type':'content','content':content})}\n\n"
                     yield "data: [DONE]\n\n"
                 return StreamingResponse(live_gen(), media_type="text/event-stream", headers=_STREAM_HEADERS)
@@ -528,9 +528,9 @@ async def nvidia_chat(
         task = "coding" if is_web_project_req else ai_router.detect_task(request.message)
         _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision", "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
         if is_web_project_req or (task == "coding" and (not request.model or request.model in _generic_defaults)):
-            model = "codestral"
+            model = "llama-3.2-11b"
         else:
-            model = request.model or "glm-5.2"
+            model = request.model or "llama-3.2-11b"
 
     # Sanitize model name – fallback to a verified NVIDIA model if the stored model is retired/invalid
     valid_models = set(NVIDIA_MODELS.keys()) | {v["id"] for v in NVIDIA_MODELS.values()}

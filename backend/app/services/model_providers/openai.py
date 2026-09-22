@@ -73,7 +73,7 @@ class OpenAIProvider(ModelProvider):
                 "openai": settings.openai_default_model,
                 "azure": settings.azure_openai_deployment or "gpt-4o",
                 "openrouter": settings.openrouter_default_model or "openai/gpt-4o",
-                "nvidia": "z-ai/glm-5.2",
+                "nvidia": "meta/llama-3.2-11b-vision-instruct",
                 "lm_studio": settings.ollama_default_model,
                 "sambanova": settings.sambanova_default_model or "DeepSeek-V3.2",
                 "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",

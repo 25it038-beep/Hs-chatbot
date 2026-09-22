@@ -182,8 +182,8 @@ class ChatService:
                 yield StreamChunk(
                     type="error",
                     content=url_res["error"],
-                    model=request.model or "glm-5.2",
-                    provider=request.provider or "nvidia",
+                    model=request.model or "llama-3.2-11b",
+                    provider="nvidia",
                     done=True,
                 )
                 return
@@ -599,10 +599,7 @@ class ChatService:
         model_to_use = model or chat.model
 
         if not user_pinned_model:
-            if task == "coding":
-                model_to_use = settings.nvidia_default_code_model or "codestral"
-            elif task == "reasoning":
-                model_to_use = "glm-5.2"
+            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
 
         # Always strictly enforce NVIDIA models
         if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"}:

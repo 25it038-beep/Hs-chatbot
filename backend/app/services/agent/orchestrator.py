@@ -188,7 +188,7 @@ class AgentOrchestrator:
         ]
 
         generated_files_count = 0
-        candidate_models = [model or "llama-3.2-11b", "llama-3.1-70b", "glm-5.2"]
+        candidate_models = [model or "llama-3.2-11b", "gpt-oss-20b", "llama-3.1-70b"]
         raw_text = ""
         
         for cand_model in candidate_models:

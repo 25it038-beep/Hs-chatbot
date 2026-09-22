@@ -1,33 +1,7 @@
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 NVIDIA_MODELS = {
-    # Chat
-    "glm-5.2": {
-        "id": "z-ai/glm-5.2",
-        "name": "GLM 5.2",
-        "type": "chat",
-        "capabilities": ["chat", "streaming", "json", "reasoning", "tools"],
-        "max_tokens": 16384,
-        "default_temp": 1.0,
-        "supports_thinking": True,
-    },
-    "nemotron-3-ultra-550b": {
-        "id": "nvidia/nemotron-3-ultra-550b-a55b",
-        "name": "Nemotron-3 Ultra 550B",
-        "type": "chat",
-        "capabilities": ["chat", "streaming", "reasoning"],
-        "max_tokens": 16384,
-        "default_temp": 1.0,
-        "supports_thinking": True,
-    },
-    "llama-3.3-70b": {
-        "id": "meta/llama-3.3-70b-instruct",
-        "name": "Llama 3.3 70B",
-        "type": "chat",
-        "capabilities": ["chat", "streaming", "json", "tools"],
-        "max_tokens": 8192,
-        "default_temp": 0.7,
-    },
+    # Primary Verified Chat & General Model
     "llama-3.2-11b": {
         "id": "meta/llama-3.2-11b-vision-instruct",
         "name": "Llama 3.2 11B (Ultra Fast)",
@@ -36,19 +10,75 @@ NVIDIA_MODELS = {
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
-    "llama-3.1-70b": {
-        "id": "meta/llama-3.2-11b-vision-instruct",
-        "name": "Llama 3.2 11B (Fast)",
+    "gpt-oss-20b": {
+        "id": "openai/gpt-oss-20b",
+        "name": "GPT-OSS 20B",
         "type": "chat",
         "capabilities": ["chat", "streaming", "json", "tools"],
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
-    "mistral-large": {
-        "id": "mistralai/mistral-large-2-instruct",
-        "name": "Mistral Large 2",
+    "llama-3.2-90b": {
+        "id": "meta/llama-3.2-90b-vision-instruct",
+        "name": "Llama 3.2 90B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "json", "tools", "vision"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
+    "llama-3.1-70b": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
         "type": "chat",
         "capabilities": ["chat", "streaming", "json", "tools"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
+    "llama-3.3-70b": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "json", "tools"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
+    "glm-5.2": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "json", "reasoning", "tools"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
+    "glm-coder": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
+        "type": "coding",
+        "capabilities": ["chat", "streaming", "code", "reasoning"],
+        "max_tokens": 8192,
+        "default_temp": 0.2,
+    },
+    "codestral": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B (Coding)",
+        "type": "coding",
+        "capabilities": ["chat", "streaming", "code", "json"],
+        "max_tokens": 8192,
+        "default_temp": 0.2,
+    },
+    "mistral-large": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "json", "tools"],
+        "max_tokens": 8192,
+        "default_temp": 0.7,
+    },
+    "nemotron-3-ultra-550b": {
+        "id": "meta/llama-3.2-11b-vision-instruct",
+        "name": "Llama 3.2 11B",
+        "type": "chat",
+        "capabilities": ["chat", "streaming", "reasoning"],
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
@@ -60,42 +90,13 @@ NVIDIA_MODELS = {
         "max_tokens": 8192,
         "default_temp": 0.7,
     },
-    # Coding (uses GLM 5.2)
-    "glm-coder": {
-        "id": "z-ai/glm-5.2",
-        "name": "GLM 5.2 (Coding)",
-        "type": "coding",
-        "capabilities": ["chat", "streaming", "code", "reasoning"],
-        "max_tokens": 16384,
-        "default_temp": 0.2,
-        "supports_thinking": True,
-    },
-    # Best dedicated code model on NVIDIA — Mistral's code specialist
-    "codestral": {
-        "id": "mistralai/codestral-22b-instruct-v0.1",
-        "name": "Codestral 22B",
-        "type": "coding",
-        "capabilities": ["chat", "streaming", "code", "json"],
-        "max_tokens": 32768,
-        "default_temp": 0.2,
-    },
-    # Vision
-    "nemotron-vl": {
-        "id": "nvidia/nemotron-nano-12b-v2-vl",
-        "name": "Nemotron Nano VL",
-        "type": "vision",
-        "capabilities": ["chat", "vision", "streaming"],
-        "max_tokens": 4096,
-        "default_temp": 1.0,
-        "supports_images": True,
-    },
     "llama-3.2-vision": {
         "id": "meta/llama-3.2-11b-vision-instruct",
         "name": "Llama 3.2 Vision",
         "type": "vision",
         "capabilities": ["chat", "vision", "streaming"],
-        "max_tokens": 4096,
-        "default_temp": 1.0,
+        "max_tokens": 8192,
+        "default_temp": 0.7,
         "supports_images": True,
     },
     # Image Generation
@@ -135,20 +136,18 @@ NVIDIA_MODELS = {
 TASK_ROUTES = {
     "chat": {
         "default": "llama-3.2-11b",
-        "fallback": ["llama-3.2-vision"],
+        "fallback": ["gpt-oss-20b"],
     },
     "coding": {
-        # codestral: Mistral's dedicated 22B code model — 32k context, low temp
-        # Fallback: glm-coder (GLM 5.2 with thinking) → llama-3.2-11b as last resort
-        "default": "codestral",
-        "fallback": ["glm-coder", "llama-3.2-11b"],
+        "default": "llama-3.2-11b",
+        "fallback": ["gpt-oss-20b"],
     },
     "reasoning": {
-        "default": "glm-5.2",
-        "fallback": ["llama-3.2-11b"],
+        "default": "llama-3.2-11b",
+        "fallback": ["gpt-oss-20b"],
     },
     "vision": {
-        "default": "llama-3.2-vision",
+        "default": "llama-3.2-11b",
         "fallback": [],
     },
     "image_generation": {

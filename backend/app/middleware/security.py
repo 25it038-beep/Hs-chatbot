@@ -36,7 +36,7 @@ class SecurityHeadersMiddleware:
                 headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
                 headers["X-Frame-Options"] = "DENY"
                 headers["X-Content-Type-Options"] = "nosniff"
-                headers["Cross-Origin-Resource-Policy"] = "same-origin"
+                headers["Cross-Origin-Resource-Policy"] = "cross-origin"
                 if not path.startswith(_UI_DOCS_PATHS):
                     headers["Content-Security-Policy"] = _API_CSP
             await send(message)

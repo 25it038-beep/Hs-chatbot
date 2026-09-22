@@ -39,7 +39,18 @@ class OpenAIProvider(ModelProvider):
             api_key = settings.openrouter_api_key
             base_url = "https://openrouter.ai/api/v1"
         elif provider_name == "nvidia":
-            api_key = settings.nvidia_api_keys.split(",")[0].strip() if settings.nvidia_api_keys else ""
+            from app.services.nvidia.key_manager import key_manager
+            km_key = key_manager.get_key()
+            if km_key and km_key.key:
+                api_key = km_key.key
+            else:
+                raw_keys = getattr(settings, "nvidia_api_keys", "") or getattr(settings, "nvidia_api_key", "")
+                if isinstance(raw_keys, list):
+                    api_key = raw_keys[0] if raw_keys else ""
+                elif isinstance(raw_keys, str):
+                    api_key = raw_keys.split(",")[0].strip()
+                else:
+                    api_key = str(raw_keys or "")
             base_url = "https://integrate.api.nvidia.com/v1"
         elif provider_name == "lm_studio":
             api_key = "not-needed"

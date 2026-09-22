@@ -594,18 +594,24 @@ class ChatService:
         # Auto-select the best model for the detected task when the user hasn't
         # pinned a specific model (i.e., the chat model is still the generic default).
         _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision",
-                              "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
+                              "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct", "muse-glimmer", "muse-glimmer-30b"}
         user_pinned_model = model and model not in _generic_defaults
         model_to_use = model or chat.model
 
+        default_chat_model = (
+            settings.nvidia_default_chat_model
+            if (settings.nvidia_default_chat_model and settings.nvidia_default_chat_model in NVIDIA_MODELS)
+            else "llama-3.2-11b"
+        )
+
         if not user_pinned_model:
-            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+            model_to_use = default_chat_model
 
         # Always strictly enforce NVIDIA models
-        if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"}:
-            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+        if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct", "muse-glimmer", "muse-glimmer-30b"}:
+            model_to_use = default_chat_model
         elif model_to_use not in NVIDIA_MODELS and model_to_use not in NVIDIA_ID_MAP.values():
-            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+            model_to_use = default_chat_model
 
         _logger.info("[CHAT] resolved_model=%s task=%s pinned=%s", model_to_use, task, user_pinned_model)
 

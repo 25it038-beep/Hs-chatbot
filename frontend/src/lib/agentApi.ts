@@ -615,7 +615,7 @@ async function attemptLLMFileEdit(
   filePath: string,
   currentContent: string,
   instruction: string,
-  model: string = 'DeepSeek-V3.2'
+  model: string = 'codestral'
 ): Promise<string | null> {
   try {
     const editPrompt = `You are an expert autonomous software engineer. The user wants you to modify an existing file in the project.
@@ -638,8 +638,8 @@ Instructions:
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({
         message: editPrompt,
-        model: model || 'DeepSeek-V3.2',
-        provider: 'sambanova',
+        model: model || 'codestral',
+        provider: 'nvidia',
         temperature: 0.2
       })
     })

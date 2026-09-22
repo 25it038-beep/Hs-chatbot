@@ -360,10 +360,10 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const isGenericDefaultModel = !chat.model || ['llama-3.2-11b', 'llama-3.1-70b', 'llama-3.2-vision', 'DeepSeek-V3.2', 'Meta-Llama-3.3-70B-Instruct'].includes(chat.model)
         const shouldAutoRoute = isGenericDefaultModel || isImageRequestForChat
 
-        const getReader = async (useFallbackProvider = false) => {
+        const getReader = async () => {
           const city = localStorage.getItem('hsbot_location') || undefined
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-          const activeProvider = useFallbackProvider ? (provider === 'nvidia' ? 'sambanova' : 'nvidia') : provider
+          const activeProvider = provider || 'nvidia'
           if (activeProvider === 'nvidia') {
             return api.nvidiaChatStream({
               message: content,
@@ -386,7 +386,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           }
         }
 
-        // Auto-retry once on failure, with fallback provider if primary connection drops
+        // Auto-retry once on failure if primary connection drops
         let reader: ReadableStreamDefaultReader<Uint8Array>
         try {
           reader = await getReader()
@@ -396,8 +396,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           try {
             reader = await getReader()
           } catch (retryErr) {
-            console.warn('Retry failed, switching to backup provider...', retryErr)
-            reader = await getReader(true)
+            console.warn('Retry failed, keeping provider...', retryErr)
+            throw retryErr
           }
         }
 

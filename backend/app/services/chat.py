@@ -14,9 +14,12 @@ from app.schemas.message import ChatRequest
 from app.services.model_providers import get_provider
 from app.services.model_providers.base import ModelResponse, StreamChunk
 from app.services.nvidia.router import ai_router
+from app.services.nvidia.config import NVIDIA_MODELS
 from app.services.nvidia.image import NvidiaImageProvider
 from app.config import settings
 import logging
+
+NVIDIA_ID_MAP = {k: v["id"] for k, v in NVIDIA_MODELS.items()}
 from app.services.rag import RAGService
 from app.services.websearch import WebSearchService
 from app.services.retrieval.router import classify_video_intent
@@ -569,15 +572,31 @@ class ChatService:
         try:
             provider = get_provider(provider_name)
         except ValueError as e:
-            _logger.error("[CHAT] provider=%s error=missing_api_key detail=%s", provider_name, e)
-            yield StreamChunk(
-                type="error",
-                content=f"{e} Set {provider_name.upper()}_API_KEY or switch to another provider.",
-                model=model or chat.model,
-                provider=provider_name,
-                done=True,
-            )
-            return
+            fallback_provider = None
+            if provider_name != "nvidia" and (settings.nvidia_api_keys or getattr(settings, "nvidia_api_key", None)):
+                try:
+                    fallback_provider = get_provider("nvidia")
+                    _logger.warning(
+                        "[CHAT] provider=%s has no API key; auto-falling back to nvidia (%s)",
+                        provider_name,
+                        settings.nvidia_default_chat_model or "llama-3.2-11b",
+                    )
+                    provider = fallback_provider
+                    provider_name = "nvidia"
+                    model = settings.nvidia_default_chat_model or "llama-3.2-11b"
+                except Exception:
+                    fallback_provider = None
+
+            if not fallback_provider:
+                _logger.error("[CHAT] provider=%s error=missing_api_key detail=%s", provider_name, e)
+                yield StreamChunk(
+                    type="error",
+                    content=f"{e} Set {provider_name.upper()}_API_KEY or switch to another provider.",
+                    model=model or chat.model,
+                    provider=provider_name,
+                    done=True,
+                )
+                return
 
         task, _ = ai_router.get_model_for_message(request.message)
         task_decision = ai_router.classify(request.message)
@@ -606,6 +625,12 @@ class ChatService:
             # All other tasks: keep llama-3.2-11b (fast general NVIDIA model)
             elif provider_name == "cloudflare" and task == "coding":
                 model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
+
+        if provider_name == "nvidia":
+            if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"}:
+                model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+            elif model_to_use not in NVIDIA_MODELS and model_to_use not in NVIDIA_ID_MAP.values():
+                model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
 
         _logger.info("[CHAT] resolved_model=%s task=%s pinned=%s", model_to_use, task, user_pinned_model)
 
@@ -1007,19 +1032,34 @@ class ChatService:
                         max_tokens=request.max_tokens or chat.max_tokens,
                     )
                 except Exception as e:
-                    error_msg = (
-                        f"Rate limit exceeded. The provider is busy - please wait a moment and try again."
-                        if "RateLimit" in type(e).__name__ or "rate_limit" in str(e).lower()
-                        else f"Provider error: {type(e).__name__}: {e}"
-                    )
-                    yield StreamChunk(
-                        type="error",
-                        content=error_msg,
-                        model=model or chat.model,
-                        provider=provider_name,
-                        done=True,
-                    )
-                    return
+                    response = None
+                    if provider_name == "sambanova":
+                        try:
+                            fb_provider = get_provider("nvidia")
+                            fb_model = settings.nvidia_default_chat_model or "llama-3.2-11b"
+                            response = await fb_provider.generate(
+                                messages=api_messages,
+                                model=fb_model,
+                                system_prompt=system_prompt,
+                                temperature=request.temperature or chat.temperature,
+                                max_tokens=request.max_tokens or chat.max_tokens,
+                            )
+                        except Exception:
+                            response = None
+                    if not response:
+                        error_msg = (
+                            f"Rate limit exceeded. The provider is busy - please wait a moment and try again."
+                            if "RateLimit" in type(e).__name__ or "rate_limit" in str(e).lower()
+                            else f"Provider error: {type(e).__name__}: {e}"
+                        )
+                        yield StreamChunk(
+                            type="error",
+                            content=error_msg,
+                            model=model or chat.model,
+                            provider=provider_name,
+                            done=True,
+                        )
+                        return
             user_msg = Message(chat_id=chat_id, role="user", content=original_message)
             extra_data = None
             if response.content:

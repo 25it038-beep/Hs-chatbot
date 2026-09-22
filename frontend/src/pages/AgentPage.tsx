@@ -123,10 +123,10 @@ export function AgentPage() {
   const terminalEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<(() => void) | null>(null)
 
-  // Model catalog
+  // Model catalog (NVIDIA models)
   const models = [
     { id: 'llama-3.2-11b', name: 'Llama 3.2 11B', badge: 'Ultra Fast', latency: '1s' },
-    { id: 'DeepSeek-V3.2', name: 'DeepSeek V3.2', badge: 'High Throughput', latency: '3s' },
+    { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', badge: 'High Precision', latency: '4s' },
     { id: 'mistral-large', name: 'Mistral Large 2', badge: 'Precision Architect', latency: '6s' },
     { id: 'glm-5.2', name: 'GLM 5.2 / Coder', badge: 'Code Synthesis', latency: '5s' },
     { id: 'codestral', name: 'Codestral 22B', badge: 'Speed Coding', latency: '8s' }

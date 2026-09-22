@@ -357,33 +357,21 @@ const DEFAULT_VOICE_STATE: VoiceState = {
 
         // Detect explicit image generation requests (shared helper)
         const isImageRequestForChat = isImageRequest(content)
-        const isGenericDefaultModel = !chat.model || ['llama-3.2-11b', 'llama-3.1-70b', 'llama-3.2-vision', 'DeepSeek-V3.2', 'Meta-Llama-3.3-70B-Instruct'].includes(chat.model)
+        const isGenericDefaultModel = !chat.model || ['llama-3.2-11b', 'llama-3.1-70b', 'llama-3.2-vision', 'llama-3.3-70b'].includes(chat.model)
         const shouldAutoRoute = isGenericDefaultModel || isImageRequestForChat
 
         const getReader = async () => {
           const city = localStorage.getItem('hsbot_location') || undefined
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-          const activeProvider = provider || 'nvidia'
-          if (activeProvider === 'nvidia') {
-            return api.nvidiaChatStream({
-              message: content,
-              chat_id: chat.id,
-              model,
-              stream: true,
-              auto_route: shouldAutoRoute,
-              location: city,
-              timezone,
-            }, controller.signal)
-          } else {
-            return api.sendMessageStream({
-              message: content,
-              chat_id: chat.id,
-              model,
-              provider: activeProvider,
-              location: city,
-              timezone,
-            }, controller.signal)
-          }
+          return api.nvidiaChatStream({
+            message: content,
+            chat_id: chat.id,
+            model,
+            stream: true,
+            auto_route: shouldAutoRoute,
+            location: city,
+            timezone,
+          }, controller.signal)
         }
 
         // Auto-retry once on failure if primary connection drops

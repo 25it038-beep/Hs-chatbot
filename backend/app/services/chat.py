@@ -107,11 +107,12 @@ class ChatService:
         return trimmed
 
     async def create_chat(self, user_id: str, data: ChatCreate) -> Chat:
+        model = data.model if (data.model in NVIDIA_MODELS or data.model in NVIDIA_ID_MAP.values()) else (settings.nvidia_default_chat_model or "llama-3.2-11b")
         chat = Chat(
             user_id=user_id,
             title=data.title or "New Chat",
-            model=data.model,
-            provider=data.provider,
+            model=model,
+            provider="nvidia",
             system_prompt=data.system_prompt,
             temperature=data.temperature,
             max_tokens=data.max_tokens,
@@ -191,20 +192,15 @@ class ChatService:
                 url_context = url_res["context"]
         chat_id = request.chat_id
         model = request.model
-        default_models = {
-            "cloudflare": settings.cloudflare_gateway_default_model or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-            "nvidia": settings.nvidia_default_chat_model or "llama-3.2-11b",
-            "gemini": settings.google_default_model,
-            "groq": settings.groq_default_model or "llama-3.3-70b-versatile",
-        }
-        provider_name = request.provider or "nvidia"
+        # Use ONLY NVIDIA API key and models
+        provider_name = "nvidia"
 
         if not chat_id:
             chat = await self.create_chat(
                 user_id,
                 ChatCreate(
-                    model=model or default_models.get(provider_name, "gpt-4o"),
-                    provider=provider_name,
+                    model=model or settings.nvidia_default_chat_model or "llama-3.2-11b",
+                    provider="nvidia",
                     system_prompt=request.system_prompt,
                     temperature=request.temperature or 0.7,
                     max_tokens=request.max_tokens or 4096,
@@ -569,34 +565,19 @@ class ChatService:
                 yield StreamChunk(type="done", model="browser-agent", provider="browser", done=True)
                 return
 
+        provider_name = "nvidia"
         try:
-            provider = get_provider(provider_name)
+            provider = get_provider("nvidia")
         except ValueError as e:
-            fallback_provider = None
-            if provider_name != "nvidia" and (settings.nvidia_api_keys or getattr(settings, "nvidia_api_key", None)):
-                try:
-                    fallback_provider = get_provider("nvidia")
-                    _logger.warning(
-                        "[CHAT] provider=%s has no API key; auto-falling back to nvidia (%s)",
-                        provider_name,
-                        settings.nvidia_default_chat_model or "llama-3.2-11b",
-                    )
-                    provider = fallback_provider
-                    provider_name = "nvidia"
-                    model = settings.nvidia_default_chat_model or "llama-3.2-11b"
-                except Exception:
-                    fallback_provider = None
-
-            if not fallback_provider:
-                _logger.error("[CHAT] provider=%s error=missing_api_key detail=%s", provider_name, e)
-                yield StreamChunk(
-                    type="error",
-                    content=f"{e} Set {provider_name.upper()}_API_KEY or switch to another provider.",
-                    model=model or chat.model,
-                    provider=provider_name,
-                    done=True,
-                )
-                return
+            _logger.error("[CHAT] provider=nvidia error=missing_api_key detail=%s", e)
+            yield StreamChunk(
+                type="error",
+                content=f"{e} Set NVIDIA_API_KEY or NVIDIA_API_KEYS in the environment.",
+                model=model or chat.model,
+                provider="nvidia",
+                done=True,
+            )
+            return
 
         task, _ = ai_router.get_model_for_message(request.message)
         task_decision = ai_router.classify(request.message)
@@ -622,15 +603,12 @@ class ChatService:
                 model_to_use = settings.nvidia_default_code_model or "codestral"
             elif task == "reasoning":
                 model_to_use = "glm-5.2"
-            # All other tasks: keep llama-3.2-11b (fast general NVIDIA model)
-            elif provider_name == "cloudflare" and task == "coding":
-                model_to_use = "@cf/qwen/qwen2.5-coder-32b-instruct"
 
-        if provider_name == "nvidia":
-            if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"}:
-                model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
-            elif model_to_use not in NVIDIA_MODELS and model_to_use not in NVIDIA_ID_MAP.values():
-                model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+        # Always strictly enforce NVIDIA models
+        if model_to_use in {"DeepSeek-V3.2", "DeepSeek-V3.1", "MiniMax-M2.7", "gemma-4-31B-it", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"}:
+            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
+        elif model_to_use not in NVIDIA_MODELS and model_to_use not in NVIDIA_ID_MAP.values():
+            model_to_use = settings.nvidia_default_chat_model or "llama-3.2-11b"
 
         _logger.info("[CHAT] resolved_model=%s task=%s pinned=%s", model_to_use, task, user_pinned_model)
 

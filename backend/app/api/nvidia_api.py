@@ -723,7 +723,18 @@ async def nvidia_chat(
             select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
         )
         all_messages = result.scalars().all()
-        recent_history = [{"role": m.role, "content": m.content} for m in all_messages[-6:]]
+        recent_history = [{"role": m.role, "content": m.content, "extra_data": m.extra_data} for m in all_messages[-6:]]
+
+        # ── General Intent Classification & Adaptive Clarification Quiz ──
+        from app.services.intent import GeneralIntentClassifier, AnswerVerifier
+        intent_result = GeneralIntentClassifier.classify(request.message, context=recent_history)
+        _logger.info(
+            "[INTENT][NVIDIA] message=%r -> primary=%s confidence=%s needs_quiz=%s",
+            request.message[:60],
+            intent_result.primary_intent.value,
+            intent_result.confidence.value,
+            intent_result.needs_quiz,
+        )
 
         for msg in all_messages:
             if "data:image/png;base64" in (msg.content or ""):
@@ -753,6 +764,27 @@ async def nvidia_chat(
         if request.stream:
             async def generate_with_memory():
                 yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task, 'chat_id': request.chat_id})}\n\n"
+                if intent_result.needs_quiz and intent_result.quiz:
+                    quiz_dict = intent_result.quiz.to_dict()
+                    user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+                    asst_msg = Message(
+                        chat_id=request.chat_id,
+                        role="assistant",
+                        content=intent_result.quiz.question,
+                        model=model,
+                        provider="nvidia",
+                        extra_data={"quiz": quiz_dict, "intent": intent_result.primary_intent.value},
+                    )
+                    db.add(user_msg)
+                    db.add(asst_msg)
+                    if chat.title == "New Chat":
+                        chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+                    await db.commit()
+
+                    yield f"data: {json.dumps({'type': 'quiz', 'quiz': quiz_dict, 'content': intent_result.quiz.question, 'done': True})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
                 if browser_service.detect(request.message) is not None:
                     async for ev in _browser_events(
                         browser_service, request, db, chat, user, full_message=request.message
@@ -845,6 +877,26 @@ async def nvidia_chat(
                             videos_content = '\n\n' + web_videos_md
                             yield f"data: {json.dumps({'type': 'content', 'content': videos_content})}\n\n"
                             full_content += "\n\n" + web_videos_md
+                        was_clarified = any(
+                            isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("quiz") is not None
+                            for m in recent_history
+                        )
+                        v_res = AnswerVerifier.verify(
+                            content=full_content,
+                            snapshot=intent_result.snapshot,
+                            sources=web_sources_list,
+                            was_clarified=was_clarified,
+                        )
+                        if v_res.satisfaction_check:
+                            yield f"data: {json.dumps({'type': 'satisfaction_check', 'satisfaction_check': True, 'verification': v_res.to_dict()})}\n\n"
+
+                        extra_d = {}
+                        if web_sources_list:
+                            extra_d["sources"] = web_sources_list
+                        extra_d["verification"] = v_res.to_dict()
+                        if v_res.satisfaction_check:
+                            extra_d["satisfaction_check"] = True
+
                         user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
                         assistant_msg = Message(
                             chat_id=request.chat_id,
@@ -855,7 +907,7 @@ async def nvidia_chat(
                             input_tokens=input_tokens,
                             output_tokens=output_tokens,
                             latency_ms=latency,
-                            extra_data={"sources": web_sources_list} if web_sources_list else None,
+                            extra_data=extra_d if extra_d else None,
                         )
                         db.add(user_msg)
                         db.add(assistant_msg)
@@ -893,6 +945,21 @@ async def nvidia_chat(
             )
             if extra_images_md:
                 response.content = f"{response.content}\n\n{extra_images_md}"
+
+            was_clarified = any(
+                isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("quiz") is not None
+                for m in recent_history
+            )
+            v_res = AnswerVerifier.verify(
+                content=response.content,
+                snapshot=intent_result.snapshot,
+                sources=None,
+                was_clarified=was_clarified,
+            )
+            extra_d = {"verification": v_res.to_dict()}
+            if v_res.satisfaction_check:
+                extra_d["satisfaction_check"] = True
+
             user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
             assistant_msg = Message(
                 chat_id=request.chat_id,
@@ -903,6 +970,7 @@ async def nvidia_chat(
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 latency_ms=response.latency_ms,
+                extra_data=extra_d,
             )
             db.add(user_msg)
             db.add(assistant_msg)

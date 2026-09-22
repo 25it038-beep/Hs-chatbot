@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Chat, ChatFolder, Message, ModelInfo, Attachment, WebSourceItem } from '@/types'
+import type { Chat, ChatFolder, Message, ModelInfo, Attachment, WebSourceItem, ClarificationQuiz, VerificationResult } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
@@ -223,10 +223,20 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       if (!chatMessages[id]) {
         const rawMessages = await api.getMessages(id)
         const messages = rawMessages.map(m => {
-          if (!m.sources && m.extra_data && Array.isArray((m.extra_data as any).sources)) {
-            return { ...m, sources: (m.extra_data as any).sources }
+          const updated = { ...m }
+          if (!updated.sources && updated.extra_data && Array.isArray((updated.extra_data as any).sources)) {
+            updated.sources = (updated.extra_data as any).sources
           }
-          return m
+          if (!updated.quiz && updated.extra_data && (updated.extra_data as any).quiz) {
+            updated.quiz = (updated.extra_data as any).quiz
+          }
+          if (!updated.verification && updated.extra_data && (updated.extra_data as any).verification) {
+            updated.verification = (updated.extra_data as any).verification
+          }
+          if (updated.satisfaction_check === undefined && updated.extra_data && (updated.extra_data as any).satisfaction_check !== undefined) {
+            updated.satisfaction_check = (updated.extra_data as any).satisfaction_check
+          }
+          return updated
         })
         set(state => ({ chatMessages: { ...state.chatMessages, [id]: messages } }))
       }
@@ -396,6 +406,9 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         let buffer = ''
         let currentAttachments: Attachment[] = []
         let currentSources: WebSourceItem[] = []
+        let currentQuiz: ClarificationQuiz | undefined = undefined
+        let currentVerification: VerificationResult | undefined = undefined
+        let currentSatisfactionCheck = false
 
         // 45-second timeout for first chunk — cancels if NVIDIA hangs
         firstChunkReceived = false
@@ -423,6 +436,24 @@ const DEFAULT_VOICE_STATE: VoiceState = {
               if (data === '[DONE]') continue
               try {
                 const chunk = JSON.parse(data)
+                if (chunk.type === 'quiz' || chunk.quiz) {
+                  currentQuiz = chunk.quiz
+                  if (chunk.content && !fullContent) {
+                    fullContent = chunk.content
+                    set(state => ({
+                      chatStreamingContent: { ...state.chatStreamingContent, [chat.id]: fullContent },
+                    }))
+                    if (get().currentChat?.id === chat.id) {
+                      set({ streamingContent: fullContent })
+                    }
+                  }
+                }
+                if (chunk.type === 'satisfaction_check' || chunk.satisfaction_check) {
+                  currentSatisfactionCheck = true
+                  if (chunk.verification) {
+                    currentVerification = chunk.verification
+                  }
+                }
                 if (chunk.type === 'web_sources' || (chunk.sources && Array.isArray(chunk.sources))) {
                   const newSources: WebSourceItem[] = chunk.sources || []
                   if (newSources.length > 0) {
@@ -554,7 +585,15 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           content: fullContent,
           attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
           sources: currentSources.length > 0 ? currentSources : undefined,
-          extra_data: currentSources.length > 0 ? { sources: currentSources } : undefined,
+          quiz: currentQuiz,
+          verification: currentVerification,
+          satisfaction_check: currentSatisfactionCheck,
+          extra_data: {
+            ...(currentSources.length > 0 ? { sources: currentSources } : {}),
+            ...(currentQuiz ? { quiz: currentQuiz } : {}),
+            ...(currentVerification ? { verification: currentVerification } : {}),
+            ...(currentSatisfactionCheck ? { satisfaction_check: true } : {}),
+          },
           token_count: 0,
           input_tokens: 0,
           output_tokens: 0,
@@ -778,3 +817,6 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     })),
   }
 })
+
+export const useChatStore = useChat
+

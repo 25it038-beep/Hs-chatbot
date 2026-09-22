@@ -214,6 +214,56 @@ class ChatService:
                 yield StreamChunk(type="error", content="Chat not found", done=True)
                 return
 
+        messages_result = await self.db.execute(
+            select(Message)
+            .where(Message.chat_id == chat_id)
+            .order_by(Message.created_at)
+        )
+        all_messages = messages_result.scalars().all()
+        recent_history = [
+            {"role": m.role, "content": m.content, "extra_data": m.extra_data}
+            for m in all_messages[-6:]
+        ]
+
+        # ── General Intent Classification & Adaptive Clarification Quiz ──
+        from app.services.intent import GeneralIntentClassifier, AnswerVerifier
+        intent_result = GeneralIntentClassifier.classify(request.message, context=recent_history)
+        _logger.info(
+            "[INTENT] message=%r -> primary=%s confidence=%s needs_quiz=%s",
+            request.message[:60],
+            intent_result.primary_intent.value,
+            intent_result.confidence.value,
+            intent_result.needs_quiz,
+        )
+
+        if intent_result.needs_quiz and intent_result.quiz:
+            _logger.info("[INTENT] clarification quiz triggered: %s", intent_result.quiz.question)
+            quiz_dict = intent_result.quiz.to_dict()
+            user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+            asst_msg = Message(
+                chat_id=chat_id,
+                role="assistant",
+                content=intent_result.quiz.question,
+                model=model or chat.model,
+                provider=provider_name,
+                extra_data={"quiz": quiz_dict, "intent": intent_result.primary_intent.value},
+            )
+            self.db.add(user_msg)
+            self.db.add(asst_msg)
+            if chat.title == "New Chat":
+                chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+            await self.db.commit()
+
+            yield StreamChunk(
+                type="quiz",
+                quiz=quiz_dict,
+                content=intent_result.quiz.question,
+                model=model or chat.model,
+                provider=provider_name,
+                done=True,
+            )
+            return
+
         today_str = "Monday, September 21, 2026 (2026-09-21)"
         _hs_persona = (
             f"You are HS ChatBot — a powerful, multi-model AI assistant built to help users with "
@@ -885,10 +935,30 @@ class ChatService:
                     except Exception as e:
                         _logger.warning("Failed to auto-package website project zip: %s", e)
 
+                    was_clarified = any(
+                        isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("quiz") is not None
+                        for m in recent_history
+                    )
+                    v_res = AnswerVerifier.verify(
+                        content=full_content,
+                        snapshot=intent_result.snapshot,
+                        sources=web_sources_list,
+                        was_clarified=was_clarified,
+                    )
+                    if v_res.satisfaction_check:
+                        yield StreamChunk(
+                            type="satisfaction_check",
+                            satisfaction_check=True,
+                            verification=v_res.to_dict(),
+                        )
+
+                    if extra_data is None:
+                        extra_data = {}
                     if web_sources_list:
-                        if extra_data is None:
-                            extra_data = {}
                         extra_data["sources"] = web_sources_list
+                    extra_data["verification"] = v_res.to_dict()
+                    if v_res.satisfaction_check:
+                        extra_data["satisfaction_check"] = True
 
                     assistant_msg = Message(
                         chat_id=chat_id,
@@ -1016,6 +1086,22 @@ class ChatService:
                                 }
                 except Exception as e:
                     _logger.warning("Failed to auto-package website project zip in non-stream: %s", e)
+
+            was_clarified = any(
+                isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("quiz") is not None
+                for m in recent_history
+            )
+            v_res = AnswerVerifier.verify(
+                content=response.content,
+                snapshot=intent_result.snapshot,
+                sources=None,
+                was_clarified=was_clarified,
+            )
+            if extra_data is None:
+                extra_data = {}
+            extra_data["verification"] = v_res.to_dict()
+            if v_res.satisfaction_check:
+                extra_data["satisfaction_check"] = True
 
             assistant_msg = Message(
                 chat_id=chat_id,

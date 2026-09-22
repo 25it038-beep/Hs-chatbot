@@ -138,6 +138,28 @@ export interface WebSourceItem {
   favicon_url?: string
 }
 
+export interface ClarificationQuiz {
+  id: string
+  question: string
+  options: string[]
+  quiz_type?: string
+  allow_custom?: boolean
+  intent?: string
+  context?: string
+}
+
+export interface VerificationResult {
+  request_understood: boolean
+  intent?: string
+  requirements_complete: boolean
+  tool_execution_complete: boolean
+  answer_verified: boolean
+  sources_verified: boolean
+  citation_verified: boolean
+  satisfaction_check: boolean
+  verification_notes?: string
+}
+
 export interface Message {
   id: string
   chat_id: string
@@ -150,6 +172,9 @@ export interface Message {
   extra_data?: Record<string, any>
   attachments?: Attachment[]
   sources?: WebSourceItem[]
+  quiz?: ClarificationQuiz
+  verification?: VerificationResult
+  satisfaction_check?: boolean
   token_count: number
   input_tokens: number
   output_tokens: number
@@ -159,7 +184,7 @@ export interface Message {
 }
 
 export interface StreamChunk {
-  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta' | 'web_sources'
+  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta' | 'web_sources' | 'quiz' | 'satisfaction_check'
   content: string
   reasoning?: string
   model?: string
@@ -171,6 +196,9 @@ export interface StreamChunk {
   attachments?: Attachment[]
   sources?: WebSourceItem[]
   query?: string
+  quiz?: ClarificationQuiz
+  verification?: VerificationResult
+  satisfaction_check?: boolean
 }
 
 

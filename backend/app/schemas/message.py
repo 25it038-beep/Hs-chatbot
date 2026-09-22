@@ -30,6 +30,9 @@ class MessageResponse(BaseModel):
     extra_data: Optional[Any] = None
     attachments: Optional[list[Attachment]] = None
     sources: Optional[list[dict]] = None
+    quiz: Optional[dict] = None
+    verification: Optional[dict] = None
+    satisfaction_check: Optional[bool] = None
     token_count: int
     input_tokens: int
     output_tokens: int

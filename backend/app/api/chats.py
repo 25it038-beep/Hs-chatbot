@@ -92,6 +92,12 @@ async def get_messages(chat_id: str, current_user: User = Depends(get_current_us
                 resp.attachments = m.extra_data["attachments"]
             if "sources" in m.extra_data:
                 resp.sources = m.extra_data["sources"]
+            if "quiz" in m.extra_data:
+                resp.quiz = m.extra_data["quiz"]
+            if "verification" in m.extra_data:
+                resp.verification = m.extra_data["verification"]
+            if "satisfaction_check" in m.extra_data:
+                resp.satisfaction_check = m.extra_data["satisfaction_check"]
         result.append(resp)
     return result
 

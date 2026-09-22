@@ -25,6 +25,9 @@ class StreamChunk(BaseModel):
     attachments: list[dict] | None = None
     sources: list[dict] | None = None
     query: str | None = None
+    quiz: dict | None = None
+    verification: dict | None = None
+    satisfaction_check: bool | None = None
 
 
 

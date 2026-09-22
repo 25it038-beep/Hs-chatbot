@@ -9,6 +9,8 @@ import { useVoiceStore } from '@/lib/speech'
 import { extractWebProject } from '@/lib/webProject'
 import { WebProjectCard } from './WebProjectCard'
 import { WebSearchResults } from './WebSearchResults'
+import { ClarificationQuizComponent } from './ClarificationQuiz'
+import { SatisfactionCheckComponent } from './SatisfactionCheck'
 
 
 interface ChatMessageProps {
@@ -135,6 +137,21 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
                 </div>
               )
             })()}
+
+            {(() => {
+              const quiz = message.quiz || ((message as any).extra_data?.quiz as any)
+              if (!quiz) return null
+              return <ClarificationQuizComponent quiz={quiz} messageId={message.id} />
+            })()}
+
+            {(() => {
+              if (isStreaming) return null
+              const isSatisfaction = message.satisfaction_check || (message as any).extra_data?.satisfaction_check
+              const verification = message.verification || (message as any).extra_data?.verification
+              if (!isSatisfaction && !verification?.satisfaction_check) return null
+              return <SatisfactionCheckComponent verification={verification} messageId={message.id} />
+            })()}
+
             {isStreaming && (
               <span className="inline-flex gap-1 ml-0.5 align-baseline" aria-label="AI is typing">
                 <span className="typing-dot" />

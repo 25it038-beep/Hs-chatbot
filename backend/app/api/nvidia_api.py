@@ -2,12 +2,14 @@ import json
 import time
 import asyncio
 import os
+import logging
+from pathlib import Path
 import aiofiles
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.responses import StreamingResponse, JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -31,6 +33,7 @@ from app.services.websearch import WebSearchService, extract_image_subject
 from app.services.browser.service import browser_service
 
 router = APIRouter(prefix="/api/nvidia", tags=["nvidia"])
+_logger = logging.getLogger("hsbot.nvidia")
 
 chat_provider = NvidiaChatProvider()
 vision_provider = NvidiaVisionProvider()

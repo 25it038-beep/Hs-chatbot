@@ -1,4 +1,4 @@
-﻿"""
+"""
 NVIDIA Riva Tamil TTS Provider (Additive, Isolated).
 Connects to an external NVIDIA Riva GPU service for Tamil (ta-IN) speech synthesis.
 

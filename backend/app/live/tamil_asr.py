@@ -1,4 +1,4 @@
-﻿"""
+"""
 NVIDIA Riva Tamil ASR Provider (Additive, Isolated).
 Connects to an external NVIDIA Riva GPU service for Tamil (ta-IN) speech recognition.
 

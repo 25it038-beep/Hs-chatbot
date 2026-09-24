@@ -138,6 +138,11 @@ class AIRouter:
         if re.search(r"\b(what is in this image|describe this image|analyze this image|what do you see|ocr|extract text from image)\b", text):
             return self._vision(0.92)
 
+        # ── Game Development creation (checked BEFORE general coding) ──
+        from app.services.game.detector import game_detector
+        if game_detector.is_game_request(text):
+            return self._game_development(0.96)
+
         # ── Technical guard & Coding / Project creation (checked BEFORE image gen) ──
         if WEB_PROJECT_RE.search(text) or self._looks_coding(text):
             return self._coding(0.95 if WEB_PROJECT_RE.search(text) else 0.88)
@@ -363,6 +368,19 @@ class AIRouter:
             "workflow": ["resolve_content", "summarize", "compose_response"],
         }
 
+    def _game_development(self, confidence: float) -> dict:
+        return {
+            "primary_intent": "game_development",
+            "secondary_intents": ["coding"],
+            "confidence": confidence,
+            "requires_web": False,
+            "requires_images": False,
+            "requires_image_generation": False,
+            "requires_verification": True,
+            "tools": [{"name": "game_generator", "purpose": "Design, build, playtest, and verify HTML5 game project"}],
+            "workflow": ["design_game", "generate_game_files", "playtest", "verify_requirements", "package_zip"],
+        }
+
     def _looks_coding(self, text: str) -> bool:
         if WEB_PROJECT_RE.search(text):
             return True
@@ -387,6 +405,8 @@ class AIRouter:
             return "web_images"
         if d["primary_intent"] in ("image_analysis", "file_analysis"):
             return "vision"
+        if d["primary_intent"] in ("game_development",):
+            return "game_development"
         if d["primary_intent"] in ("coding",):
             return "coding"
         if d["primary_intent"] in ("calculation", "mathematics") or d["requires_web"]:

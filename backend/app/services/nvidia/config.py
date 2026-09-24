@@ -142,6 +142,10 @@ TASK_ROUTES = {
         "default": "llama-3.2-11b",
         "fallback": ["gpt-oss-20b"],
     },
+    "game_development": {
+        "default": "llama-3.2-11b",
+        "fallback": ["gpt-oss-20b"],
+    },
     "reasoning": {
         "default": "llama-3.2-11b",
         "fallback": ["gpt-oss-20b"],

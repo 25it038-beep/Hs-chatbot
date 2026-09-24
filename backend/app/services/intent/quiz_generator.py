@@ -130,6 +130,55 @@ class QuizGenerator:
                 intent=intent,
             )
 
+        # 7. Game Development request
+        if intent == IntentCategory.GAME_DEVELOPMENT or re.search(r"\b(game|play\s+game|make\s+a\s+game|create\s+a\s+game)\b", q_clean, re.I):
+            from app.services.game.detector import GameDetector
+            from app.services.game.models import GameGenre
+            genre = GameDetector.extract_genre(q_clean)
+            if genre == GameGenre.FOOTBALL:
+                return ClarificationQuiz(
+                    id=str(uuid.uuid4()),
+                    question="What style of football gameplay would you prefer?",
+                    options=[
+                        "Top-down 2D match (Single Player vs AI)",
+                        "Penalty shootout tournament",
+                        "2D side-view arcade match",
+                        "Target shooting practice challenge",
+                    ],
+                    quiz_type="scope",
+                    allow_custom=True,
+                    intent=intent,
+                )
+            elif genre == GameGenre.RACING:
+                return ClarificationQuiz(
+                    id=str(uuid.uuid4()),
+                    question="What type of racing experience do you want?",
+                    options=[
+                        "Top-down circuit race with AI competitors",
+                        "Endless highway overtake & drift",
+                        "Time-trial lap challenge",
+                    ],
+                    quiz_type="scope",
+                    allow_custom=True,
+                    intent=intent,
+                )
+            else:
+                return ClarificationQuiz(
+                    id=str(uuid.uuid4()),
+                    question="What genre and style of game would you like to build?",
+                    options=[
+                        "Arcade Football (Player vs AI)",
+                        "Top-Down 2D Racing Game",
+                        "Platformer Adventure",
+                        "Space Arcade Shooter",
+                        "Retro Brick Breaker / Snake",
+                    ],
+                    quiz_type="scope",
+                    allow_custom=True,
+                    intent=intent,
+                )
+
+
         # 7. Default generic intent clarification
         return ClarificationQuiz(
             id=str(uuid.uuid4()),

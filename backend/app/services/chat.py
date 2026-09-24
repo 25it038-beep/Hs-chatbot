@@ -292,10 +292,17 @@ class ChatService:
         if url_context:
             system_prompt = f"{system_prompt}\n\n{url_context}"
 
-        # Web site / project intent detection (uses typo-tolerant WEB_PROJECT_RE from router)
+        # Game and Web project intent detection
+        from app.services.game.detector import game_detector
+        from app.services.game.generator import game_generator
         from app.services.nvidia.router import WEB_PROJECT_RE
-        is_web_project_request = bool(WEB_PROJECT_RE.search(request.message))
-        if is_web_project_request:
+
+        is_game_request = game_detector.is_game_request(request.message)
+        is_web_project_request = is_game_request or bool(WEB_PROJECT_RE.search(request.message))
+        if is_game_request:
+            game_prompt = game_generator.build_game_system_prompt(request.message)
+            system_prompt = f"{system_prompt}\n\n{game_prompt}"
+        elif is_web_project_request:
             system_prompt = (
                 f"{system_prompt}\n\n"
                 "CRITICAL PROJECT DELIVERY REQUIREMENT:\n"
@@ -918,14 +925,22 @@ class ChatService:
                                     html_f = next(f for f in found_files if f["path"].endswith(".html"))
                                     (Path(tmpdir) / "index.html").write_text(html_f["content"], encoding="utf-8")
 
+                                zip_name = "game-project.zip" if is_game_request else "website-project.zip"
                                 zip_res = artifact_engine.create_zip_project(
                                     workspace_dir=tmpdir,
-                                    zip_filename="website-project.zip",
+                                    zip_filename=zip_name,
                                     chat_id=str(chat_id),
                                     user_id=str(user_id) if user_id else None
                                 )
                                 if zip_res.get("success"):
                                     art = zip_res["artifact"]
+                                    verification_info = None
+                                    if is_game_request:
+                                        from app.services.game.playtester import game_playtester
+                                        report = game_playtester.test_code(found_files, genre=game_detector.extract_genre(request.message))
+                                        checklist = game_playtester.generate_verification_checklist(report, genre=game_detector.extract_genre(request.message))
+                                        verification_info = checklist.to_dict()
+
                                     extra_data = {
                                         "attachments": [{
                                             "id": art["id"],
@@ -936,6 +951,7 @@ class ChatService:
                                             "type": "application/zip",
                                             "preview_type": "zip",
                                             "artifact_id": art["id"],
+                                            "verification": verification_info,
                                         }]
                                     }
                     except Exception as e:
@@ -1085,14 +1101,22 @@ class ChatService:
                                 html_f = next(f for f in found_files if f["path"].endswith(".html"))
                                 (Path(tmpdir) / "index.html").write_text(html_f["content"], encoding="utf-8")
 
+                            zip_name = "game-project.zip" if is_game_request else "website-project.zip"
                             zip_res = artifact_engine.create_zip_project(
                                 workspace_dir=tmpdir,
-                                zip_filename="website-project.zip",
+                                zip_filename=zip_name,
                                 chat_id=str(chat_id),
                                 user_id=str(user_id) if user_id else None
                             )
                             if zip_res.get("success"):
                                 art = zip_res["artifact"]
+                                verification_info = None
+                                if is_game_request:
+                                    from app.services.game.playtester import game_playtester
+                                    report = game_playtester.test_code(found_files, genre=game_detector.extract_genre(request.message))
+                                    checklist = game_playtester.generate_verification_checklist(report, genre=game_detector.extract_genre(request.message))
+                                    verification_info = checklist.to_dict()
+
                                 extra_data = {
                                     "attachments": [{
                                         "id": art["id"],
@@ -1103,6 +1127,7 @@ class ChatService:
                                         "type": "application/zip",
                                         "preview_type": "zip",
                                         "artifact_id": art["id"],
+                                        "verification": verification_info,
                                     }]
                                 }
                 except Exception as e:

@@ -131,6 +131,7 @@ class NemotronVoiceChatClient:
                     "available": False,
                     "model": self.model,
                     "code": "NEMOTRON_VOICECHAT_UNAVAILABLE",
+                    "status_code": getattr(e, "code", getattr(e, "status_code", 404)),
                     "error": str(e),
                     "detail": f"Connection to NVIDIA NIM failed: {e}",
                 }

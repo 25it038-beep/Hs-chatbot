@@ -20,6 +20,7 @@ class IntentCategory(str, Enum):
     TROUBLESHOOTING = "troubleshooting"
     CODE = "code"
     PROJECT = "project"
+    GAME_DEVELOPMENT = "game_development"
     FILE_GENERATION = "file_generation"
     FILE_EDITING = "file_editing"
     FILE_CONVERSION = "file_conversion"

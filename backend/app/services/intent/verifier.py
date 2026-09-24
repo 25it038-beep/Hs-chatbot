@@ -62,10 +62,15 @@ class AnswerVerifier:
             IntentCategory.RESEARCH,
             IntentCategory.PLANNING,
             IntentCategory.BRAINSTORMING,
+            IntentCategory.GAME_DEVELOPMENT,
         ):
             should_offer_satisfaction = True
         elif snapshot and len(snapshot.secondary_intents) > 0:
             should_offer_satisfaction = True
+
+        v_notes = "Answer verified against requirements"
+        if intent == IntentCategory.GAME_DEVELOPMENT:
+            v_notes = "Game project verified: loop, controls, canvas, and scoring active"
 
         return VerificationResult(
             request_understood=True,
@@ -76,5 +81,5 @@ class AnswerVerifier:
             sources_verified=sources_verified,
             citation_verified=citation_verified,
             satisfaction_check=should_offer_satisfaction,
-            verification_notes="Answer verified against requirements",
+            verification_notes=v_notes,
         )

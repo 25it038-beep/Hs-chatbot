@@ -497,8 +497,12 @@ async def nvidia_chat(
                 _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
 
+    from app.services.game.detector import game_detector
+    from app.services.game.generator import game_generator
     from app.services.nvidia.router import WEB_PROJECT_RE
-    is_web_project_req = bool(WEB_PROJECT_RE.search(request.message))
+
+    is_game_req = game_detector.is_game_request(request.message)
+    is_web_project_req = is_game_req or bool(WEB_PROJECT_RE.search(request.message))
 
     if request.auto_route:
 
@@ -519,7 +523,9 @@ async def nvidia_chat(
                 context = []
         decision = ai_router.classify(request.message, context=context)
         task = ai_router.detect_task(request.message, context=context)
-        if is_web_project_req:
+        if is_game_req:
+            task = "game_development"
+        elif is_web_project_req:
             task = "coding"
         auto_model = ai_router.get_best_model(task)
         if task == "image_generation":
@@ -528,9 +534,9 @@ async def nvidia_chat(
             model = auto_model
     else:
         decision = ai_router.classify(request.message)
-        task = "coding" if is_web_project_req else ai_router.detect_task(request.message)
+        task = "game_development" if is_game_req else ("coding" if is_web_project_req else ai_router.detect_task(request.message))
         _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision", "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
-        if is_web_project_req or (task == "coding" and (not request.model or request.model in _generic_defaults)):
+        if is_game_req or is_web_project_req or (task in ("coding", "game_development") and (not request.model or request.model in _generic_defaults)):
             model = "llama-3.2-11b"
         else:
             model = request.model or "llama-3.2-11b"
@@ -753,7 +759,10 @@ async def nvidia_chat(
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
-        if is_web_project_req:
+        if is_game_req:
+            game_prompt = game_generator.build_game_system_prompt(request.message)
+            system_prompt = f"{system_prompt}\n\n{game_prompt}"
+        elif is_web_project_req:
             system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
 
         api_messages = svc._prepare_messages(
@@ -997,7 +1006,10 @@ async def nvidia_chat(
         if web_context:
             system_prompt = f"{system_prompt}\n\n{web_context}"
 
-    if is_web_project_req:
+    if is_game_req:
+        game_prompt = game_generator.build_game_system_prompt(request.message)
+        system_prompt = f"{system_prompt}\n\n{game_prompt}"
+    elif is_web_project_req:
         system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
 
     if request.stream:

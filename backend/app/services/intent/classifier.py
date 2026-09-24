@@ -213,7 +213,33 @@ class GeneralIntentClassifier:
                 output_format=fmt,
             )
 
-        # H. Direct Software / Web Project Creation
+        # H. Game Development Request
+        from app.services.game.detector import GameDetector
+        if GameDetector.is_game_request(lower_q):
+            needs_q, _ = GameDetector.needs_clarification_quiz(lower_q)
+            if needs_q and not is_answering_quiz and not is_user_correction:
+                quiz = QuizGenerator.generate_quiz(IntentCategory.GAME_DEVELOPMENT, query)
+                return cls._build_result(
+                    primary=IntentCategory.GAME_DEVELOPMENT,
+                    secondary=[IntentCategory.PROJECT, IntentCategory.CODE],
+                    confidence=IntentConfidence.LOW,
+                    needs_quiz=True,
+                    quiz=quiz,
+                    workflow="clarification",
+                    goal="Clarify game style and requirements",
+                    output_format="project",
+                )
+            return cls._build_result(
+                primary=IntentCategory.GAME_DEVELOPMENT,
+                secondary=[IntentCategory.PROJECT, IntentCategory.CODE],
+                confidence=IntentConfidence.HIGH,
+                needs_quiz=False,
+                workflow="game_development",
+                goal="Develop complete playable HTML5 game project",
+                output_format="project",
+            )
+
+        # I. Direct Software / Web Project Creation
         if re.search(r"\b(?:create|build|make|generate|develop|scaffold)\s+(?:a\s+|an\s+)?(?:website|site|landing\s+page|portfolio|web\s+app|dashboard|api|rest\s+api|fullstack|frontend|backend)\b", lower_q):
             return cls._build_result(
                 primary=IntentCategory.PROJECT,

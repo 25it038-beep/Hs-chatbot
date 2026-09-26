@@ -163,6 +163,10 @@ TASK_ROUTES = {
         "default": "llama-3.2-11b",
         "fallback": ["llama-3.2-vision"],
     },
+    "video_search": {
+        "default": "llama-3.2-11b",
+        "fallback": ["gpt-oss-20b"],
+    },
     "embeddings": {
         "default": "nv-embed-v1",
         # nv-embedcode-7b returns HTTP 500 from NVIDIA — disabled until fixed upstream

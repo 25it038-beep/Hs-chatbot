@@ -699,18 +699,82 @@ class ChatService:
                     web_images_md = ""
                     web_videos_md = ""
                     web_sources_md = ""
-                    web_sources_list = []
-                    video_intent = classify_video_intent(request.message)
-                    with_videos = video_intent in ("required", "recommended")
-                    video_task = None
-                    if video_intent == "optional":
-                        # VIDEO_OPTIONAL (section 26): fetch videos in the
-                        # background so the answer is never blocked; append
-                        # them after the stream when they are ready.
-                        video_task = asyncio.create_task(
-                            WebSearchService().fetch_videos_markdown(request.message)
-                        )
-                    if WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images") or force_web_search:
+                    from app.services.media.youtube import youtube_service
+                    is_video_task = (
+                        task == "video_search"
+                        or intent_result.primary_intent.value == "video_search"
+                        or youtube_service.detect_video_intent(request.message)
+                    )
+                    yt_results_list = []
+                    yt_featured_video = None
+
+                    if is_video_task:
+                        previous_videos = []
+                        for m in reversed(recent_history):
+                            if isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("youtube_results"):
+                                previous_videos = m["extra_data"]["youtube_results"]
+                                break
+
+                        followup_match = youtube_service.resolve_followup(request.message, previous_videos) if previous_videos else None
+                        if followup_match:
+                            selected_v = followup_match["video"]
+                            yt_results_list = [selected_v]
+                            yt_featured_video = selected_v
+                            query_used = selected_v.get("title", request.message)
+                            yield StreamChunk(
+                                type="youtube_results",
+                                videos=yt_results_list,
+                                featured_video=yt_featured_video,
+                                query=query_used,
+                                model=model_to_use,
+                                provider=provider_name,
+                            )
+                            system_prompt = (
+                                f"{system_prompt}\n\n"
+                                f"The user requested to play video #{followup_match['index']} ('{selected_v.get('title')}'). "
+                                "The video player is embedded and ready to play below. Acknowledge this directly and introduce the selection warmly. "
+                                "Do NOT say you cannot play or display videos."
+                            )
+                        else:
+                            yield StreamChunk(
+                                type="searching",
+                                content="Searching YouTube for videos...",
+                                model=model_to_use,
+                                provider=provider_name,
+                            )
+                            q_info = youtube_service.extract_video_query(request.message)
+                            yt_resp = await youtube_service.search(
+                                query=q_info["query"],
+                                max_results=q_info["max_results"],
+                                order=q_info["order"],
+                                language=q_info["relevance_lang"],
+                                region=q_info["region_code"],
+                                fresh=q_info["is_fresh"],
+                            )
+                            yt_results_list = [v.to_dict() for v in yt_resp.results]
+                            yt_featured_video = yt_resp.featured_video.to_dict() if yt_resp.featured_video else None
+                            query_used = yt_resp.query
+                            if yt_results_list:
+                                yield StreamChunk(
+                                    type="youtube_results",
+                                    videos=yt_results_list,
+                                    featured_video=yt_featured_video,
+                                    query=query_used,
+                                    model=model_to_use,
+                                    provider=provider_name,
+                                )
+                                videos_summary = "\n".join(f"- {v.get('title')} by {v.get('channel_title')} (Watch: {v.get('watch_url')})" for v in yt_results_list)
+                                system_prompt = (
+                                    f"{system_prompt}\n\n"
+                                    "CRITICAL YOUTUBE INSTRUCTIONS:\n"
+                                    "Real, verified YouTube videos have been retrieved and are automatically displayed to the user as interactive cards with embed players below your response.\n"
+                                    "- NEVER say you cannot display videos, show links, or play videos.\n"
+                                    "- NEVER fabricate fake video IDs or invalid YouTube links.\n"
+                                    "- Briefly introduce the found videos in a conversational and helpful way, citing their exact titles and channel names.\n\n"
+                                    f"Retrieved YouTube Videos:\n{videos_summary}"
+                                )
+
+                    if (WebSearchService.needs_web_search(request.message) or task_decision.get("requires_images") or force_web_search) and not is_video_task:
                         status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
                         async def _cb(s: str) -> None:
@@ -978,6 +1042,10 @@ class ChatService:
                         extra_data = {}
                     if web_sources_list:
                         extra_data["sources"] = web_sources_list
+                    if yt_results_list:
+                        extra_data["youtube_results"] = yt_results_list
+                        if yt_featured_video:
+                            extra_data["featured_video"] = yt_featured_video
                     extra_data["verification"] = v_res.to_dict()
                     if v_res.satisfaction_check:
                         extra_data["satisfaction_check"] = True

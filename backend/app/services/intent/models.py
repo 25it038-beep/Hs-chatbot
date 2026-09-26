@@ -36,6 +36,7 @@ class IntentCategory(str, Enum):
     WEATHER = "weather"
     TIME = "time"
     LOCATION = "location"
+    VIDEO_SEARCH = "video_search"
     FOLLOW_UP = "follow_up"
     ACTION_REQUEST = "action_request"
     OTHER = "other"

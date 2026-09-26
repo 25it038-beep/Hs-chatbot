@@ -160,6 +160,29 @@ export interface VerificationResult {
   verification_notes?: string
 }
 
+export interface YouTubeVideoItem {
+  video_id: string
+  title: string
+  channel_title: string
+  channel_id?: string
+  thumbnail_url: string
+  published_at?: string
+  description?: string
+  watch_url: string
+  embed_url: string
+  duration?: string
+  view_count?: string
+  source?: string
+}
+
+export interface YouTubeSearchResult {
+  type?: string
+  query: string
+  total_results?: number
+  results: YouTubeVideoItem[]
+  featured_video?: YouTubeVideoItem
+}
+
 export interface Message {
   id: string
   chat_id: string
@@ -172,6 +195,7 @@ export interface Message {
   extra_data?: Record<string, any>
   attachments?: Attachment[]
   sources?: WebSourceItem[]
+  youtube_results?: YouTubeSearchResult
   quiz?: ClarificationQuiz
   verification?: VerificationResult
   satisfaction_check?: boolean
@@ -184,7 +208,7 @@ export interface Message {
 }
 
 export interface StreamChunk {
-  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta' | 'web_sources' | 'quiz' | 'satisfaction_check'
+  type: 'content' | 'reasoning' | 'tool_call' | 'error' | 'done' | 'file_created' | 'searching' | 'generating' | 'browser_status' | 'image' | 'meta' | 'web_sources' | 'youtube_results' | 'quiz' | 'satisfaction_check'
   content: string
   reasoning?: string
   model?: string
@@ -195,6 +219,10 @@ export interface StreamChunk {
   file?: Attachment
   attachments?: Attachment[]
   sources?: WebSourceItem[]
+  results?: YouTubeVideoItem[]
+  featured_video?: YouTubeVideoItem
+  youtube_results?: YouTubeSearchResult
+  videos?: YouTubeVideoItem[]
   query?: string
   quiz?: ClarificationQuiz
   verification?: VerificationResult

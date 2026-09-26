@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Chat, ChatFolder, Message, ModelInfo, Attachment, WebSourceItem, ClarificationQuiz, VerificationResult } from '@/types'
+import type { Chat, ChatFolder, Message, ModelInfo, Attachment, WebSourceItem, ClarificationQuiz, VerificationResult, YouTubeSearchResult } from '@/types'
 import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
@@ -67,6 +67,7 @@ interface ChatState {
   streamingContent: string
   streamingAttachments: Attachment[]
   streamingSources: WebSourceItem[]
+  streamingYouTubeResults: YouTubeSearchResult | null
   generatingImage: boolean
   loading: boolean
 
@@ -74,6 +75,7 @@ interface ChatState {
   chatStreamingContent: Record<string, string>
   chatStreamingAttachments: Record<string, Attachment[]>
   chatStreamingSources: Record<string, WebSourceItem[]>
+  chatStreamingYouTubeResults: Record<string, YouTubeSearchResult>
   streamingChatIds: string[]
   streamingPhase: Record<string, 'thinking' | 'writing' | 'searching' | 'browser_action'>
   streamingReasoning: Record<string, string>
@@ -122,9 +124,9 @@ export const useChat = create<ChatState>((set, get) => {
   const streamControllers: Record<string, AbortController> = {}
 
   const syncDisplay = () => {
-    const { currentChat, chatMessages, chatStreamingContent, chatStreamingAttachments, chatStreamingSources, streamingChatIds, generatingImage } = get()
+    const { currentChat, chatMessages, chatStreamingContent, chatStreamingAttachments, chatStreamingSources, chatStreamingYouTubeResults, streamingChatIds, generatingImage } = get()
     if (!currentChat) {
-      set({ messages: [], streaming: false, streamingContent: '', streamingAttachments: [], streamingSources: [], generatingImage: false })
+      set({ messages: [], streaming: false, streamingContent: '', streamingAttachments: [], streamingSources: [], streamingYouTubeResults: null, generatingImage: false })
       return
     }
     set({
@@ -133,6 +135,7 @@ export const useChat = create<ChatState>((set, get) => {
       streamingContent: chatStreamingContent[currentChat.id] || '',
       streamingAttachments: chatStreamingAttachments[currentChat.id] || [],
       streamingSources: chatStreamingSources[currentChat.id] || [],
+      streamingYouTubeResults: chatStreamingYouTubeResults[currentChat.id] || null,
       generatingImage: generatingImage,
     })
   }
@@ -174,6 +177,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     streamingContent: '',
     streamingAttachments: [],
     streamingSources: [],
+    streamingYouTubeResults: null,
     generatingImage: false,
     loading: false,
 
@@ -181,6 +185,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
     chatStreamingContent: {},
     chatStreamingAttachments: {},
     chatStreamingSources: {},
+    chatStreamingYouTubeResults: {},
     streamingChatIds: [],
     streamingPhase: {},
     streamingReasoning: {},
@@ -394,6 +399,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         let buffer = ''
         let currentAttachments: Attachment[] = []
         let currentSources: WebSourceItem[] = []
+        let currentYouTubeResults: YouTubeSearchResult | null = null
         let currentQuiz: ClarificationQuiz | undefined = undefined
         let currentVerification: VerificationResult | undefined = undefined
         let currentSatisfactionCheck = false
@@ -451,6 +457,22 @@ const DEFAULT_VOICE_STATE: VoiceState = {
                     }))
                     if (get().currentChat?.id === chat.id) {
                       set({ streamingSources: currentSources })
+                    }
+                  }
+                }
+                if (chunk.type === 'youtube_results' || chunk.youtube_results || (chunk.results && Array.isArray(chunk.results))) {
+                  const ytR: YouTubeSearchResult = chunk.youtube_results || {
+                    query: chunk.query || '',
+                    results: chunk.results || chunk.videos || [],
+                    featured_video: chunk.featured_video,
+                  }
+                  if (ytR && ytR.results && ytR.results.length > 0) {
+                    currentYouTubeResults = ytR
+                    set(state => ({
+                      chatStreamingYouTubeResults: { ...state.chatStreamingYouTubeResults, [chat.id]: ytR },
+                    }))
+                    if (get().currentChat?.id === chat.id) {
+                      set({ streamingYouTubeResults: ytR })
                     }
                   }
                 }
@@ -573,11 +595,13 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           content: fullContent,
           attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
           sources: currentSources.length > 0 ? currentSources : undefined,
+          youtube_results: currentYouTubeResults || undefined,
           quiz: currentQuiz,
           verification: currentVerification,
           satisfaction_check: currentSatisfactionCheck,
           extra_data: {
             ...(currentSources.length > 0 ? { sources: currentSources } : {}),
+            ...(currentYouTubeResults ? { youtube_results: currentYouTubeResults } : {}),
             ...(currentQuiz ? { quiz: currentQuiz } : {}),
             ...(currentVerification ? { verification: currentVerification } : {}),
             ...(currentSatisfactionCheck ? { satisfaction_check: true } : {}),
@@ -595,16 +619,19 @@ const DEFAULT_VOICE_STATE: VoiceState = {
           const { [chat.id]: ___, ...restReasoning } = state.streamingReasoning
           const { [chat.id]: ____, ...restAttachments } = state.chatStreamingAttachments
           const { [chat.id]: _____, ...restSources } = state.chatStreamingSources
+          const { [chat.id]: ______, ...restYt } = state.chatStreamingYouTubeResults
           return {
             chatMessages: { ...state.chatMessages, [chat.id]: finalMessages },
             streamingChatIds: state.streamingChatIds.filter(sid => sid !== chat.id),
             chatStreamingContent: rest,
             chatStreamingAttachments: restAttachments,
             chatStreamingSources: restSources,
+            chatStreamingYouTubeResults: restYt,
             streamingPhase: restPhase,
             streamingReasoning: restReasoning,
             streamingAttachments: [],
             streamingSources: [],
+            streamingYouTubeResults: null,
           }
         })
         if (get().currentChat?.id === chat.id) syncDisplay()

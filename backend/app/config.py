@@ -88,6 +88,8 @@ class Settings(BaseSettings):
 
     sambanova_api_key: Optional[str] = None
     sambanova_base_url: str = "https://api.sambanova.ai/v1"
+
+    youtube_api_key: Optional[str] = os.getenv("YOUTUBE_API_KEY")
     sambanova_default_model: str = "DeepSeek-V3.2"     # ~4s, fast default per AGENTS.md
 
     cloudflare_gateway_api_key: Optional[str] = None

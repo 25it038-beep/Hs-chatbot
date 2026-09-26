@@ -83,7 +83,19 @@ class GeneralIntentClassifier:
 
         # ── 1. Clear Direct Intent Detectors (HIGH Confidence, NO Quiz) ──
 
-        # A. Explicit leadership / office-holder factual lookup
+        # A. YouTube Video Search & Playback
+        from app.services.media.youtube import youtube_service
+        if youtube_service.detect_video_intent(query):
+            return cls._build_result(
+                primary=IntentCategory.VIDEO_SEARCH,
+                confidence=IntentConfidence.HIGH,
+                needs_quiz=False,
+                workflow="video_search",
+                goal=f"Search and play YouTube videos for '{query}'",
+                output_format="answer",
+            )
+
+        # B. Explicit leadership / office-holder factual lookup
         if _EXPLICIT_OFFICE_HOLDER_Q.search(query):
             return cls._build_result(
                 primary=IntentCategory.CURRENT_FACTUAL,

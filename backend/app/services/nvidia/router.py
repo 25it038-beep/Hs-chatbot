@@ -138,6 +138,11 @@ class AIRouter:
         if re.search(r"\b(what is in this image|describe this image|analyze this image|what do you see|ocr|extract text from image)\b", text):
             return self._vision(0.92)
 
+        # ── YouTube Video search & playback ──
+        from app.services.media.youtube import youtube_service
+        if youtube_service.detect_video_intent(text):
+            return self._video_search(0.96)
+
         # ── Game Development creation (checked BEFORE general coding) ──
         from app.services.game.detector import game_detector
         if game_detector.is_game_request(text):
@@ -368,6 +373,20 @@ class AIRouter:
             "workflow": ["resolve_content", "summarize", "compose_response"],
         }
 
+    def _video_search(self, confidence: float) -> dict:
+        return {
+            "primary_intent": "video_search",
+            "secondary_intents": [],
+            "confidence": confidence,
+            "requires_web": False,
+            "requires_images": False,
+            "requires_image_generation": False,
+            "requires_videos": True,
+            "requires_verification": True,
+            "tools": [{"name": "youtube_search", "purpose": "Search YouTube videos and return playable video cards"}],
+            "workflow": ["search_youtube", "verify_videos", "compose_response"],
+        }
+
     def _game_development(self, confidence: float) -> dict:
         return {
             "primary_intent": "game_development",
@@ -407,6 +426,8 @@ class AIRouter:
             return "vision"
         if d["primary_intent"] in ("game_development",):
             return "game_development"
+        if d["primary_intent"] in ("video_search",):
+            return "video_search"
         if d["primary_intent"] in ("coding",):
             return "coding"
         if d["primary_intent"] in ("calculation", "mathematics") or d["requires_web"]:

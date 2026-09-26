@@ -28,6 +28,8 @@ class StreamChunk(BaseModel):
     quiz: dict | None = None
     verification: dict | None = None
     satisfaction_check: bool | None = None
+    videos: list[dict] | None = None
+    featured_video: dict | None = None
 
 
 

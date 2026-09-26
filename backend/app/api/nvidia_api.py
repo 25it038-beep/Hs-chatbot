@@ -55,6 +55,16 @@ _NO_FAKE_VIDEOS_NOTE = (
     "links, YouTube links, or placeholders like [Video: ...] anywhere in your response."
 )
 
+_YOUTUBE_VIDEO_PROMPT_NOTE = (
+    "CRITICAL YOUTUBE INSTRUCTIONS:\n"
+    "Real, verified YouTube videos have been retrieved and are automatically displayed to the user as interactive cards with embed players below your response.\n"
+    "- NEVER say you cannot display videos, show links, or play videos.\n"
+    "- NEVER fabricate fake video IDs or invalid YouTube links.\n"
+    "- Introduce the found videos warmly and helpfully, citing their exact titles and channel names."
+)
+
+from app.services.media.youtube import youtube_service
+
 _PROJECT_DELIVERY_REQUIREMENT = (
     "CRITICAL PROJECT DELIVERY REQUIREMENT:\n"
     "The user has asked to create or build a project or website. "
@@ -817,8 +827,58 @@ async def nvidia_chat(
                 from app.services.retrieval.router import classify_video_intent
 
                 with_videos = classify_video_intent(request.message) in ("required", "recommended")
-                force_images = bool(decision.get("requires_images")) and task != "web_images"
-                if WebSearchService.needs_web_search(request.message) or force_images:
+                is_video_task = (
+                    task == "video_search"
+                    or intent_result.primary_intent.value == "video_search"
+                    or youtube_service.detect_video_intent(request.message)
+                )
+                yt_results_list = []
+                yt_featured_video = None
+
+                if is_video_task:
+                    previous_videos = []
+                    for m in reversed(recent_history):
+                        if isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("youtube_results"):
+                            previous_videos = m["extra_data"]["youtube_results"]
+                            break
+
+                    followup_match = youtube_service.resolve_followup(request.message, previous_videos) if previous_videos else None
+                    if followup_match:
+                        selected_v = followup_match["video"]
+                        yt_results_list = [selected_v]
+                        yt_featured_video = selected_v
+                        query_used = selected_v.get("title", request.message)
+                        yield f"data: {json.dumps({'type': 'youtube_results', 'query': query_used, 'results': yt_results_list, 'featured_video': yt_featured_video})}\n\n"
+                        gen_system_prompt = (
+                            f"{gen_system_prompt}\n\n"
+                            f"The user requested to play video #{followup_match['index']} ('{selected_v.get('title')}'). "
+                            "The video player is embedded and ready to play below. Acknowledge this directly and introduce the selection warmly. "
+                            "Do NOT say you cannot play or display videos."
+                        )
+                    else:
+                        yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching YouTube for videos...'})}\n\n"
+                        q_info = youtube_service.extract_video_query(request.message)
+                        yt_resp = await youtube_service.search(
+                            query=q_info["query"],
+                            max_results=q_info["max_results"],
+                            order=q_info["order"],
+                            language=q_info["relevance_lang"],
+                            region=q_info["region_code"],
+                            fresh=q_info["is_fresh"],
+                        )
+                        yt_results_list = [v.to_dict() for v in yt_resp.results]
+                        yt_featured_video = yt_resp.featured_video.to_dict() if yt_resp.featured_video else None
+                        query_used = yt_resp.query
+                        if yt_results_list:
+                            yield f"data: {json.dumps({'type': 'youtube_results', 'query': query_used, 'results': yt_results_list, 'featured_video': yt_featured_video})}\n\n"
+                            videos_summary = "\n".join(f"- {v.get('title')} by {v.get('channel_title')} (Watch: {v.get('watch_url')})" for v in yt_results_list)
+                            gen_system_prompt = (
+                                f"{gen_system_prompt}\n\n"
+                                f"{_YOUTUBE_VIDEO_PROMPT_NOTE}\n\n"
+                                f"Retrieved YouTube Videos:\n{videos_summary}"
+                            )
+
+                if (WebSearchService.needs_web_search(request.message) or force_images) and not is_video_task:
                     status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
                     async def _cb(s: str) -> None:
@@ -905,6 +965,10 @@ async def nvidia_chat(
                         extra_d = {}
                         if web_sources_list:
                             extra_d["sources"] = web_sources_list
+                        if yt_results_list:
+                            extra_d["youtube_results"] = yt_results_list
+                            if yt_featured_video:
+                                extra_d["featured_video"] = yt_featured_video
                         extra_d["verification"] = v_res.to_dict()
                         if v_res.satisfaction_check:
                             extra_d["satisfaction_check"] = True
@@ -939,6 +1003,49 @@ async def nvidia_chat(
                 "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
             })
         else:
+            is_video_task = (
+                task == "video_search"
+                or intent_result.primary_intent.value == "video_search"
+                or youtube_service.detect_video_intent(request.message)
+            )
+            yt_results_list = []
+            yt_featured_video = None
+            if is_video_task:
+                previous_videos = []
+                for m in reversed(recent_history):
+                    if isinstance(m, dict) and isinstance(m.get("extra_data"), dict) and m["extra_data"].get("youtube_results"):
+                        previous_videos = m["extra_data"]["youtube_results"]
+                        break
+                followup_match = youtube_service.resolve_followup(request.message, previous_videos) if previous_videos else None
+                if followup_match:
+                    selected_v = followup_match["video"]
+                    yt_results_list = [selected_v]
+                    yt_featured_video = selected_v
+                    system_prompt = (
+                        f"{system_prompt}\n\n"
+                        f"The user requested to play video #{followup_match['index']} ('{selected_v.get('title')}'). "
+                        "The video player is embedded and ready to play below. Acknowledge this directly and introduce the selection warmly."
+                    )
+                else:
+                    q_info = youtube_service.extract_video_query(request.message)
+                    yt_resp = await youtube_service.search(
+                        query=q_info["query"],
+                        max_results=q_info["max_results"],
+                        order=q_info["order"],
+                        language=q_info["relevance_lang"],
+                        region=q_info["region_code"],
+                        fresh=q_info["is_fresh"],
+                    )
+                    yt_results_list = [v.to_dict() for v in yt_resp.results]
+                    yt_featured_video = yt_resp.featured_video.to_dict() if yt_resp.featured_video else None
+                    if yt_results_list:
+                        videos_summary = "\n".join(f"- {v.get('title')} by {v.get('channel_title')} (Watch: {v.get('watch_url')})" for v in yt_results_list)
+                        system_prompt = (
+                            f"{system_prompt}\n\n"
+                            f"{_YOUTUBE_VIDEO_PROMPT_NOTE}\n\n"
+                            f"Retrieved YouTube Videos:\n{videos_summary}"
+                        )
+
             extra_images_md = ""
             if force_images_here:
                 img_query = extract_image_subject(request.message)
@@ -969,6 +1076,10 @@ async def nvidia_chat(
                 was_clarified=was_clarified,
             )
             extra_d = {"verification": v_res.to_dict()}
+            if yt_results_list:
+                extra_d["youtube_results"] = yt_results_list
+                if yt_featured_video:
+                    extra_d["featured_video"] = yt_featured_video
             if v_res.satisfaction_check:
                 extra_d["satisfaction_check"] = True
 
@@ -1029,8 +1140,34 @@ async def nvidia_chat(
             web_sources_md = ""
             from app.services.retrieval.router import classify_video_intent
 
-            with_videos = classify_video_intent(request.message) in ("required", "recommended")
-            if WebSearchService.needs_web_search(request.message) or force_images:
+            is_video_task = (
+                task == "video_search"
+                or decision.get("primary_intent") == "video_search"
+                or youtube_service.detect_video_intent(request.message)
+            )
+            if is_video_task:
+                yield f"data: {json.dumps({'type': 'searching', 'content': 'Searching YouTube for videos...'})}\n\n"
+                q_info = youtube_service.extract_video_query(request.message)
+                yt_resp = await youtube_service.search(
+                    query=q_info["query"],
+                    max_results=q_info["max_results"],
+                    order=q_info["order"],
+                    language=q_info["relevance_lang"],
+                    region=q_info["region_code"],
+                    fresh=q_info["is_fresh"],
+                )
+                yt_results_list = [v.to_dict() for v in yt_resp.results]
+                yt_featured_video = yt_resp.featured_video.to_dict() if yt_resp.featured_video else None
+                if yt_results_list:
+                    yield f"data: {json.dumps({'type': 'youtube_results', 'query': yt_resp.query, 'results': yt_results_list, 'featured_video': yt_featured_video})}\n\n"
+                    videos_summary = "\n".join(f"- {v.get('title')} by {v.get('channel_title')} (Watch: {v.get('watch_url')})" for v in yt_results_list)
+                    gen_system_prompt = (
+                        f"{gen_system_prompt}\n\n"
+                        f"{_YOUTUBE_VIDEO_PROMPT_NOTE}\n\n"
+                        f"Retrieved YouTube Videos:\n{videos_summary}"
+                    )
+
+            if (WebSearchService.needs_web_search(request.message) or force_images) and not is_video_task:
                 status_q: "asyncio.Queue[str]" = asyncio.Queue()
 
                 async def _cb(s: str) -> None:

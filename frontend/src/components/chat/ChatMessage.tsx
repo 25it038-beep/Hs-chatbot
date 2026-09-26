@@ -11,6 +11,7 @@ import { WebProjectCard } from './WebProjectCard'
 import { WebSearchResults } from './WebSearchResults'
 import { ClarificationQuizComponent } from './ClarificationQuiz'
 import { SatisfactionCheckComponent } from './SatisfactionCheck'
+import { YouTubeSearchResults } from './YouTubeSearchResults'
 
 
 interface ChatMessageProps {
@@ -119,6 +120,13 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
               return <WebSearchResults sources={sources} />
             })()}
             <MarkdownRenderer content={message.content} allowImages={showImages} />
+            {(() => {
+              const ytResults =
+                message.youtube_results ||
+                ((message as any).extra_data?.youtube_results as any)
+              if (!ytResults) return null
+              return <YouTubeSearchResults results={ytResults} />
+            })()}
             {webProject && (
               <WebProjectCard project={webProject} messageId={message.id} />
             )}

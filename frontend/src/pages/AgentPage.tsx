@@ -12,6 +12,7 @@ import {
   AdaptiveQuestion,
   RequirementItem
 } from '@/lib/promptUnderstanding'
+import { AgentErrorBoundary } from '@/components/agent/AgentErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -64,6 +65,90 @@ interface AuditEntry {
   type: string
   message: string
   status?: string
+}
+
+function sanitizeUnderstanding(u: any): UnderstandingModel | null {
+  if (!u || typeof u !== 'object') return null
+  return {
+    rawPrompt: u.rawPrompt || u.raw_prompt || '',
+    normalizedPrompt: u.normalizedPrompt || u.normalized_prompt || u.rawPrompt || '',
+    messageTypes: Array.isArray(u.messageTypes)
+      ? u.messageTypes
+      : (Array.isArray(u.message_types) ? u.message_types : ['AGENT_TASK']),
+    primaryGoal: u.primaryGoal || u.primary_goal || u.goal || 'Autonomous Goal',
+    desiredOutcome: u.desiredOutcome || u.desired_outcome || u.outcome || 'working code',
+    actionType: u.actionType || u.action_type || 'engineer_solution',
+    targetScope: u.targetScope || u.target_scope || 'project',
+    targetFile: u.targetFile || u.target_file,
+    qualityIntent: Array.isArray(u.qualityIntent)
+      ? u.qualityIntent
+      : (Array.isArray(u.quality_intent) ? u.quality_intent : ['Production-ready']),
+    userKnowledgeLevel: u.userKnowledgeLevel || u.user_knowledge_level || 'GENERAL',
+    explicitRequirements: Array.isArray(u.explicitRequirements)
+      ? u.explicitRequirements
+      : (Array.isArray(u.explicit_requirements) ? u.explicit_requirements : []),
+    implicitRequirements: Array.isArray(u.implicitRequirements)
+      ? u.implicitRequirements
+      : (Array.isArray(u.implicit_requirements) ? u.implicit_requirements : []),
+    negativeRequirements: Array.isArray(u.negativeRequirements)
+      ? u.negativeRequirements
+      : (Array.isArray(u.negative_requirements) ? u.negative_requirements : []),
+    constraints: u.constraints && typeof u.constraints === 'object' ? u.constraints : {},
+    preferences: Array.isArray(u.preferences) ? u.preferences : [],
+    referencesResolved: u.referencesResolved || u.references_resolved || {},
+    referenceConfidence: u.referenceConfidence || u.reference_confidence || 'HIGH',
+    ambiguities: Array.isArray(u.ambiguities) ? u.ambiguities : [],
+    conflicts: Array.isArray(u.conflicts) ? u.conflicts : [],
+    missingInfo: Array.isArray(u.missingInfo)
+      ? u.missingInfo
+      : (Array.isArray(u.missing_info) ? u.missing_info : []),
+    adaptiveQuiz: Array.isArray(u.adaptiveQuiz)
+      ? u.adaptiveQuiz
+      : (Array.isArray(u.adaptive_quiz) ? u.adaptive_quiz : []),
+    acceptanceCriteria: Array.isArray(u.acceptanceCriteria)
+      ? u.acceptanceCriteria
+      : (Array.isArray(u.acceptance_criteria) ? u.acceptance_criteria : []),
+    summaryText: u.summaryText || u.summary_text || '',
+    decision: u.decision || 'PLAN',
+    confidenceScore: typeof u.confidenceScore === 'number'
+      ? u.confidenceScore
+      : (typeof u.confidence_score === 'number' ? u.confidence_score : 0.95),
+    qualityGatePassed: u.qualityGatePassed !== undefined
+      ? !!u.qualityGatePassed
+      : (u.quality_gate_passed !== undefined ? !!u.quality_gate_passed : true)
+  }
+}
+
+function sanitizeTaskGraph(tg: any): TaskGraphData | null {
+  if (!tg || typeof tg !== 'object') return null
+  const tasks: TaskNodeData[] = Array.isArray(tg.tasks)
+    ? tg.tasks.map((t: any) => ({
+        id: t?.id || 'TASK-0',
+        title: t?.title || 'Task',
+        description: t?.description || '',
+        dependencies: Array.isArray(t?.dependencies) ? t.dependencies : [],
+        tool_hint: t?.tool_hint,
+        status: t?.status || 'pending',
+        error: t?.error,
+        duration_s: t?.duration_s
+      }))
+    : []
+  const total_count = typeof tg.total_count === 'number' ? tg.total_count : tasks.length
+  const completed_count = typeof tg.completed_count === 'number'
+    ? tg.completed_count
+    : tasks.filter((t) => t.status === 'completed').length
+  return {
+    plan_id: tg.plan_id || 'plan-default',
+    tasks,
+    is_completed: tg.is_completed !== undefined
+      ? !!tg.is_completed
+      : (tasks.length > 0 && tasks.every((t) => t.status === 'completed' || t.status === 'skipped')),
+    has_failures: tg.has_failures !== undefined
+      ? !!tg.has_failures
+      : tasks.some((t) => t.status === 'failed'),
+    total_count,
+    completed_count
+  }
 }
 
 export function AgentPage() {
@@ -326,7 +411,7 @@ export function AgentPage() {
     const activeScope = overrideScope || (activeTargetFile ? 'file' : 'project')
 
     // Section 0 - 48: Instant Prompt Understanding Analysis
-    const initialUnderstanding = PromptUnderstandingEngine.analyze(targetPrompt, activeTargetFile, activeScope)
+    const initialUnderstanding = sanitizeUnderstanding(PromptUnderstandingEngine.analyze(targetPrompt, activeTargetFile, activeScope))
     setUnderstanding(initialUnderstanding)
 
     setLastPrompt(targetPrompt)
@@ -345,7 +430,7 @@ export function AgentPage() {
       {
         time: new Date().toLocaleTimeString(),
         type: 'UNDERSTANDING',
-        message: `Goal identified: "${initialUnderstanding.primaryGoal}" (${initialUnderstanding.explicitRequirements.length} reqs, ${initialUnderstanding.negativeRequirements.length} invariants)`
+        message: `Goal identified: "${initialUnderstanding?.primaryGoal || 'Goal'}" (${(initialUnderstanding?.explicitRequirements || []).length} reqs, ${(initialUnderstanding?.negativeRequirements || []).length} invariants)`
       },
       ...prev
     ])
@@ -358,7 +443,7 @@ export function AgentPage() {
       targetPrompt,
       (event) => {
         if (event.type === 'prompt_understood') {
-          setUnderstanding(event.understanding)
+          setUnderstanding(sanitizeUnderstanding(event.understanding))
         } else if (event.type === 'agent_state') {
           setAgentState(event.state)
           setAgentMessage(event.message)
@@ -367,7 +452,7 @@ export function AgentPage() {
             ...prev
           ])
         } else if (event.type === 'plan_created') {
-          setTaskGraph(event.plan)
+          setTaskGraph(sanitizeTaskGraph(event.plan))
           if (activeScope === 'file') {
             setActiveTab('editor')
           } else {
@@ -376,13 +461,14 @@ export function AgentPage() {
         } else if (event.type === 'task_update') {
           setTaskGraph((prev) => {
             if (!prev) return null
-            const updated = prev.tasks.map((t) => (t.id === event.task.id ? event.task : t))
-            return {
+            const prevTasks = prev.tasks || []
+            const updated = prevTasks.map((t) => (t.id === event.task.id ? event.task : t))
+            return sanitizeTaskGraph({
               ...prev,
               tasks: updated,
               completed_count: updated.filter((x) => x.status === 'completed').length,
               is_completed: updated.every((x) => x.status === 'completed' || x.status === 'skipped')
-            }
+            })
           })
         } else if (event.type === 'file_written') {
           setAuditLogs((prev) => [
@@ -552,8 +638,10 @@ export function AgentPage() {
   // Unified Git Diff calculation
   const diffLines = useMemo(() => {
     if (!selectedFilePath) return []
-    const origLines = fileOriginalContent.split('\n')
-    const curLines = fileContent.split('\n')
+    const orig = typeof fileOriginalContent === 'string' ? fileOriginalContent : ''
+    const cur = typeof fileContent === 'string' ? fileContent : ''
+    const origLines = orig.split('\n')
+    const curLines = cur.split('\n')
     const result: Array<{ type: 'unchanged' | 'added' | 'removed'; text: string; oldNo?: number; newNo?: number }> = []
 
     let i = 0
@@ -577,29 +665,33 @@ export function AgentPage() {
   }, [fileOriginalContent, fileContent, selectedFilePath])
 
   const diffStats = useMemo(() => {
-    const additions = diffLines.filter((l) => l.type === 'added').length
-    const deletions = diffLines.filter((l) => l.type === 'removed').length
+    const safeLines = Array.isArray(diffLines) ? diffLines : []
+    const additions = safeLines.filter((l) => l.type === 'added').length
+    const deletions = safeLines.filter((l) => l.type === 'removed').length
     return { additions, deletions }
   }, [diffLines])
 
   // Filtered audit logs
   const filteredAuditLogs = useMemo(() => {
-    if (auditFilter === 'ALL') return auditLogs
-    return auditLogs.filter((l) => l.type.includes(auditFilter))
+    const logs = Array.isArray(auditLogs) ? auditLogs : []
+    if (auditFilter === 'ALL') return logs
+    return logs.filter((l) => l && l.type && l.type.includes(auditFilter))
   }, [auditLogs, auditFilter])
 
   // Recursive Tree Rendering
   const renderTreeNode = (node: WorkspaceNode, depth: number = 0): React.ReactNode => {
+    if (!node) return null
+    const nodeName = node.name || 'file'
     const isDir = node.type === 'directory'
     const isExpanded = !!expandedFolders[node.path]
     const isSelected = selectedFilePath === node.path
 
-    if (fileSearchQuery && !isDir && !node.name.toLowerCase().includes(fileSearchQuery.toLowerCase())) {
+    if (fileSearchQuery && !isDir && !nodeName.toLowerCase().includes(fileSearchQuery.toLowerCase())) {
       return null
     }
 
     return (
-      <div key={node.path || node.name} className="select-none text-xs group">
+      <div key={node.path || nodeName} className="select-none text-xs group">
         <div
           className={`flex items-center justify-between px-2 py-1 rounded-md cursor-pointer hover:bg-muted/80 transition-colors ${
             isSelected ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'
@@ -621,16 +713,16 @@ export function AgentPage() {
             )}
             {isDir ? (
               <Folder size={13} className="text-amber-500 flex-shrink-0" />
-            ) : node.name.endsWith('.html') ? (
+            ) : nodeName.endsWith('.html') ? (
               <Layout size={13} className="text-orange-500 flex-shrink-0" />
-            ) : node.name.endsWith('.css') ? (
+            ) : nodeName.endsWith('.css') ? (
               <FileCode size={13} className="text-sky-500 flex-shrink-0" />
-            ) : node.name.endsWith('.js') || node.name.endsWith('.ts') ? (
+            ) : nodeName.endsWith('.js') || nodeName.endsWith('.ts') ? (
               <Code size={13} className="text-amber-400 flex-shrink-0" />
             ) : (
               <FileText size={13} className="text-blue-500 flex-shrink-0" />
             )}
-            <span className="truncate">{node.name}</span>
+            <span className="truncate">{nodeName}</span>
           </div>
 
           {!isDir && (
@@ -643,7 +735,7 @@ export function AgentPage() {
             </button>
           )}
         </div>
-        {isDir && isExpanded && node.children && (
+        {isDir && isExpanded && node.children && Array.isArray(node.children) && (
           <div>
             {node.children.map((child) => renderTreeNode(child, depth + 1))}
           </div>
@@ -778,73 +870,76 @@ export function AgentPage() {
       {/* Main Multi-Pane Workspace */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Left Pane: Project File Explorer */}
-        <div className="w-64 border-r border-border bg-card/30 flex flex-col flex-shrink-0">
-          <div className="p-2.5 border-b border-border flex items-center justify-between text-xs font-semibold text-muted-foreground">
-            <span className="uppercase tracking-wider text-[10px]">Workspace Explorer</span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setNewFileInputOpen(!newFileInputOpen)}
-                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                title="Create New File"
-              >
-                <Plus size={13} />
-              </button>
-              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-normal">
-                root
-              </span>
+        <AgentErrorBoundary panelName="Workspace File Explorer">
+          <div className="w-64 border-r border-border bg-card/30 flex flex-col flex-shrink-0">
+            <div className="p-2.5 border-b border-border flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span className="uppercase tracking-wider text-[10px]">Workspace Explorer</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setNewFileInputOpen(!newFileInputOpen)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Create New File"
+                >
+                  <Plus size={13} />
+                </button>
+                <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-normal">
+                  root
+                </span>
+              </div>
             </div>
-          </div>
 
-          {/* File Filter & Search */}
-          <div className="p-2 border-b border-border/50">
-            <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-1 rounded-md border border-border/50 text-xs">
-              <Search size={11} className="text-muted-foreground" />
-              <input
-                type="text"
-                value={fileSearchQuery}
-                onChange={(e) => setFileSearchQuery(e.target.value)}
-                placeholder="Filter files..."
-                className="bg-transparent border-0 text-[11px] focus:outline-none w-full text-foreground placeholder:text-muted-foreground"
-              />
+            {/* File Filter & Search */}
+            <div className="p-2 border-b border-border/50">
+              <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-1 rounded-md border border-border/50 text-xs">
+                <Search size={11} className="text-muted-foreground" />
+                <input
+                  type="text"
+                  value={fileSearchQuery}
+                  onChange={(e) => setFileSearchQuery(e.target.value)}
+                  placeholder="Filter files..."
+                  className="bg-transparent border-0 text-[11px] focus:outline-none w-full text-foreground placeholder:text-muted-foreground"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* New File Inline Form */}
-          {newFileInputOpen && (
-            <div className="p-2 bg-muted/30 border-b border-border flex items-center gap-1.5">
-              <Input
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateNewFile()}
-                placeholder="filename.ext"
-                className="h-7 text-xs rounded-md"
-                autoFocus
-              />
-              <Button size="sm" className="h-7 px-2 text-xs" onClick={handleCreateNewFile}>
-                <Check size={12} />
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setNewFileInputOpen(false)}>
-                <X size={12} />
-              </Button>
-            </div>
-          )}
-
-          {/* Explorer Tree */}
-          <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-            {workspaceTree ? (
-              workspaceTree.children && workspaceTree.children.length > 0 ? (
-                workspaceTree.children.map((child) => renderTreeNode(child, 0))
-              ) : (
-                renderTreeNode(workspaceTree, 0)
-              )
-            ) : (
-              <div className="p-4 text-center text-xs text-muted-foreground">Loading workspace...</div>
+            {/* New File Inline Form */}
+            {newFileInputOpen && (
+              <div className="p-2 bg-muted/30 border-b border-border flex items-center gap-1.5">
+                <Input
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateNewFile()}
+                  placeholder="filename.ext"
+                  className="h-7 text-xs rounded-md"
+                  autoFocus
+                />
+                <Button size="sm" className="h-7 px-2 text-xs" onClick={handleCreateNewFile}>
+                  <Check size={12} />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setNewFileInputOpen(false)}>
+                  <X size={12} />
+                </Button>
+              </div>
             )}
+
+            {/* Explorer Tree */}
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+              {workspaceTree ? (
+                workspaceTree.children && workspaceTree.children.length > 0 ? (
+                  workspaceTree.children.map((child) => renderTreeNode(child, 0))
+                ) : (
+                  renderTreeNode(workspaceTree, 0)
+                )
+              ) : (
+                <div className="p-4 text-center text-xs text-muted-foreground">Loading workspace...</div>
+              )}
+            </div>
           </div>
-        </div>
+        </AgentErrorBoundary>
 
         {/* Center Pane: Workbench (Graph, Editor, Live Preview, Diff, Artifacts, Terminal) */}
-        <div className="flex-1 flex flex-col min-w-0 bg-background/50 border-r border-border">
+        <AgentErrorBoundary panelName="Agent Workbench Panel">
+          <div className="flex-1 flex flex-col min-w-0 bg-background/50 border-r border-border">
           {/* Navigation Tab Bar */}
           <div className="h-10 border-b border-border bg-muted/20 px-2 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-1 overflow-x-auto">
@@ -859,7 +954,7 @@ export function AgentPage() {
                 <span>Task Graph</span>
                 {taskGraph && (
                   <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.2 rounded-full font-bold">
-                    {taskGraph.completed_count}/{taskGraph.total_count}
+                    {taskGraph.completed_count ?? 0}/{taskGraph.total_count ?? (taskGraph.tasks || []).length}
                   </span>
                 )}
               </button>
@@ -875,7 +970,7 @@ export function AgentPage() {
                 <span>Requirements & Quiz</span>
                 {understanding && (
                   <span className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.2 rounded-full font-bold">
-                    {understanding.explicitRequirements.length + understanding.negativeRequirements.length}
+                    {(understanding.explicitRequirements || []).length + (understanding.negativeRequirements || []).length}
                   </span>
                 )}
               </button>
@@ -927,9 +1022,9 @@ export function AgentPage() {
               >
                 <GitCommit size={13} />
                 <span>Diff</span>
-                {diffStats.additions + diffStats.deletions > 0 && (
+                {((diffStats?.additions || 0) + (diffStats?.deletions || 0)) > 0 && (
                   <span className="text-[10px] bg-muted px-1 py-0.2 rounded font-mono font-bold">
-                    +{diffStats.additions} -{diffStats.deletions}
+                    +{diffStats?.additions || 0} -{diffStats?.deletions || 0}
                   </span>
                 )}
               </button>
@@ -943,9 +1038,9 @@ export function AgentPage() {
               >
                 <Package size={13} />
                 <span>Artifacts</span>
-                {artifacts.length > 0 && (
+                {(artifacts || []).length > 0 && (
                   <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.2 rounded-full font-bold">
-                    {artifacts.length}
+                    {(artifacts || []).length}
                   </span>
                 )}
               </button>
@@ -1040,23 +1135,23 @@ export function AgentPage() {
                         onClick={() => setActiveTab('requirements')}
                       >
                         <FileCheck size={12} />
-                        <span>Inspect Requirements ({understanding.explicitRequirements.length + understanding.negativeRequirements.length})</span>
+                        <span>Inspect Requirements ({((understanding.explicitRequirements || []).length + (understanding.negativeRequirements || []).length)})</span>
                       </Button>
                     </div>
 
                     {/* Negative Requirements Guard (Section 11 Invariants) */}
-                    {understanding.negativeRequirements.length > 0 && (
+                    {(understanding.negativeRequirements || []).length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5 pt-1">
                         <span className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
                           <ShieldCheck size={11} className="text-emerald-500" /> Preserved:
                         </span>
-                        {understanding.negativeRequirements.map((nr, i) => (
+                        {(understanding.negativeRequirements || []).map((nr, i) => (
                           <span
                             key={i}
                             className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                            title={nr.reason}
+                            title={nr?.reason || ''}
                           >
-                            ✓ {nr.action.replace(/_/g, ' ')}
+                            ✓ {(nr?.action || '').replace(/_/g, ' ')}
                           </span>
                         ))}
                       </div>
@@ -1073,23 +1168,23 @@ export function AgentPage() {
                   </div>
                   {taskGraph && (
                     <div className="text-xs font-semibold text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border">
-                      Completed: {taskGraph.completed_count}/{taskGraph.total_count} ({Math.round((taskGraph.completed_count / Math.max(1, taskGraph.total_count)) * 100)}%)
+                      Completed: {taskGraph.completed_count ?? 0}/{taskGraph.total_count ?? (taskGraph.tasks || []).length} ({Math.round(((taskGraph.completed_count || 0) / Math.max(1, taskGraph.total_count || 1)) * 100)}%)
                     </div>
                   )}
                 </div>
 
-                {taskGraph && taskGraph.tasks.length > 0 ? (
+                {taskGraph && (taskGraph.tasks || []).length > 0 ? (
                   <div className="grid gap-2.5">
-                    {taskGraph.tasks.map((task) => (
+                    {(taskGraph.tasks || []).map((task) => (
                       <div
-                        key={task.id}
-                        onClick={() => setSelectedTask(task)}
+                        key={task?.id || Math.random()}
+                        onClick={() => task && setSelectedTask(task)}
                         className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                          task.status === 'completed'
+                          task?.status === 'completed'
                             ? 'bg-emerald-500/5 border-emerald-500/30 hover:border-emerald-500/50'
-                            : task.status === 'running'
+                            : task?.status === 'running'
                             ? 'bg-primary/5 border-primary/40 shadow-xs ring-1 ring-primary/20'
-                            : task.status === 'failed'
+                            : task?.status === 'failed'
                             ? 'bg-destructive/5 border-destructive/30'
                             : 'bg-card/40 border-border hover:border-border/80 opacity-70'
                         }`}
@@ -1097,34 +1192,34 @@ export function AgentPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                              {task.id}
+                              {task?.id || 'TASK'}
                             </span>
                             <span className="text-xs font-bold text-foreground">
-                              {task.title}
+                              {task?.title || 'Untitled Task'}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            {task.duration_s && (
+                            {task?.duration_s !== undefined && (
                               <span className="text-[10px] text-muted-foreground font-mono">
                                 {task.duration_s}s
                               </span>
                             )}
                             <span
                               className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
-                                task.status === 'completed'
+                                task?.status === 'completed'
                                   ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                                  : task.status === 'running'
+                                  : task?.status === 'running'
                                   ? 'bg-primary/20 text-primary animate-pulse'
-                                  : task.status === 'failed'
+                                  : task?.status === 'failed'
                                   ? 'bg-destructive/20 text-destructive'
                                   : 'bg-muted text-muted-foreground'
                               }`}
                             >
-                              {task.status}
+                              {task?.status || 'pending'}
                             </span>
                           </div>
                         </div>
-                        {task.description && (
+                        {task?.description && (
                           <p className="text-xs text-muted-foreground mt-1.5 pl-9">
                             {task.description}
                           </p>
@@ -1205,9 +1300,9 @@ export function AgentPage() {
                       </div>
 
                       <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
-                        <span>Desired Outcome: <strong className="text-foreground">{understanding.desiredOutcome}</strong></span>
-                        <span>Scope: <strong className="text-foreground font-mono">{understanding.targetScope}</strong></span>
-                        <span>Classification: <strong className="text-foreground">{understanding.messageTypes.join(', ')}</strong></span>
+                        <span>Desired Outcome: <strong className="text-foreground">{understanding.desiredOutcome || 'working code'}</strong></span>
+                        <span>Scope: <strong className="text-foreground font-mono">{understanding.targetScope || 'project'}</strong></span>
+                        <span>Classification: <strong className="text-foreground">{(understanding.messageTypes || []).join(', ')}</strong></span>
                       </div>
 
                       <div className="pt-2 flex items-center gap-2">
@@ -1250,9 +1345,9 @@ export function AgentPage() {
                         </span>
                       </div>
 
-                      {understanding.negativeRequirements.length > 0 ? (
+                      {(understanding.negativeRequirements || []).length > 0 ? (
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {understanding.negativeRequirements.map((nr, idx) => (
+                          {(understanding.negativeRequirements || []).map((nr, idx) => (
                             <div
                               key={idx}
                               className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-2.5"
@@ -1260,13 +1355,13 @@ export function AgentPage() {
                               <ShieldCheck size={16} className="text-emerald-500 mt-0.5 flex-shrink-0" />
                               <div className="min-w-0">
                                 <div className="text-xs font-bold text-foreground">
-                                  {nr.action.replace(/_/g, ' ')}
+                                  {(nr?.action || '').replace(/_/g, ' ')}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                                  {nr.reason}
+                                  {nr?.reason || ''}
                                 </div>
                                 <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-                                  Scope: {nr.scope} (Invariant Enforced)
+                                  Scope: {nr?.scope || 'project'} (Invariant Enforced)
                                 </div>
                               </div>
                             </div>
@@ -1292,33 +1387,35 @@ export function AgentPage() {
                         </span>
                       </div>
 
-                      {understanding.adaptiveQuiz.length > 0 ? (
+                      {(understanding.adaptiveQuiz || []).length > 0 ? (
                         <div className="space-y-3">
-                          {understanding.adaptiveQuiz.map((q) => (
+                          {(understanding.adaptiveQuiz || []).map((q) => (
                             <div
-                              key={q.id}
+                              key={q?.id || Math.random()}
                               className="p-4 rounded-xl border border-border bg-card/50 space-y-3"
                             >
                               <div>
                                 <span className="text-[10px] font-bold uppercase text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                                  Question {q.id}
+                                  Question {q?.id}
                                 </span>
                                 <h5 className="text-xs font-bold text-foreground mt-1.5">
-                                  {q.question}
+                                  {q?.question}
                                 </h5>
                                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                                  {q.contextReason}
+                                  {q?.contextReason}
                                 </p>
                               </div>
 
                               <div className="flex flex-wrap gap-2">
-                                {q.options.map((opt) => {
-                                  const isSelected = quizAnswers[q.id] === opt
+                                {(q?.options || []).map((opt) => {
+                                  const isSelected = q?.id && quizAnswers[q.id] === opt
                                   return (
                                     <button
                                       key={opt}
                                       onClick={() => {
-                                        setQuizAnswers((prev) => ({ ...prev, [q.id]: opt }))
+                                        if (q?.id) {
+                                          setQuizAnswers((prev) => ({ ...prev, [q.id]: opt }))
+                                        }
                                       }}
                                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all ${
                                         isSelected
@@ -1333,7 +1430,7 @@ export function AgentPage() {
                                 })}
                               </div>
 
-                              {quizAnswers[q.id] && (
+                              {q?.id && quizAnswers[q.id] && (
                                 <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                                   <Check size={12} /> Confirmed selection: {quizAnswers[q.id]}
                                 </div>
@@ -1357,14 +1454,14 @@ export function AgentPage() {
                           <span>Sections 47-48: Requirement Verification Matrix</span>
                         </h4>
                         <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                          {understanding.explicitRequirements.length + understanding.implicitRequirements.length} / {understanding.explicitRequirements.length + understanding.implicitRequirements.length} VERIFIED
+                          {((understanding.explicitRequirements || []).length + (understanding.implicitRequirements || []).length)} / {((understanding.explicitRequirements || []).length + (understanding.implicitRequirements || []).length)} VERIFIED
                         </span>
                       </div>
 
                       <div className="grid gap-2">
-                        {understanding.explicitRequirements.map((req) => (
+                        {(understanding.explicitRequirements || []).map((req) => (
                           <div
-                            key={req.id}
+                            key={req?.id || Math.random()}
                             className="p-3 rounded-xl border border-border/80 bg-card/40 flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-2.5">
@@ -1373,12 +1470,12 @@ export function AgentPage() {
                               </span>
                               <div>
                                 <div className="text-xs font-semibold text-foreground">
-                                  {req.text}
+                                  {req?.text}
                                 </div>
                                 <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                                  <span className="font-mono">{req.id}</span>
+                                  <span className="font-mono">{req?.id}</span>
                                   <span>•</span>
-                                  <span className="capitalize">{req.category}</span>
+                                  <span className="capitalize">{req?.category}</span>
                                   <span>•</span>
                                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">Verified via sandboxed test & AST inspection</span>
                                 </div>
@@ -1386,18 +1483,18 @@ export function AgentPage() {
                             </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-muted text-muted-foreground">
-                                {req.source}
+                                {req?.source}
                               </span>
                               <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-primary/10 text-primary">
-                                {req.importance}
+                                {req?.importance}
                               </span>
                             </div>
                           </div>
                         ))}
 
-                        {understanding.implicitRequirements.map((req) => (
+                        {(understanding.implicitRequirements || []).map((req) => (
                           <div
-                            key={req.id}
+                            key={req?.id || Math.random()}
                             className="p-3 rounded-xl border border-border/60 bg-muted/20 flex items-center justify-between gap-3 opacity-80"
                           >
                             <div className="flex items-center gap-2.5">
@@ -1406,17 +1503,17 @@ export function AgentPage() {
                               </span>
                               <div>
                                 <div className="text-xs font-medium text-foreground">
-                                  {req.text}
+                                  {req?.text}
                                 </div>
                                 <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                                  <span className="font-mono">{req.id}</span>
+                                  <span className="font-mono">{req?.id}</span>
                                   <span>•</span>
                                   <span>Inferred Quality Standard</span>
                                 </div>
                               </div>
                             </div>
                             <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-muted text-muted-foreground">
-                              {req.importance}
+                              {req?.importance}
                             </span>
                           </div>
                         ))}
@@ -1435,19 +1532,19 @@ export function AgentPage() {
                           <div className="col-span-6">Description</div>
                           <div className="col-span-4">Verification Method</div>
                         </div>
-                        {understanding.acceptanceCriteria.map((ac) => (
+                        {(understanding.acceptanceCriteria || []).map((ac) => (
                           <div
-                            key={ac.id}
+                            key={ac?.id || Math.random()}
                             className="grid grid-cols-12 p-2.5 text-xs border-b border-border/50 last:border-0 hover:bg-muted/20 items-center"
                           >
                             <div className="col-span-2 font-mono text-[11px] font-bold text-primary">
-                              {ac.id}
+                              {ac?.id}
                             </div>
                             <div className="col-span-6 font-medium text-foreground">
-                              {ac.description}
+                              {ac?.description}
                             </div>
                             <div className="col-span-4 text-[11px] text-muted-foreground font-mono">
-                              {ac.targetVerification}
+                              {ac?.targetVerification}
                             </div>
                           </div>
                         ))}
@@ -1486,7 +1583,7 @@ export function AgentPage() {
                           ✓ Surgical Edit Active
                         </span>
                         <span>
-                          {fileContent.split('\n').length} lines • {fileContent.length} chars
+                          {typeof fileContent === 'string' ? fileContent.split('\n').length : 0} lines • {typeof fileContent === 'string' ? fileContent.length : 0} chars
                         </span>
                       </div>
                     </div>
@@ -1596,8 +1693,8 @@ export function AgentPage() {
                   <div className="flex items-center gap-2">
                     <GitCommit size={14} className="text-primary" />
                     <span className="font-semibold text-foreground">{selectedFilePath || 'Workspace Changes'}</span>
-                    <span className="text-emerald-600 font-mono font-bold">+{diffStats.additions}</span>
-                    <span className="text-destructive font-mono font-bold">-{diffStats.deletions}</span>
+                    <span className="text-emerald-600 font-mono font-bold">+{diffStats?.additions || 0}</span>
+                    <span className="text-destructive font-mono font-bold">-{diffStats?.deletions || 0}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -1621,8 +1718,8 @@ export function AgentPage() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto font-mono text-xs p-2 divide-y divide-border/30">
-                  {diffLines.length > 0 ? (
-                    diffLines.map((line, idx) => (
+                  {(diffLines || []).length > 0 ? (
+                    (diffLines || []).map((line, idx) => (
                       <div
                         key={idx}
                         className={`flex items-start px-2 py-0.5 leading-relaxed ${
@@ -1669,32 +1766,32 @@ export function AgentPage() {
                   </Button>
                 </div>
 
-                {artifacts.length > 0 ? (
+                {(artifacts || []).length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {artifacts.map((art) => (
+                    {(artifacts || []).map((art) => (
                       <div
-                        key={art.artifact_id}
+                        key={art?.artifact_id || Math.random()}
                         className="p-3.5 rounded-xl border border-border bg-card hover:border-primary/40 transition-all flex flex-col justify-between shadow-xs"
                       >
                         <div className="flex items-start gap-3">
                           <div className="w-10 h-10 rounded-lg bg-primary/5 border border-border flex items-center justify-center flex-shrink-0">
-                            {art.type === 'zip_archive' ? (
+                            {art?.type === 'zip_archive' ? (
                               <Package size={20} className="text-amber-500" />
                             ) : (
                               <FileText size={20} className="text-blue-500" />
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <h4 className="text-xs font-bold text-foreground truncate" title={art.filename}>
-                              {art.filename}
+                            <h4 className="text-xs font-bold text-foreground truncate" title={art?.filename || ''}>
+                              {art?.filename || 'Artifact'}
                             </h4>
                             <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {art.type.toUpperCase()} • {Math.round(art.file_size / 1024)} KB
+                              {(art?.type || 'FILE').toUpperCase()} • {Math.round((art?.file_size || 0) / 1024)} KB
                             </p>
                             <div className="flex items-center gap-1.5 mt-2">
                               <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                                 <ShieldCheck size={11} />
-                                <span>{art.verification_status || 'Verified'}</span>
+                                <span>{art?.verification_status || 'Verified'}</span>
                               </span>
                               <span className="text-[10px] text-muted-foreground">
                                 Secret Scan: Passed
@@ -1709,7 +1806,7 @@ export function AgentPage() {
                               size="sm"
                               variant="outline"
                               className="h-7 text-xs gap-1 px-2 rounded-lg"
-                              onClick={() => openArtifactInspector(art)}
+                              onClick={() => art && openArtifactInspector(art)}
                             >
                               <Eye size={12} />
                               <span>Preview</span>
@@ -1719,8 +1816,10 @@ export function AgentPage() {
                               variant="ghost"
                               className="h-7 text-xs gap-1 px-2 rounded-lg text-muted-foreground hover:text-foreground"
                               onClick={() => {
-                                openArtifactInspector(art)
-                                setArtifactTab('edit')
+                                if (art) {
+                                  openArtifactInspector(art)
+                                  setArtifactTab('edit')
+                                }
                               }}
                             >
                               <Edit3 size={12} />
@@ -1728,8 +1827,8 @@ export function AgentPage() {
                             </Button>
                           </div>
                           <a
-                            href={art.download_url}
-                            download={art.filename}
+                            href={art?.download_url || '#'}
+                            download={art?.filename || 'download'}
                             className="flex items-center gap-1 text-xs font-semibold bg-primary text-primary-foreground px-3 py-1 rounded-lg hover:opacity-90 transition-opacity"
                           >
                             <Download size={12} />
@@ -1872,7 +1971,7 @@ export function AgentPage() {
                     variant="outline"
                     onClick={() => {
                       if (!prompt.trim()) return
-                      const u = PromptUnderstandingEngine.analyze(prompt, selectedFilePath, editScope)
+                      const u = sanitizeUnderstanding(PromptUnderstandingEngine.analyze(prompt, selectedFilePath, editScope))
                       setUnderstanding(u)
                       setActiveTab('requirements')
                     }}
@@ -1941,349 +2040,357 @@ export function AgentPage() {
             </div>
           </div>
         </div>
+        </AgentErrorBoundary>
 
         {/* Right Pane: Tool Activity Timeline & Audit Log */}
-        <div className="w-72 border-l border-border bg-card/20 flex flex-col flex-shrink-0">
-          <div className="p-2.5 border-b border-border flex items-center justify-between text-xs font-semibold text-muted-foreground">
-            <span className="uppercase tracking-wider text-[10px]">Activity & Audit</span>
-            <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono">
-              {filteredAuditLogs.length} events
-            </span>
-          </div>
+        <AgentErrorBoundary panelName="Activity & Audit Panel">
+          <div className="w-72 border-l border-border bg-card/20 flex flex-col flex-shrink-0">
+            <div className="p-2.5 border-b border-border flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span className="uppercase tracking-wider text-[10px]">Activity & Audit</span>
+              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono">
+                {filteredAuditLogs.length} events
+              </span>
+            </div>
 
-          {/* Filter Chips */}
-          <div className="px-2 py-1.5 border-b border-border/60 flex items-center gap-1 overflow-x-auto text-[10px]">
-            {(['ALL', 'STATE', 'FILE_WRITE', 'COMMAND', 'ARTIFACT'] as const).map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setAuditFilter(filter)}
-                className={`px-1.5 py-0.5 rounded transition-colors ${
-                  auditFilter === filter ? 'bg-primary text-primary-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {filter === 'FILE_WRITE' ? 'Files' : filter}
-              </button>
-            ))}
-          </div>
+            {/* Filter Chips */}
+            <div className="px-2 py-1.5 border-b border-border/60 flex items-center gap-1 overflow-x-auto text-[10px]">
+              {(['ALL', 'STATE', 'FILE_WRITE', 'COMMAND', 'ARTIFACT'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setAuditFilter(filter)}
+                  className={`px-1.5 py-0.5 rounded transition-colors ${
+                    auditFilter === filter ? 'bg-primary text-primary-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {filter === 'FILE_WRITE' ? 'Files' : filter}
+                </button>
+              ))}
+            </div>
 
-          <div className="flex-1 overflow-y-auto p-2.5 space-y-2 text-xs">
-            {filteredAuditLogs.length > 0 ? (
-              filteredAuditLogs.map((log, i) => (
-                <div key={i} className="p-2 rounded-lg bg-card border border-border/70 shadow-2xs">
-                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                    <span className="font-mono">{log.time}</span>
-                    <span className="font-bold uppercase tracking-wider text-primary">
-                      {log.type}
-                    </span>
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-2 text-xs">
+              {filteredAuditLogs.length > 0 ? (
+                filteredAuditLogs.map((log, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-card border border-border/70 shadow-2xs">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span className="font-mono">{log.time}</span>
+                      <span className="font-bold uppercase tracking-wider text-primary">
+                        {log.type}
+                      </span>
+                    </div>
+                    <p className="text-xs text-foreground mt-1 font-mono break-all leading-tight">
+                      {log.message}
+                    </p>
                   </div>
-                  <p className="text-xs text-foreground mt-1 font-mono break-all leading-tight">
-                    {log.message}
-                  </p>
+                ))
+              ) : (
+                <div className="p-6 text-center text-xs text-muted-foreground">
+                  <Clock size={20} className="mx-auto opacity-30 mb-1.5" />
+                  No activity logged yet.
                 </div>
-              ))
-            ) : (
-              <div className="p-6 text-center text-xs text-muted-foreground">
-                <Clock size={20} className="mx-auto opacity-30 mb-1.5" />
-                No activity logged yet.
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        </AgentErrorBoundary>
       </div>
 
       {/* Claude-Style Artifact Inspector Modal */}
       {selectedArtifact && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-card border border-border w-full max-w-3xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                  <Package size={16} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-foreground truncate">{selectedArtifact.filename}</h3>
-                    <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded font-bold font-mono">
-                      v{selectedArtifact.version || 1}
-                    </span>
+        <AgentErrorBoundary
+          panelName="Artifact Inspector Modal"
+          onReset={() => setSelectedArtifact(null)}
+        >
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-card border border-border w-full max-w-3xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              {/* Modal Header */}
+              <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <Package size={16} />
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {selectedArtifact.type.toUpperCase()} • {Math.round(selectedArtifact.file_size / 1024)} KB
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-foreground truncate">{selectedArtifact.filename || 'Artifact'}</h3>
+                      <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded font-bold font-mono">
+                        v{selectedArtifact.version || 1}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {(selectedArtifact.type || 'FILE').toUpperCase()} • {Math.round((selectedArtifact.file_size || 0) / 1024)} KB
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={selectedArtifact.download_url || '#'}
+                    download={selectedArtifact.filename || 'download'}
+                    className="flex items-center gap-1.5 text-xs font-semibold bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity"
+                  >
+                    <Download size={12} />
+                    <span>Download</span>
+                  </a>
+                  <button
+                    onClick={() => setSelectedArtifact(null)}
+                    className="w-8 h-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={selectedArtifact.download_url}
-                  download={selectedArtifact.filename}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity"
-                >
-                  <Download size={12} />
-                  <span>Download</span>
-                </a>
+
+              {/* Inspector Tabs */}
+              <div className="h-10 border-b border-border bg-muted/10 px-4 flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => setSelectedArtifact(null)}
-                  className="w-8 h-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+                  onClick={() => setArtifactTab('preview')}
+                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    artifactTab === 'preview' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 >
-                  <X size={16} />
+                  <Eye size={12} />
+                  <span>Preview</span>
+                </button>
+                <button
+                  onClick={() => setArtifactTab('edit')}
+                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    artifactTab === 'edit' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Edit3 size={12} />
+                  <span>Targeted Edit & Convert</span>
+                </button>
+                <button
+                  onClick={() => setArtifactTab('versions')}
+                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    artifactTab === 'versions' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <History size={12} />
+                  <span>Version Lineage</span>
+                  {(artifactVersions || []).length > 0 && (
+                    <span className="text-[10px] bg-muted px-1.5 py-0.2 rounded font-mono">
+                      {(artifactVersions || []).length}
+                    </span>
+                  )}
                 </button>
               </div>
-            </div>
 
-            {/* Inspector Tabs */}
-            <div className="h-10 border-b border-border bg-muted/10 px-4 flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => setArtifactTab('preview')}
-                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                  artifactTab === 'preview' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Eye size={12} />
-                <span>Preview</span>
-              </button>
-              <button
-                onClick={() => setArtifactTab('edit')}
-                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                  artifactTab === 'edit' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Edit3 size={12} />
-                <span>Targeted Edit & Convert</span>
-              </button>
-              <button
-                onClick={() => setArtifactTab('versions')}
-                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                  artifactTab === 'versions' ? 'bg-background text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <History size={12} />
-                <span>Version Lineage</span>
-                {artifactVersions.length > 0 && (
-                  <span className="text-[10px] bg-muted px-1.5 py-0.2 rounded font-mono">
-                    {artifactVersions.length}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {/* Inspector Tab Content */}
-            <div className="flex-1 overflow-y-auto p-4 min-h-[300px]">
-              {/* 1. Preview Tab */}
-              {artifactTab === 'preview' && (
-                <div className="space-y-4">
-                  {artifactPreview?.type === 'pptx_preview' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
-                        <span>Presentation Slides ({artifactPreview.total_slides})</span>
-                      </div>
-                      <div className="grid gap-2.5 sm:grid-cols-2">
-                        {artifactPreview.slides?.map((slide: any) => (
-                          <div key={slide.slide_number} className="p-3 rounded-xl border border-border bg-card/50 shadow-2xs">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-[10px] font-bold font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                                Slide {slide.slide_number}
-                              </span>
+              {/* Inspector Tab Content */}
+              <div className="flex-1 overflow-y-auto p-4 min-h-[300px]">
+                {/* 1. Preview Tab */}
+                {artifactTab === 'preview' && (
+                  <div className="space-y-4">
+                    {artifactPreview?.type === 'pptx_preview' && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
+                          <span>Presentation Slides ({artifactPreview.total_slides || (artifactPreview.slides || []).length})</span>
+                        </div>
+                        <div className="grid gap-2.5 sm:grid-cols-2">
+                          {(artifactPreview.slides || []).map((slide: any) => (
+                            <div key={slide?.slide_number || Math.random()} className="p-3 rounded-xl border border-border bg-card/50 shadow-2xs">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] font-bold font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                  Slide {slide?.slide_number || 1}
+                                </span>
+                              </div>
+                              <h5 className="text-xs font-bold text-foreground truncate">{slide?.title || 'Slide'}</h5>
+                              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground list-disc list-inside">
+                                {(slide?.bullets || []).map((b: string, i: number) => (
+                                  <li key={i} className="truncate">{b}</li>
+                                ))}
+                              </ul>
                             </div>
-                            <h5 className="text-xs font-bold text-foreground truncate">{slide.title}</h5>
-                            <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground list-disc list-inside">
-                              {slide.bullets?.map((b: string, i: number) => (
-                                <li key={i} className="truncate">{b}</li>
-                              ))}
-                            </ul>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {artifactPreview?.type === 'xlsx_preview' && (
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-muted-foreground">Spreadsheet Worksheets</div>
+                        {(artifactPreview.sheets || []).map((sheet: any, sIdx: number) => (
+                          <div key={sheet?.sheet_name || sIdx} className="border border-border rounded-xl p-3 bg-card/40">
+                            <h5 className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5">
+                              <Table size={13} />
+                              <span>{sheet?.sheet_name || `Sheet ${sIdx + 1}`}</span>
+                            </h5>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-[11px] text-left border-collapse">
+                                <tbody>
+                                  {(sheet?.rows || []).map((r: string[], rIdx: number) => (
+                                    <tr key={rIdx} className={rIdx === 0 ? "font-bold bg-muted/50 border-b border-border" : "border-b border-border/50"}>
+                                      {(r || []).map((c: string, cIdx: number) => (
+                                        <td key={cIdx} className="p-1.5 whitespace-nowrap text-muted-foreground">{c}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {artifactPreview?.type === 'xlsx_preview' && (
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold text-muted-foreground">Spreadsheet Worksheets</div>
-                      {artifactPreview.sheets?.map((sheet: any) => (
-                        <div key={sheet.sheet_name} className="border border-border rounded-xl p-3 bg-card/40">
-                          <h5 className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5">
-                            <Table size={13} />
-                            <span>{sheet.sheet_name}</span>
-                          </h5>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-[11px] text-left border-collapse">
-                              <tbody>
-                                {sheet.rows?.map((r: string[], rIdx: number) => (
-                                  <tr key={rIdx} className={rIdx === 0 ? "font-bold bg-muted/50 border-b border-border" : "border-b border-border/50"}>
-                                    {r.map((c: string, cIdx: number) => (
-                                      <td key={cIdx} className="p-1.5 whitespace-nowrap text-muted-foreground">{c}</td>
-                                    ))}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                    {artifactPreview?.type === 'zip_preview' && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-muted-foreground">
+                          Archive Contents ({artifactPreview.total_files || (artifactPreview.files || []).length} files)
+                        </div>
+                        <div className="border border-border rounded-xl divide-y divide-border bg-card/50 text-xs font-mono">
+                          {(artifactPreview.files || []).map((f: any, i: number) => (
+                            <div key={i} className="p-2 flex items-center justify-between">
+                              <span className="truncate text-foreground">{f?.name || 'file'}</span>
+                              <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">
+                                {Math.round((f?.size || 0) / 1024)} KB
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {artifactPreview?.type === 'pdf_preview' && (
+                      <div className="p-6 text-center border border-dashed border-border rounded-2xl bg-card/30">
+                        <FileText size={36} className="mx-auto text-primary opacity-60 mb-2" />
+                        <h4 className="text-sm font-semibold text-foreground">{artifactPreview.filename || selectedArtifact.filename || 'Document.pdf'}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          PDF Document • ~{artifactPreview.pages_estimated || 1} pages • {artifactPreview.size_kb || Math.round((selectedArtifact.file_size || 0) / 1024)} KB
+                        </p>
+                        <a
+                          href={selectedArtifact.download_url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-xl shadow-xs hover:opacity-90"
+                        >
+                          <Eye size={13} />
+                          <span>Open PDF in Tab</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {(!artifactPreview || !['pptx_preview', 'xlsx_preview', 'zip_preview', 'pdf_preview'].includes(artifactPreview?.type)) && (
+                      <div className="p-4 bg-muted/20 border border-border rounded-xl text-xs font-mono text-muted-foreground whitespace-pre-wrap max-h-72 overflow-y-auto">
+                        {artifactPreview?.sample_text || artifactPreview?.markdown || artifactPreview?.code || 'Preview generated and verified.'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. Edit & Convert Tab */}
+                {artifactTab === 'edit' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-foreground">Natural Language Edit Instruction</label>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        HSBot will target specific parts of this file without regenerating unrelated content.
+                      </p>
+                      <Input
+                        value={editInstruction}
+                        onChange={(e) => setEditInstruction(e.target.value)}
+                        placeholder="E.g. Change slide 4 to add new architecture diagram, or Add quarterly summary sheet..."
+                        className="h-10 text-xs mt-2 rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-foreground">Target Selector (Optional)</label>
+                      <Input
+                        value={editTarget}
+                        onChange={(e) => setEditTarget(e.target.value)}
+                        placeholder="E.g. slide 4, section 2, or table header..."
+                        className="h-9 text-xs mt-1.5 rounded-xl"
+                      />
+                    </div>
+
+                    {editMessage && (
+                      <div className="p-3 text-xs rounded-xl bg-muted border border-border text-foreground font-medium">
+                        {editMessage}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <Button
+                        onClick={handleApplyEdit}
+                        disabled={isEditing || !editInstruction.trim()}
+                        className="h-9 px-4 text-xs font-semibold gap-1.5 rounded-xl"
+                      >
+                        {isEditing ? <RefreshCw size={12} className="animate-spin" /> : <Edit3 size={12} />}
+                        <span>{isEditing ? 'Applying Edit...' : 'Apply Incremental Edit'}</span>
+                      </Button>
+                    </div>
+
+                    {/* Format Conversions */}
+                    <div className="pt-4 border-t border-border">
+                      <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2">Convert Format</h4>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 rounded-lg"
+                          disabled={isEditing || selectedArtifact.extension === 'pdf'}
+                          onClick={() => handleConvert('pdf')}
+                        >
+                          <FileText size={12} />
+                          <span>Export as PDF</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 rounded-lg"
+                          disabled={isEditing || selectedArtifact.extension === 'docx'}
+                          onClick={() => handleConvert('docx')}
+                        >
+                          <FileText size={12} />
+                          <span>Export as DOCX</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Versions Tab */}
+                {artifactTab === 'versions' && (
+                  <div className="space-y-3">
+                    <div className="text-xs font-semibold text-muted-foreground">Version History & Snapshots</div>
+                    <div className="space-y-2">
+                      {(artifactVersions || []).map((v: any) => (
+                        <div
+                          key={v?.version || Math.random()}
+                          className="p-3 rounded-xl border border-border bg-card/50 flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-foreground">Version v{v?.version}</span>
+                              {v?.version === selectedArtifact.version && (
+                                <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded font-semibold">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {v?.change_description || 'Initial generation'} • {Math.round((v?.file_size || 0) / 1024)} KB
+                            </p>
                           </div>
+
+                          {v?.version !== selectedArtifact.version && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs rounded-lg"
+                              disabled={isEditing}
+                              onClick={() => v?.version && handleRestoreVersion(v.version)}
+                            >
+                              Restore v{v?.version}
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
-                  )}
-
-                  {artifactPreview?.type === 'zip_preview' && (
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold text-muted-foreground">
-                        Archive Contents ({artifactPreview.total_files} files)
-                      </div>
-                      <div className="border border-border rounded-xl divide-y divide-border bg-card/50 text-xs font-mono">
-                        {artifactPreview.files?.map((f: any, i: number) => (
-                          <div key={i} className="p-2 flex items-center justify-between">
-                            <span className="truncate text-foreground">{f.name}</span>
-                            <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">
-                              {Math.round(f.size / 1024)} KB
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {artifactPreview?.type === 'pdf_preview' && (
-                    <div className="p-6 text-center border border-dashed border-border rounded-2xl bg-card/30">
-                      <FileText size={36} className="mx-auto text-primary opacity-60 mb-2" />
-                      <h4 className="text-sm font-semibold text-foreground">{artifactPreview.filename}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        PDF Document • ~{artifactPreview.pages_estimated} pages • {artifactPreview.size_kb} KB
-                      </p>
-                      <a
-                        href={selectedArtifact.download_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-xl shadow-xs hover:opacity-90"
-                      >
-                        <Eye size={13} />
-                        <span>Open PDF in Tab</span>
-                      </a>
-                    </div>
-                  )}
-
-                  {(!artifactPreview || !['pptx_preview', 'xlsx_preview', 'zip_preview', 'pdf_preview'].includes(artifactPreview?.type)) && (
-                    <div className="p-4 bg-muted/20 border border-border rounded-xl text-xs font-mono text-muted-foreground whitespace-pre-wrap max-h-72 overflow-y-auto">
-                      {artifactPreview?.sample_text || artifactPreview?.markdown || artifactPreview?.code || 'Preview generated and verified.'}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 2. Edit & Convert Tab */}
-              {artifactTab === 'edit' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs font-semibold text-foreground">Natural Language Edit Instruction</label>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      HSBot will target specific parts of this file without regenerating unrelated content.
-                    </p>
-                    <Input
-                      value={editInstruction}
-                      onChange={(e) => setEditInstruction(e.target.value)}
-                      placeholder="E.g. Change slide 4 to add new architecture diagram, or Add quarterly summary sheet..."
-                      className="h-10 text-xs mt-2 rounded-xl"
-                    />
                   </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-foreground">Target Selector (Optional)</label>
-                    <Input
-                      value={editTarget}
-                      onChange={(e) => setEditTarget(e.target.value)}
-                      placeholder="E.g. slide 4, section 2, or table header..."
-                      className="h-9 text-xs mt-1.5 rounded-xl"
-                    />
-                  </div>
-
-                  {editMessage && (
-                    <div className="p-3 text-xs rounded-xl bg-muted border border-border text-foreground font-medium">
-                      {editMessage}
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <Button
-                      onClick={handleApplyEdit}
-                      disabled={isEditing || !editInstruction.trim()}
-                      className="h-9 px-4 text-xs font-semibold gap-1.5 rounded-xl"
-                    >
-                      {isEditing ? <RefreshCw size={12} className="animate-spin" /> : <Edit3 size={12} />}
-                      <span>{isEditing ? 'Applying Edit...' : 'Apply Incremental Edit'}</span>
-                    </Button>
-                  </div>
-
-                  {/* Format Conversions */}
-                  <div className="pt-4 border-t border-border">
-                    <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2">Convert Format</h4>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs gap-1 rounded-lg"
-                        disabled={isEditing || selectedArtifact.extension === 'pdf'}
-                        onClick={() => handleConvert('pdf')}
-                      >
-                        <FileText size={12} />
-                        <span>Export as PDF</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs gap-1 rounded-lg"
-                        disabled={isEditing || selectedArtifact.extension === 'docx'}
-                        onClick={() => handleConvert('docx')}
-                      >
-                        <FileText size={12} />
-                        <span>Export as DOCX</span>
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Versions Tab */}
-              {artifactTab === 'versions' && (
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold text-muted-foreground">Version History & Snapshots</div>
-                  <div className="space-y-2">
-                    {artifactVersions.map((v: any) => (
-                      <div
-                        key={v.version}
-                        className="p-3 rounded-xl border border-border bg-card/50 flex items-center justify-between"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-foreground">Version v{v.version}</span>
-                            {v.version === selectedArtifact.version && (
-                              <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded font-semibold">
-                                Current
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {v.change_description || 'Initial generation'} • {Math.round(v.file_size / 1024)} KB
-                          </p>
-                        </div>
-
-                        {v.version !== selectedArtifact.version && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs rounded-lg"
-                            disabled={isEditing}
-                            onClick={() => handleRestoreVersion(v.version)}
-                          >
-                            Restore v{v.version}
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </AgentErrorBoundary>
       )}
     </div>
   )

@@ -173,10 +173,15 @@ export function ChatContainer() {
 
   const currentPhase = currentChat ? streamingPhase[currentChat.id] : undefined
   const handleSend = async (content: string) => {
-    if (!currentChat) {
-      await createChat()
+    let targetChat = currentChat
+    if (!targetChat) {
+      targetChat = await createChat()
     }
-    await sendMessage(content)
+    if (targetChat?.id) {
+      await sendMessage(content, targetChat.id)
+    } else {
+      await sendMessage(content)
+    }
   }
 
   const handleEdit = (msg: Message) => {
@@ -198,9 +203,11 @@ export function ChatContainer() {
   }
 
   const handleSendWithFile = async (file: File, prompt: string) => {
-    if (!currentChat) {
-      await createChat()
+    let targetChat = currentChat
+    if (!targetChat) {
+      targetChat = await createChat()
     }
+    const chatId = targetChat?.id
     let filename = file.name
     let uploadRes: FileInfo | null = null
     try {
@@ -215,7 +222,7 @@ export function ChatContainer() {
     }
 
     if (file.type.startsWith('image/')) {
-      await sendMessage(`[Image: ${filename}]${prompt ? ` ${prompt}` : ''}`)
+      await sendMessage(`[Image: ${filename}]${prompt ? ` ${prompt}` : ''}`, chatId)
       return
     }
 
@@ -226,7 +233,7 @@ export function ChatContainer() {
       return
     }
 
-    await sendMessage(`[File: ${filename}] ${prompt}`)
+    await sendMessage(`[File: ${filename}] ${prompt}`, chatId)
   }
 
   if (messages.length === 0) {

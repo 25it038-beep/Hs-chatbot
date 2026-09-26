@@ -759,11 +759,11 @@ async def nvidia_chat(
             if "data:image/png;base64" in (msg.content or ""):
                 msg.content = "[Generated image]"
 
+        force_images = bool(decision.get("requires_images")) and task != "web_images"
         if not request.stream and WebSearchService.needs_web_search(request.message):
-            force_images_here = bool(decision.get("requires_images")) and task != "web_images"
             web_context = await WebSearchService().search(
                 request.message,
-                with_images=not force_images_here,
+                with_images=not force_images,
                 chat_history=recent_history,
             )
             if web_context:
@@ -824,6 +824,7 @@ async def nvidia_chat(
                 web_images_md = ""
                 web_videos_md = ""
                 web_sources_md = ""
+                web_sources_list = []
                 from app.services.retrieval.router import classify_video_intent
 
                 with_videos = classify_video_intent(request.message) in ("required", "recommended")
@@ -1047,7 +1048,7 @@ async def nvidia_chat(
                         )
 
             extra_images_md = ""
-            if force_images_here:
+            if force_images:
                 img_query = extract_image_subject(request.message)
                 extra_images_md = await WebSearchService().fetch_images_markdown(img_query)
                 system_prompt = f"{system_prompt}\n\n{_NO_FAKE_IMAGES_NOTE}"
@@ -1138,6 +1139,7 @@ async def nvidia_chat(
             web_images_md = ""
             web_videos_md = ""
             web_sources_md = ""
+            web_sources_list = []
             from app.services.retrieval.router import classify_video_intent
 
             is_video_task = (

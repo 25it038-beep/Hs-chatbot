@@ -9,6 +9,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Mic, Settings, Volume2, Shield, Zap } from 'lucide-react';
+import { getBaseUrl } from '@/lib/api';
 
 interface VoiceSettings {
   always_listening: boolean;
@@ -45,7 +46,7 @@ export const VoiceSettings: React.FC = () => {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/voice/settings');
+      const response = await fetch(`${getBaseUrl()}/voice/settings`);
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
@@ -59,7 +60,7 @@ export const VoiceSettings: React.FC = () => {
 
   const loadDevices = async () => {
     try {
-      const response = await fetch('/api/voice/devices');
+      const response = await fetch(`${getBaseUrl()}/voice/devices`);
       if (response.ok) {
         const data = await response.json();
         setDevices(data);
@@ -72,7 +73,7 @@ export const VoiceSettings: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const response = await fetch('/api/voice/settings', {
+      const response = await fetch(`${getBaseUrl()}/voice/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),

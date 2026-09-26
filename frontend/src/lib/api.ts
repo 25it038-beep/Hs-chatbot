@@ -2,13 +2,52 @@ import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo
 
 function getBaseUrlInternal(): string {
   const envUrl = (import.meta.env.VITE_API_URL as string)?.trim()
-  if (!envUrl) return '/api'
-  const cleanUrl = envUrl.replace(/\/+$/, '')
-  if (cleanUrl.endsWith('/api')) return cleanUrl
-  return `${cleanUrl}/api`
+  const isBrowser = typeof window !== 'undefined' && Boolean(window.location?.hostname)
+  const isLocalhost = isBrowser && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
+  if (envUrl) {
+    const cleanUrl = envUrl.replace(/\/+$/, '')
+    // Only accept localhost URL if actually running on localhost
+    if (!cleanUrl.includes('localhost') || isLocalhost) {
+      return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`
+    }
+  }
+
+  if (isBrowser) {
+    const hostname = window.location.hostname
+    // If deployed on Render static site (e.g. hs-chatbot-3.onrender.com)
+    if (hostname.includes('onrender.com')) {
+      if (hostname.includes('hs-chatbot-2')) {
+        return '/api'
+      }
+      return 'https://hs-chatbot-2.onrender.com/api'
+    }
+    // Any other remote host without explicit VITE_API_URL
+    if (!isLocalhost && !hostname.endsWith('.local')) {
+      return 'https://hs-chatbot-2.onrender.com/api'
+    }
+  }
+
+  return '/api'
 }
 
 const BASE_URL = getBaseUrlInternal()
+
+export function getBaseUrl(): string {
+  return BASE_URL
+}
+
+export function getWsBaseUrl(): string {
+  const base = getBaseUrl()
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return base.replace(/^http/, 'ws')
+  }
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}${base}`
+  }
+  return 'ws://localhost:8000/api'
+}
 
 let accessToken: string | null = localStorage.getItem('access_token')
 let refreshToken: string | null = localStorage.getItem('refresh_token')
@@ -47,10 +86,6 @@ async function refreshAccessToken(): Promise<boolean> {
 export function getAuthHeader(): Record<string, string> {
   const token = accessToken || localStorage.getItem('access_token') || 'hsbot_default_access_token'
   return { Authorization: `Bearer ${token}` }
-}
-
-export function getBaseUrl(): string {
-  return BASE_URL
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mic, CheckCircle2, AlertCircle } from 'lucide-react';
+import { getBaseUrl } from '@/lib/api';
 
 interface EnrollmentStep {
   number: number;
@@ -116,7 +117,7 @@ export const VoiceEnrollment: React.FC<{ onComplete?: () => void }> = ({
         formData.append(`audio_${index + 1}`, recording, `sample_${index + 1}.wav`);
       });
 
-      const response = await fetch('/api/voice/enroll', {
+      const response = await fetch(`${getBaseUrl()}/voice/enroll`, {
         method: 'POST',
         body: formData,
       });

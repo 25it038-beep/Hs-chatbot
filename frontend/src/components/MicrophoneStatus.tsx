@@ -4,6 +4,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Mic, MicOff, Loader2, AlertCircle } from 'lucide-react';
+import { getBaseUrl } from '@/lib/api';
 
 export type MicrophoneState = 'idle' | 'listening' | 'processing' | 'command_active' | 'stopped' | 'error';
 
@@ -62,7 +63,7 @@ export const MicrophoneStatus: React.FC<MicrophoneStatusProps> = ({
     const interval = setInterval(async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/voice/status?device_id=${deviceId}`);
+        const response = await fetch(`${getBaseUrl()}/voice/status?device_id=${deviceId}`);
         if (response.ok) {
           const data = await response.json();
           const newState = data.state as MicrophoneState;
@@ -106,7 +107,7 @@ export const MicrophoneStatusInline: React.FC<Omit<MicrophoneStatusProps, 'autoR
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/voice/status?device_id=${deviceId}`);
+        const response = await fetch(`${getBaseUrl()}/voice/status?device_id=${deviceId}`);
         if (response.ok) {
           const data = await response.json();
           const newState = data.state as MicrophoneState;

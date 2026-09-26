@@ -31,6 +31,7 @@ import {
 import { LiveVoiceSession } from './LiveVoiceSession'
 import { LiveDiagnosticsData, LiveEngine, LiveState, LiveTurnTranscript } from './LiveVoiceTypes'
 import { VoiceSphere3D } from './VoiceSphere3D'
+import { getBaseUrl } from '@/lib/api'
 
 // ==========================================
 // 1. ISOLATED REACT ERROR BOUNDARY
@@ -132,9 +133,7 @@ export function LiveVoiceInner({
   // Query live language capabilities
   useEffect(() => {
     if (!isOpen) return
-    const envUrl = (import.meta.env.VITE_API_URL as string)?.trim() || ''
-    const base = envUrl.replace(/\/+$/, '')
-    fetch(`${base}/api/live/languages`)
+    fetch(`${getBaseUrl()}/live/languages`)
       .then((res) => res.json())
       .then((data) => {
         const ta = data?.languages?.find((l: any) => l.code === 'ta')

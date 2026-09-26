@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Loader2, Trash2, Pause, Play, Plus, Edit2 } from 'lucide-react';
+import { getBaseUrl } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -38,7 +39,7 @@ export const DeviceManager: React.FC<{ orgId: string }> = ({ orgId }) => {
   const loadDevices = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/voice/devices?org_id=${orgId}`);
+      const response = await fetch(`${getBaseUrl()}/voice/devices?org_id=${orgId}`);
       if (response.ok) {
         const data = await response.json();
         setDevices(data);
@@ -54,7 +55,7 @@ export const DeviceManager: React.FC<{ orgId: string }> = ({ orgId }) => {
     if (!newDeviceName) return;
 
     try {
-      const response = await fetch('/api/voice/devices', {
+      const response = await fetch(`${getBaseUrl()}/voice/devices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,7 +83,7 @@ export const DeviceManager: React.FC<{ orgId: string }> = ({ orgId }) => {
 
     try {
       const response = await fetch(
-        `/api/voice/devices/${selectedDevice.id}?org_id=${orgId}`,
+        `${getBaseUrl()}/voice/devices/${selectedDevice.id}?org_id=${orgId}`,
         { method: 'DELETE' }
       );
 
@@ -99,8 +100,8 @@ export const DeviceManager: React.FC<{ orgId: string }> = ({ orgId }) => {
   const handleTogglePause = async (device: Device) => {
     const endpoint =
       device.status === 'active'
-        ? `/api/voice/devices/${device.id}/pause`
-        : `/api/voice/devices/${device.id}/resume`;
+        ? `${getBaseUrl()}/voice/devices/${device.id}/pause`
+        : `${getBaseUrl()}/voice/devices/${device.id}/resume`;
 
     try {
       const response = await fetch(`${endpoint}?org_id=${orgId}`, {

@@ -4,6 +4,7 @@
  */
 
 import { LiveEngine, LiveServerMessage, LiveState } from './LiveVoiceTypes'
+import { getWsBaseUrl } from '@/lib/api'
 
 export class LiveVoiceTransport {
   private ws: WebSocket | null = null
@@ -33,39 +34,8 @@ export class LiveVoiceTransport {
    * Dynamically builds the WebSocket URL from production backend or environment.
    */
   public getWebSocketUrl(engine: LiveEngine = 'cascaded'): string {
-    const envApiUrl = (import.meta.env.VITE_API_URL as string)?.trim() || (import.meta.env.NEXT_PUBLIC_API_URL as string)?.trim()
-
-    let wsProtocol: string
-    let wsHost: string
-    let apiPath = '/api'
-
-    if (envApiUrl && (envApiUrl.startsWith('http://') || envApiUrl.startsWith('https://'))) {
-      try {
-        const parsed = new URL(envApiUrl)
-        wsProtocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:'
-        wsHost = parsed.host
-        apiPath = parsed.pathname.replace(/\/+$/, '') || '/api'
-        if (!apiPath.endsWith('/api') && apiPath !== '') {
-          apiPath = `${apiPath}/api`
-        }
-      } catch {
-        wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        wsHost = window.location.host
-      }
-    } else if (window.location.host === 'hs-chatbot-3.onrender.com' || (window.location.host.endsWith('.onrender.com') && !window.location.host.includes('hs-chatbot-2'))) {
-      // Deployed static frontend on Render without local backend proxy -> routes to public backend
-      wsProtocol = 'wss:'
-      wsHost = 'hs-chatbot-2.onrender.com'
-      apiPath = '/api'
-    } else {
-      // Local development (Vite proxy forwards /api and WebSockets to backend)
-      wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      wsHost = window.location.host
-      apiPath = '/api'
-    }
-
-    apiPath = apiPath.replace(/\/+$/, '')
-    return `${wsProtocol}//${wsHost}${apiPath}/live/ws/${this.sessionId}?engine=${encodeURIComponent(engine)}`
+    const wsBase = getWsBaseUrl().replace(/\/+$/, '')
+    return `${wsBase}/live/ws/${this.sessionId}?engine=${encodeURIComponent(engine)}`
   }
 
   /**

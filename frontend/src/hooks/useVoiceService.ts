@@ -3,6 +3,7 @@
  * Custom hook for WebSocket communication with the voice service
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getBaseUrl, getWsBaseUrl } from '@/lib/api';
 
 export interface VoiceEvent {
   type: 'wake_word' | 'command' | 'error' | 'state_change' | 'status';
@@ -44,8 +45,7 @@ export const useVoiceService = (options: UseVoiceServiceOptions = {}) => {
     }
 
     try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/voice/ws`;
+      const wsUrl = `${getWsBaseUrl()}/voice/ws`;
 
       wsRef.current = new WebSocket(wsUrl);
 
@@ -130,7 +130,7 @@ export const useVoiceService = (options: UseVoiceServiceOptions = {}) => {
 
   const startListener = useCallback(async () => {
     try {
-      const response = await fetch('/api/voice/listener/start', {
+      const response = await fetch(`${getBaseUrl()}/voice/listener/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: 'default' }),
@@ -153,7 +153,7 @@ export const useVoiceService = (options: UseVoiceServiceOptions = {}) => {
 
   const stopListener = useCallback(async () => {
     try {
-      const response = await fetch('/api/voice/listener/stop', {
+      const response = await fetch(`${getBaseUrl()}/voice/listener/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: 'default' }),
@@ -172,7 +172,7 @@ export const useVoiceService = (options: UseVoiceServiceOptions = {}) => {
 
   const setMicrophoneEnabled = useCallback(async (enabled: boolean) => {
     try {
-      const response = await fetch('/api/voice/listener/mic-enable', {
+      const response = await fetch(`${getBaseUrl()}/voice/listener/mic-enable`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: 'default', enabled }),
@@ -188,7 +188,7 @@ export const useVoiceService = (options: UseVoiceServiceOptions = {}) => {
 
   const sendCommand = useCallback(async (command: string) => {
     try {
-      const response = await fetch('/api/voice/automation/execute', {
+      const response = await fetch(`${getBaseUrl()}/voice/automation/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -507,6 +507,13 @@ export function AgentPage() {
         loadWorkspace()
         if (activeTargetFile) {
           handleSelectFile(activeTargetFile)
+        } else {
+          agentApi.readFile('index.html').then((res) => {
+            if (res && res.success && res.content) {
+              refreshLivePreview()
+              setActiveTab('preview')
+            }
+          }).catch(() => {})
         }
       },
       'default',
@@ -1100,6 +1107,21 @@ export function AgentPage() {
                     title="Reload Preview"
                   >
                     <RefreshCw size={12} className={previewLoading ? 'animate-spin' : ''} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!previewHtml) return
+                      const w = window.open()
+                      if (w) {
+                        w.document.open()
+                        w.document.write(previewHtml)
+                        w.document.close()
+                      }
+                    }}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    title="Open in New Tab"
+                  >
+                    <ExternalLink size={12} />
                   </button>
                 </div>
               )}

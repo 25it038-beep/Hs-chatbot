@@ -123,6 +123,11 @@ class PromptUnderstandingEngine:
         cleaned = re.sub(r'\bx\s*l\s*s\s*x?\b', 'XLSX', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\bgenrate\b', 'generate', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\bcreae\b', 'create', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bappliaction\b', 'application', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bapplicaton\b', 'application', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bwebiste\b', 'website', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bcalcultor\b', 'calculator', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bdasboard\b', 'dashboard', cleaned, flags=re.IGNORECASE)
         return cleaned
 
     def classify_message_types(self, text: str) -> List[str]:
@@ -142,7 +147,16 @@ class PromptUnderstandingEngine:
             types.append("REFACTOR_REQUEST")
         if any(w in lower for w in ["add", "implement", "support", "feature", "integrate", "extend"]):
             types.append("FEATURE_REQUEST")
-        if any(w in lower for w in ["build an app", "create an app", "new project", "make an app", "full stack", "college management", "system"]):
+        if any(w in lower for w in [
+            "build an app", "create an app", "new project", "make an app", "full stack",
+            "college management", "system", "create a game", "build a game", "create application",
+            "make application", "build application", "web application", "create a dashboard",
+            "build a store", "create a tool", "create a site", "build a site", "make a site",
+            "create a calculator", "build a calculator", "create a canvas", "draw app"
+        ]) or (
+            any(v in lower for v in ["create", "build", "make", "generate", "develop"]) and
+            any(n in lower for n in ["app", "application", "game", "dashboard", "store", "website", "project", "kanban", "calculator", "tool", "workspace"])
+        ):
             types.append("PROJECT_REQUEST")
         elif any(w in lower for w in ["change", "update", "modify", "tweak", "adjust", "edit"]):
             types.append("MODIFICATION_REQUEST")

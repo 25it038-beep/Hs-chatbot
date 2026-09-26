@@ -163,3 +163,67 @@ async def test_agent_multiprovider_executor_fallback(monkeypatch):
     assert "styles.css" in files
     assert "package.json" in files
     assert "UniversalSynthesizer" in source
+
+
+def test_morden_foot_ball_game_synthesis_and_execution(tmp_path):
+    import subprocess
+    from app.services.agent.prompt_understanding import PromptUnderstandingEngine
+
+    engine = PromptUnderstandingEngine()
+    raw_prompt = "verify that it can create a morden foot ball game"
+    normalized = engine.normalize_prompt(raw_prompt)
+    assert "modern" in normalized
+    assert "football" in normalized
+
+    domain, meta = AppDomainClassifier.classify(raw_prompt)
+    assert domain == AppDomain.GAME
+    assert meta.get("genre") == "football"
+
+    files = UniversalAppSynthesizer.synthesize(raw_prompt, domain, meta)
+    assert "index.html" in files
+    assert "script.js" in files
+    assert "styles.css" in files
+    assert "package.json" in files
+    assert "tests/test_app.js" in files
+
+    # Verify modern football game specific features
+    assert "Modern Football Pro" in files["index.html"]
+    assert "CHAMPIONS CUP" in files["index.html"]
+    assert "renderPitch" in files["script.js"]
+    assert "renderGoal" in files["script.js"]
+    assert "renderGoalkeeper" in files["script.js"]
+    assert "renderBall" in files["script.js"]
+    assert "curve" in files["script.js"]
+    assert "GOOOOOAL" in files["script.js"]
+
+    # Verify test suite executes cleanly with Node.js
+    test_file = tmp_path / "test_app.js"
+    test_file.write_text(files["tests/test_app.js"], encoding="utf-8")
+    proc = subprocess.run(["node", str(test_file)], capture_output=True, text=True)
+    assert proc.returncode == 0
+    assert "All Modern Football Pro tests PASSED successfully!" in proc.stdout
+
+
+def test_any_web_application_synthesis():
+    test_prompts = [
+        ("Create a social media photo feed web application with likes and comments", AppDomain.UNIVERSAL_DYNAMIC),
+        ("Build a fitness gym routine workout planner web app with calories and timer", AppDomain.UNIVERSAL_DYNAMIC),
+        ("Create a cryptocurrency portfolio tracker web application with live prices", AppDomain.UNIVERSAL_DYNAMIC),
+        ("Build a collaborative cooking recipe book web app with search and categories", AppDomain.UNIVERSAL_DYNAMIC),
+        ("Create a real estate apartment rental finder web application with filters", AppDomain.UNIVERSAL_DYNAMIC)
+    ]
+
+    for prompt, expected_domain in test_prompts:
+        domain, meta = AppDomainClassifier.classify(prompt)
+        assert domain == expected_domain, f"Prompt '{prompt}' failed domain classification"
+        files = UniversalAppSynthesizer.synthesize(prompt, domain, meta)
+        assert "index.html" in files
+        assert "styles.css" in files
+        assert "script.js" in files
+        assert "package.json" in files
+        assert "README.md" in files
+        assert "tests/test_app.js" in files
+        # Validate that HTML contains title and interactive structure
+        assert "<!DOCTYPE html>" in files["index.html"]
+        assert "<canvas" in files["index.html"] or "itemsGrid" in files["index.html"] or "container" in files["index.html"]
+

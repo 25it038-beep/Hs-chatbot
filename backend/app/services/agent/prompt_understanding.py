@@ -128,6 +128,9 @@ class PromptUnderstandingEngine:
         cleaned = re.sub(r'\bwebiste\b', 'website', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\bcalcultor\b', 'calculator', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\bdasboard\b', 'dashboard', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bmorden\b', 'modern', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bfoot\s+ball\b', 'football', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\bsocer\b', 'soccer', cleaned, flags=re.IGNORECASE)
         return cleaned
 
     def classify_message_types(self, text: str) -> List[str]:

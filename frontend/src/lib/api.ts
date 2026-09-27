@@ -83,6 +83,29 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+export async function ensureFreshToken(forceRefresh = false): Promise<string | null> {
+  // If Clerk is active, ask Clerk SDK for the latest token (with auto-refresh)
+  try {
+    const clerk = (window as any).Clerk
+    if (clerk?.session) {
+      const clerkToken = await clerk.session.getToken(forceRefresh ? { skipCache: true } : undefined)
+      if (clerkToken) {
+        setTokens(clerkToken, '')
+        return clerkToken
+      }
+    }
+  } catch (err) {
+    console.warn('[AUTH] Error obtaining fresh Clerk token:', err)
+  }
+
+  // Fallback to local access token
+  const token = accessToken || localStorage.getItem('access_token')
+  if (!token || token === 'hsbot_default_access_token' || token === 'hsbot_guest_token') {
+    return null
+  }
+  return token
+}
+
 export function getAuthHeader(): Record<string, string> {
   const token = accessToken || localStorage.getItem('access_token')
   if (!token || token === 'hsbot_default_access_token' || token === 'hsbot_guest_token') {
@@ -92,6 +115,7 @@ export function getAuthHeader(): Record<string, string> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  await ensureFreshToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...getAuthHeader(),
@@ -104,14 +128,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error('Unable to connect to server. Please verify backend is running.')
   }
 
-  if (res.status === 401 && refreshToken && path !== '/auth/login' && path !== '/auth/register') {
-    const refreshed = await refreshAccessToken()
-    if (refreshed) {
-      headers['Authorization'] = `Bearer ${accessToken}`
-      try {
-        res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
-      } catch {
-        throw new Error('Unable to connect to server. Please verify backend is running.')
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
+    let renewed = false
+    const clerk = (window as any).Clerk
+    if (clerk?.session) {
+      const freshToken = await ensureFreshToken(true)
+      if (freshToken) {
+        headers['Authorization'] = `Bearer ${freshToken}`
+        renewed = true
+        try {
+          res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+        } catch {}
+      }
+    }
+    if (!renewed && refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+        try {
+          res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+        } catch {
+          throw new Error('Unable to connect to server. Please verify backend is running.')
+        }
       }
     }
   }
@@ -178,6 +216,7 @@ export const api = {
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+    await ensureFreshToken()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
@@ -191,11 +230,23 @@ export const api = {
       })
 
     let res = await doFetch(headers)
-    if (res.status === 401 && refreshToken) {
-      const refreshed = await refreshAccessToken()
-      if (refreshed) {
-        headers['Authorization'] = `Bearer ${accessToken}`
-        res = await doFetch(headers)
+    if (res.status === 401) {
+      let renewed = false
+      const clerk = (window as any).Clerk
+      if (clerk?.session) {
+        const freshToken = await ensureFreshToken(true)
+        if (freshToken) {
+          headers['Authorization'] = `Bearer ${freshToken}`
+          renewed = true
+          res = await doFetch(headers)
+        }
+      }
+      if (!renewed && refreshToken) {
+        const refreshed = await refreshAccessToken()
+        if (refreshed) {
+          headers['Authorization'] = `Bearer ${accessToken}`
+          res = await doFetch(headers)
+        }
       }
     }
     if (!res.ok) {
@@ -224,18 +275,32 @@ export const api = {
   listProviders: () => request<ProviderInfo[]>('/models/providers'),
 
   // Files
-  uploadFile: (file: File) => {
+  uploadFile: async (file: File) => {
+    await ensureFreshToken()
     const formData = new FormData()
     formData.append('file', file)
-    const headers = getAuthHeader()
-    return fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<FileInfo>
+    let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
+    if (res.status === 401 && (window as any).Clerk?.session) {
+      const fresh = await ensureFreshToken(true)
+      if (fresh) {
+        res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
+      }
+    }
+    return res.json() as Promise<FileInfo>
   },
 
-  uploadMultiple: (files: File[]) => {
+  uploadMultiple: async (files: File[]) => {
+    await ensureFreshToken()
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
-    const headers = getAuthHeader()
-    return fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers }).then(r => r.json()) as Promise<{ files: FileInfo[] }>
+    let res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
+    if (res.status === 401 && (window as any).Clerk?.session) {
+      const fresh = await ensureFreshToken(true)
+      if (fresh) {
+        res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
+      }
+    }
+    return res.json() as Promise<{ files: FileInfo[] }>
   },
 
   health: () => request<{ status: string }>('/health'),
@@ -258,6 +323,7 @@ export const api = {
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+    await ensureFreshToken()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
@@ -272,12 +338,24 @@ export const api = {
 
     let res = await doFetch(headers)
 
-    // Auto-refresh token on 401 (same as request())
-    if (res.status === 401 && refreshToken) {
-      const refreshed = await refreshAccessToken()
-      if (refreshed) {
-        headers['Authorization'] = `Bearer ${accessToken}`
-        res = await doFetch(headers)
+    // Auto-refresh token on 401
+    if (res.status === 401) {
+      let renewed = false
+      const clerk = (window as any).Clerk
+      if (clerk?.session) {
+        const freshToken = await ensureFreshToken(true)
+        if (freshToken) {
+          headers['Authorization'] = `Bearer ${freshToken}`
+          renewed = true
+          res = await doFetch(headers)
+        }
+      }
+      if (!renewed && refreshToken) {
+        const refreshed = await refreshAccessToken()
+        if (refreshed) {
+          headers['Authorization'] = `Bearer ${accessToken}`
+          res = await doFetch(headers)
+        }
       }
     }
 

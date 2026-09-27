@@ -81,6 +81,17 @@ async def get_agent_models(
         "registry": agent_model_registry.get_status()
     }
 
+@router.get("/roles")
+async def get_agent_roles(
+    user: User = Depends(get_current_user)
+):
+    """Returns the complete Virtual Engineering Organization role directory with assigned models and responsibilities."""
+    from app.services.agent_v2.models.role_router import AgentRoleRouter
+    return {
+        "success": True,
+        "roles": AgentRoleRouter.get_role_manifest()
+    }
+
 @router.post("/models/{model_id}/reset-health")
 async def reset_model_health(
     model_id: str,

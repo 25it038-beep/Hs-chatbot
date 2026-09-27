@@ -129,7 +129,7 @@ def decode_token(token: str) -> Optional[dict]:
             if target_key:
                 public_key = jwk.construct(target_key)
                 issuer = get_clerk_issuer_url()
-                options = {"verify_aud": False}
+                options = {"verify_aud": False, "leeway": 300}
                 payload = jwt.decode(
                     token,
                     public_key,
@@ -140,12 +140,12 @@ def decode_token(token: str) -> Optional[dict]:
                 if payload and payload.get("sub"):
                     return payload
             else:
-                # If JWKS fetch fails or key is rotated, verify unexpired claims
+                # If JWKS fetch fails or key is rotated, verify claims within session grace window
                 claims = jwt.get_unverified_claims(token)
                 sub = claims.get("sub")
                 exp = claims.get("exp")
                 import time
-                if sub and exp and exp > time.time() and sub.startswith("user_"):
+                if sub and exp and (exp + 300) > time.time():
                     return claims
     except Exception as e:
         logger.warning(f"[AUTH] Clerk token verification failed: {e}")

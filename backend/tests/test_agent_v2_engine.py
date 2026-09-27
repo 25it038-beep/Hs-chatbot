@@ -230,3 +230,47 @@ def test_general_chat_remains_frozen():
     assert "agent_v2" not in chat_src
     assert "AgentOrchestratorV2" not in chat_src
     assert "AgentRole" not in chat_src
+
+
+def test_role_model_registry_and_responsibilities():
+    """Verify all 27 specialized company roles, assigned models, and responsibilities."""
+    from app.services.agent_v2.models.role_router import AgentRoleRouter, ROLE_MODEL_REGISTRY
+
+    manifest = AgentRoleRouter.get_role_manifest()
+    assert len(manifest) >= 27
+
+    # Verify specific roles and assigned models
+    assert AgentRoleRouter.get_model_for_role(AgentRole.PRODUCT_DIRECTOR) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.REQUIREMENTS_ANALYST) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.RESEARCH_TECHNICAL_ANALYST) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.MASTER_PLANNER) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.SOLUTION_ARCHITECT) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.UX_RESEARCHER) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.UI_UX_DESIGNER) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.VISUAL_SCREENSHOT_ANALYST) == "meta/muse-glimmer-30b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.FRONTEND_ARCHITECT) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.FRONTEND_ENGINEER) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.BACKEND_ARCHITECT) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.BACKEND_ENGINEER) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.DATABASE_ENGINEER) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.AI_ENGINEER) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.INTEGRATION_ENGINEER) == "nvidia/nemotron-3.5-lightning-30b-a3b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.GAME_ENGINEER) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.GRAPHICS_3D_ENGINEER) == "moonshotai/kimi-k3"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.DEBUG_ENGINEER) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.FAST_REPAIR_AGENT) == "nvidia/nemotron-3.5-lightning-30b-a3b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.TEST_ENGINEER) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.BROWSER_GUI_AGENT) == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.VISUAL_QA_ENGINEER) == "meta/muse-glimmer-30b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.SECURITY_ENGINEER) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.PERFORMANCE_ENGINEER) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.CODE_REVIEWER) == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.PRODUCT_CRITIC) == "nvidia/nemotron-3-super-120b-a12b"
+    assert AgentRoleRouter.get_model_for_role(AgentRole.FINAL_VERIFICATION_ENGINEER) == "nvidia/nemotron-3-ultra-550b-a55b"
+
+    # Verify responsibilities
+    pd_cfg = AgentRoleRouter.get_role_config(AgentRole.PRODUCT_DIRECTOR)
+    assert "Understand the user's product idea" in pd_cfg.responsibility
+    tc_cfg = AgentRoleRouter.get_role_config(AgentRole.PRODUCT_CRITIC)
+    assert "Check whether the product actually matches" in tc_cfg.responsibility
+

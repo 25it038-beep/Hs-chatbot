@@ -83,18 +83,22 @@ function ClerkAppInner() {
       }
 
       // Sync Clerk session token with local storage & API client
-      getToken()
-        .then((token) => {
+      const syncToken = async () => {
+        try {
+          const token = await getToken()
           if (token) setTokens(token, '')
-          loadChats()
-          loadFolders()
-          loadModels()
-        })
-        .catch(() => {
-          loadChats()
-          loadFolders()
-          loadModels()
-        })
+        } catch {}
+      }
+
+      syncToken().finally(() => {
+        loadChats()
+        loadFolders()
+        loadModels()
+      })
+
+      // Clerk session tokens expire every ~60s; keep local token continuously fresh
+      const refreshInterval = setInterval(syncToken, 35 * 1000)
+      return () => clearInterval(refreshInterval)
     }
   }, [isSignedIn, clerkUser, getToken, loadChats, loadFolders, loadModels])
 

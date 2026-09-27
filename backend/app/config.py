@@ -21,8 +21,15 @@ class Settings(BaseSettings):
 
     # Clerk Authentication Configuration
     clerk_secret_key: Optional[str] = os.getenv("CLERK_SECRET_KEY")
-    clerk_publishable_key: Optional[str] = os.getenv("CLERK_PUBLISHABLE_KEY") or os.getenv("VITE_CLERK_PUBLISHABLE_KEY")
-    clerk_issuer_url: Optional[str] = os.getenv("CLERK_ISSUER_URL")
+    clerk_publishable_key: Optional[str] = (
+        os.getenv("CLERK_PUBLISHABLE_KEY")
+        or os.getenv("VITE_CLERK_PUBLISHABLE_KEY")
+        or "pk_test_ZGVlcC1tb25rZmlzaC00LmNsZXJrLmFjY291bnRzLmRldiQ"
+    )
+    clerk_issuer_url: Optional[str] = (
+        os.getenv("CLERK_ISSUER_URL")
+        or "https://deep-monkfish-4.clerk.accounts.dev"
+    )
 
     database_url: str = "sqlite+aiosqlite:///./data/hsbot.db"
 

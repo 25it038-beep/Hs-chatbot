@@ -159,7 +159,7 @@ async def understand_user_prompt(
     return {
         "success": True,
         "is_sufficient": is_sufficient,
-        "classified_requirements": {k: [r.to_dict() for r in v] for k, v in classified.items()},
+        "classified_requirements": classified,
         "adaptive_question": question.to_dict() if question else None,
         "specification": spec.to_dict()
     }

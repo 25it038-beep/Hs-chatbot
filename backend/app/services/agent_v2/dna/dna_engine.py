@@ -1,7 +1,7 @@
 import json
 import re
 import logging
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from app.services.agent_v2.core.contracts import (
     ProductSpecification,
     ProductDNA

@@ -49,6 +49,49 @@ class TerminalCommandRequest(BaseModel):
     workspace_id: Optional[str] = "default"
     timeout: Optional[int] = 30
 
+class ClassifyModeRequest(BaseModel):
+    prompt: str
+
+@router.post("/classify-mode")
+async def classify_chat_mode(
+    req: ClassifyModeRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Classifies prompt between GENERAL_CHAT and AGENT mode.
+    Guides the UI to activate autonomous realization when an application creation imperative is detected.
+    """
+    from app.services.agent.mode_classifier import agent_mode_classifier
+    result = agent_mode_classifier.classify(req.prompt)
+    return {
+        "success": True,
+        "classification": result.to_dict()
+    }
+
+@router.get("/models")
+async def get_agent_models(
+    user: User = Depends(get_current_user)
+):
+    """Returns the Agent Model Registry status, capabilities, and health metrics."""
+    from app.services.agent.model_router import agent_model_registry
+    return {
+        "success": True,
+        "registry": agent_model_registry.get_status()
+    }
+
+@router.post("/models/{model_id}/reset-health")
+async def reset_model_health(
+    model_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Resets the circuit breaker and health state for a specific agent model."""
+    from app.services.agent.model_router import agent_model_registry
+    agent_model_registry.reset_health(model_id)
+    return {
+        "success": True,
+        "message": f"Circuit breaker and health reset for model '{model_id}'."
+    }
+
 @router.get("/state")
 async def get_agent_state(
     workspace_id: str = "default",

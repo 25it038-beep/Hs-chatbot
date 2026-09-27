@@ -3411,54 +3411,32 @@ OR output markdown code blocks with the relative file path on line 1 as a commen
         domain = snapshot.domain
         meta = {"genre": "football"} if "football" in user_request.lower() else {}
 
-        # 1. Prepare candidate list based on active keys
-        candidates = []
-        if getattr(settings, "openai_api_key", None):
-            candidates.append(("openai", requested_model if requested_model and "gpt" in requested_model else (getattr(settings, "openai_default_model", None) or "gpt-4o")))
-        if getattr(settings, "sambanova_api_key", None):
-            candidates.append(("sambanova", getattr(settings, "sambanova_default_model", None) or "DeepSeek-V3.2"))
-        if getattr(settings, "groq_api_key", None):
-            candidates.append(("groq", getattr(settings, "groq_default_model", None) or "llama-3.3-70b-versatile"))
-        if getattr(settings, "nvidia_api_keys", None):
-            candidates.append(("nvidia", "codestral"))
-            candidates.append(("nvidia", "llama-3.1-70b"))
-            candidates.append(("nvidia", "llama-3.2-11b"))
-
         system_prompt = cls.build_system_prompt(domain, user_request, snapshot=snapshot)
         user_msg = f"User Request: {user_request}\nSnapshot: {json.dumps(snapshot.to_dict())}\nWorkspace Context: {json.dumps(workspace_summary or {})}"
 
-        raw_output = ""
+        raw_output = None
         used_source = ""
 
-        from app.services.model_providers import get_provider
-
-        for prov_name, mod_name in candidates:
-            try:
-                provider = get_provider(prov_name)
-                resp = await asyncio.wait_for(
-                    provider.generate(
-                        messages=[{"role": "user", "content": user_msg}],
-                        system_prompt=system_prompt,
-                        model=mod_name,
-                        temperature=0.2,
-                        max_tokens=8192
-                    ),
-                    timeout=12.0
-                )
-                if resp and resp.content and len(resp.content.strip()) > 100:
-                    raw_output = resp.content.strip()
-                    used_source = f"{prov_name}:{mod_name}"
-                    break
-            except Exception as e:
-                logger.warning(f"Provider {prov_name}:{mod_name} generation failed in agent: {e}")
-                continue
+        # 1. Primary generation via specialized AgentModelRouter (NVIDIA NIM models)
+        try:
+            from app.services.agent.model_router import agent_model_router, AgentModelCapability
+            raw_output, used_model = await agent_model_router.execute_task(
+                capability=AgentModelCapability.CODING,
+                messages=[{"role": "user", "content": user_msg}],
+                system_prompt=system_prompt,
+                preferred_model=requested_model,
+                timeout_seconds=15.0
+            )
+            if raw_output:
+                used_source = f"nvidia:{used_model}"
+        except Exception as e:
+            logger.warning(f"AgentModelRouter execution error: {e}")
 
         # 2. Extract files from raw LLM output if available
         if raw_output:
             extracted = CodeBlockExtractor.extract_files(raw_output)
             # Accept if we at least have index.html (or main.py for python)
             if "index.html" in extracted or "main.py" in extracted:
-                # Ensure package.json and README.md exist
                 if "package.json" not in extracted:
                     extracted["package.json"] = json.dumps({"name": "app-project", "version": "1.0.0", "scripts": {"dev": "npx vite"}}, indent=2)
                 if "README.md" not in extracted:
@@ -3466,7 +3444,8 @@ OR output markdown code blocks with the relative file path on line 1 as a commen
                 return extracted, used_source
 
         # 3. Fallback to UniversalAppSynthesizer
-        logger.info(f"Synthesizing high-fidelity template for domain: {domain.value}")
+        logger.info(f"Synthesizing high-fidelity domain application for: {domain.value}")
         synthesized = UniversalAppSynthesizer.synthesize(user_request, domain, meta, snapshot=snapshot)
         return synthesized, f"UniversalSynthesizer:{domain.value}"
+
 

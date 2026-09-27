@@ -171,7 +171,7 @@ class AgentOrchestratorV2:
             w_res = self.workspace.write_file(rel_path, file_content, task_id="TASK-CODE", reason="Frontend synthesis")
             if w_res.get("success"):
                 self.files_modified.append(rel_path)
-                yield {"type": "file_written", "path": rel_path, "size": len(file_content)}
+                yield {"type": "file_written", "path": rel_path, "size": len(file_content), "content": file_content}
 
         yield {
             "type": "files_managed",
@@ -185,9 +185,10 @@ class AgentOrchestratorV2:
         contract = await test_eng.execute(contract)
         test_files = contract.previous_results.get("generated_files", {})
         if "tests/test_app.js" in test_files:
-            t_res = self.workspace.write_file("tests/test_app.js", test_files["tests/test_app.js"], task_id="TASK-TESTS")
+            t_content = test_files["tests/test_app.js"]
+            t_res = self.workspace.write_file("tests/test_app.js", t_content, task_id="TASK-TESTS")
             self.files_modified.append("tests/test_app.js")
-            yield {"type": "file_written", "path": "tests/test_app.js", "size": len(test_files["tests/test_app.js"])}
+            yield {"type": "file_written", "path": "tests/test_app.js", "size": len(t_content), "content": t_content}
 
         # Execute tests via Tool Orchestrator (§28, §35)
         test_cmd = "node tests/test_app.js" if tech_stack.primary_language.value != "python" else "python -m pytest tests -q"

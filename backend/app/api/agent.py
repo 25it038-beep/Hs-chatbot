@@ -124,11 +124,23 @@ async def plan_agent_task(
     req: PlanRequest,
     user: User = Depends(get_current_user)
 ):
-    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id, user_id=user.id)
-    plan = await orchestrator.generate_plan(req.prompt)
+    from app.services.agent_v2.understanding.sufficiency import RequirementSufficiencyEngine
+    from app.services.agent_v2.dna.dna_engine import ProductDNAEngine
+    from app.services.agent_v2.planning.planner import ImplementationPlanner
+
+    spec = RequirementSufficiencyEngine.generate_product_specification(req.prompt)
+    dna, tech_stack = ProductDNAEngine.build_dna(spec, req.prompt)
+    plan = ImplementationPlanner.generate_plan(spec, dna, tech_stack)
+    is_valid, validation_errors = ImplementationPlanner.validate_plan(plan)
+
     return {
         "success": True,
-        "plan": plan.to_dict()
+        "plan": plan.to_dict(),
+        "is_valid": is_valid,
+        "validation_errors": validation_errors,
+        "specification": spec.to_dict(),
+        "dna": dna.to_dict(),
+        "tech_stack": tech_stack.to_dict()
     }
 
 @router.post("/understand-prompt")
@@ -137,19 +149,19 @@ async def understand_user_prompt(
     user: User = Depends(get_current_user)
 ):
     """
-    Analyzes prompt through the 48-section HSBOT Prompt Understanding Pipeline.
-    Runs BEFORE requirement discovery, adaptive quiz, tool calling, or execution.
+    Analyzes prompt through the Agent V2 Requirement Sufficiency and Product Specification Engine.
+    Evaluates requirement completeness, detects missing criteria, and determines adaptive questions.
     """
-    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id, user_id=user.id)
-    engine = PromptUnderstandingEngine(orchestrator.repo_intel.summarize_context())
-    understanding = engine.analyze(
-        prompt=req.prompt,
-        target_file=req.target_file,
-        scope=req.scope or "workspace"
-    )
+    from app.services.agent_v2.understanding.sufficiency import RequirementSufficiencyEngine
+    is_sufficient, classified, question = RequirementSufficiencyEngine.evaluate(req.prompt)
+    spec = RequirementSufficiencyEngine.generate_product_specification(req.prompt)
+
     return {
         "success": True,
-        "understanding": understanding.to_dict()
+        "is_sufficient": is_sufficient,
+        "classified_requirements": {k: [r.to_dict() for r in v] for k, v in classified.items()},
+        "adaptive_question": question.to_dict() if question else None,
+        "specification": spec.to_dict()
     }
 
 @router.post("/run")
@@ -158,51 +170,19 @@ async def run_agent(
     user: User = Depends(get_current_user)
 ):
     """
-    Executes the autonomous agent engineering loop and streams progress events as SSE chunks.
+    Executes the autonomous agent engineering loop via AgentOrchestratorV2 and streams
+    all 16 lifecycle stages as real-time SSE chunks.
     """
-    if req.engine_version == "v2":
-        from app.services.agent_v2.orchestrator import AgentOrchestratorV2
-        orch_v2 = AgentOrchestratorV2(workspace_id=req.workspace_id)
+    from app.services.agent_v2.orchestrator import AgentOrchestratorV2
+    orch_v2 = AgentOrchestratorV2(workspace_id=req.workspace_id)
 
-        async def event_generator_v2():
-            try:
-                async for chunk in orch_v2.run_lifecycle(
-                    user_request=req.prompt,
-                    chat_id=req.chat_id,
-                    user_id=user.id,
-                    answers=req.answers
-                ):
-                    data = json.dumps(chunk)
-                    yield f"data: {data}\n\n"
-            except SecretLeakDetectedError as leak_err:
-                err_data = json.dumps({
-                    "type": "error",
-                    "message": str(leak_err),
-                    "blocked": True
-                })
-                yield f"data: {err_data}\n\n"
-            except Exception as e:
-                err_data = json.dumps({
-                    "type": "error",
-                    "message": str(e)
-                })
-                yield f"data: {err_data}\n\n"
-
-        return StreamingResponse(event_generator_v2(), media_type="text/event-stream")
-
-    orchestrator = AgentOrchestrator(
-        workspace_id=req.workspace_id,
-        user_id=user.id,
-        autonomy_mode=req.autonomy_mode
-    )
-
-    async def event_generator():
+    async def event_generator_v2():
         try:
-            async for chunk in orchestrator.run_autonomous_loop(
+            async for chunk in orch_v2.run_lifecycle(
                 user_request=req.prompt,
                 chat_id=req.chat_id,
                 user_id=user.id,
-                model=req.model or "llama-3.2-11b"
+                answers=req.answers
             ):
                 data = json.dumps(chunk)
                 yield f"data: {data}\n\n"
@@ -220,7 +200,7 @@ async def run_agent(
             })
             yield f"data: {err_data}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator_v2(), media_type="text/event-stream")
 
 @router.get("/workspace/tree")
 async def get_workspace_tree(

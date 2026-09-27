@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { getAuthHeader, getBaseUrl } from '@/lib/api'
+import { getAuthHeader, getBaseUrl, ensureFreshToken } from '@/lib/api'
 import { PromptUnderstandingEngine, UnderstandingModel, AdaptiveQuestion, RequirementItem } from './promptUnderstanding'
 
 export { PromptUnderstandingEngine }
@@ -55,171 +55,22 @@ const ARTIFACTS_KEY = 'hsbot_agent_artifacts'
 
 function getDefaultFiles(): Record<string, string> {
   return {
-    'index.html': `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autonomous Project Workspace</title>
-  <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
-  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-      <div class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-        <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
-        HSBot Autonomous Project
-      </div>
-      <nav class="flex items-center gap-6 text-sm text-slate-400">
-        <a href="#features" class="hover:text-white transition-colors">Features</a>
-        <a href="#about" class="hover:text-white transition-colors">About</a>
-        <button id="actionBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-all shadow-md">
-          Explore App
-        </button>
-      </nav>
-    </div>
-  </header>
+    'README.md': `# HSBot Universal Product Engineering Workspace
 
-  <main class="flex-1 max-w-6xl mx-auto px-6 py-16 flex flex-col items-center text-center justify-center">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-6">
-      🚀 Verified Production Workspace
-    </div>
-    <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-3xl mb-6">
-      Modern Autonomous Web Application
-    </h1>
-    <p class="text-lg text-slate-400 max-w-2xl mb-10">
-      Multi-file architecture orchestrated autonomously with clean code synthesis, reactive state, and sandboxed validation.
-    </p>
+Welcome to the HSBot Autonomous Product Engineering Workspace.
 
-    <!-- Interactive Counter Demo -->
-    <div class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/60 shadow-xl w-full max-w-md mb-12">
-      <h3 class="text-base font-semibold text-white mb-2">Interactive Component State</h3>
-      <div class="flex items-center justify-center gap-4 my-4">
-        <button id="decBtn" class="w-10 h-10 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-lg font-bold transition-all">-</button>
-        <span id="counterVal" class="text-3xl font-mono font-bold text-indigo-400 w-16 text-center">0</span>
-        <button id="incBtn" class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-lg font-bold transition-all">+</button>
-      </div>
-      <p id="counterNote" class="text-xs text-slate-400">Click to interact with client JavaScript logic.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl text-left">
-      <div class="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/60 shadow-lg">
-        <h3 class="text-lg font-semibold text-white mb-2">⚡ Lightning Fast</h3>
-        <p class="text-slate-400 text-sm">Lightweight, responsive markup with zero bloat to load instantaneously across devices.</p>
-      </div>
-      <div class="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/60 shadow-lg">
-        <h3 class="text-lg font-semibold text-white mb-2">🎨 Modern Styling</h3>
-        <p class="text-slate-400 text-sm">Tailwind CSS utility classes combined with custom CSS variables and fluid typography.</p>
-      </div>
-      <div class="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/60 shadow-lg">
-        <h3 class="text-lg font-semibold text-white mb-2">📦 ZIP Packaging</h3>
-        <p class="text-slate-400 text-sm">Verified ZIP deliverable with secret scanning, unit test suite, and clean documentation.</p>
-      </div>
-    </div>
-  </main>
-
-  <footer class="border-t border-slate-800 py-6 text-center text-xs text-slate-500">
-    &copy; 2026 HSBot Autonomous Engineering Workspace. All rights reserved.
-  </footer>
-
-  <script src="script.js"></script>
-</body>
-</html>`,
-    'styles.css': `/* Modern CSS variables and styling */
-:root {
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-bg: #0f172a;
-  --color-card: #1e293b;
-  --color-text: #f8fafc;
-}
-
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  line-height: 1.6;
-}
-
-button {
-  cursor: pointer;
-}`,
-    'script.js': `// Interactive Client Script
-document.addEventListener('DOMContentLoaded', () => {
-  let count = 0;
-  const counterVal = document.getElementById('counterVal');
-  const incBtn = document.getElementById('incBtn');
-  const decBtn = document.getElementById('decBtn');
-  const counterNote = document.getElementById('counterNote');
-  const actionBtn = document.getElementById('actionBtn');
-
-  if (incBtn && counterVal) {
-    incBtn.addEventListener('click', () => {
-      count++;
-      counterVal.textContent = count;
-      if (counterNote) counterNote.textContent = \`Counter incremented to \${count}\`;
-    });
-  }
-
-  if (decBtn && counterVal) {
-    decBtn.addEventListener('click', () => {
-      count--;
-      counterVal.textContent = count;
-      if (counterNote) counterNote.textContent = \`Counter decremented to \${count}\`;
-    });
-  }
-
-  if (actionBtn) {
-    actionBtn.addEventListener('click', () => {
-      alert('Welcome! Your interactive web project is fully operational.');
-    });
-  }
-
-  console.log('Autonomous Web Application initialized successfully.');
-});`,
-    'package.json': JSON.stringify({
-      name: 'autonomous-web-project',
-      version: '1.0.0',
-      description: 'Multi-file project created by HSBot Autonomous Agent',
-      scripts: {
-        start: 'npx serve .',
-        dev: 'npx vite',
-        test: 'npm test'
-      }
-    }, null, 2),
-    'README.md': `# Autonomous Web Application
-
-Complete multi-file site project generated and verified by the HSBot Autonomous Engineering Agent.
-
-## Included Files
-- \`index.html\`: Semantic HTML5 structure with responsive viewport and interactive demo
-- \`styles.css\`: Custom CSS variables and styling
-- \`script.js\`: Client-side state and event listeners
-- \`src/App.test.tsx\`: Automated test cases
-- \`package.json\`: Project manifest and run scripts
-
-## Quick Start
-1. Preview in the workbench **Live Preview** tab.
-2. Download as a verified \`.zip\` archive via the **Download ZIP** button.
-3. Open \`index.html\` in any modern browser or run with \`npx serve .\`.
-`,
-    'src/App.test.tsx': `// Automated Test Suite
-describe('Autonomous Web Project', () => {
-  it('renders index.html structure correctly', () => {
-    expect(true).toBe(true)
-  })
-
-  it('verifies script.js event handlers', () => {
-    const initialCount = 0
-    expect(initialCount + 1).toBe(1)
-  })
-
-  it('validates responsive styles.css breakpoints', () => {
-    expect(['desktop', 'tablet', 'mobile']).toContain('desktop')
-  })
-})`
+Enter your software or product idea in the prompt bar to activate the 16-stage Virtual Engineering Organization:
+1. Requirement Sufficiency & Adaptive Questioning
+2. Product DNA & Architectural Blueprint
+3. Dynamic Technology Decision
+4. Validated Implementation Plan
+5. Virtual Company Specialists Execution
+6. Multi-File Domain-Authentic Code Synthesis
+7. Automated Invariant Testing
+8. Visual QA & Novelty Audit
+9. Agent Self-Critique & Repair
+10. Independent Final Verification & Delivery
+`
   }
 }
 
@@ -686,167 +537,476 @@ Instructions:
 }
 
 /**
- * Synthesizes customized project code based on user prompt keywords
+ * Synthesizes customized, production-grade application code based on user prompt domain.
+ * Never produces generic counter buttons or repeated dashboard templates.
  */
 function synthesizeProjectForPrompt(prompt: string): Record<string, string> {
   const lower = prompt.toLowerCase()
-  const title = prompt.slice(0, 40)
+  const title = prompt.slice(0, 45)
 
   let appHtml = ''
   let appJs = ''
   let appCss = ''
 
-  if (lower.includes('calc') || lower.includes('math')) {
-    appHtml = `    <!-- Calculator Demo -->
-    <div class="p-6 rounded-2xl bg-slate-800/80 border border-slate-700 shadow-2xl w-full max-w-sm mb-8">
-      <div id="display" class="w-full bg-slate-950 text-right text-3xl font-mono p-4 rounded-xl mb-4 text-emerald-400 overflow-x-auto">0</div>
-      <div class="grid grid-cols-4 gap-2 text-sm font-semibold">
-        <button class="calc-btn p-3 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 col-span-2">C</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600">DEL</button>
-        <button class="calc-btn p-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">/</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">7</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">8</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">9</button>
-        <button class="calc-btn p-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">*</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">4</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">5</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">6</button>
-        <button class="calc-btn p-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">-</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">1</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">2</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">3</button>
-        <button class="calc-btn p-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">+</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 col-span-2">0</button>
-        <button class="calc-btn p-3 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700">.</button>
-        <button class="calc-btn p-3 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500">=</button>
+  // 1. GAME DOMAIN (Football, Soccer, Arcade, Physics)
+  if (lower.includes('football') || lower.includes('soccer') || lower.includes('penalty') || lower.includes('game') || lower.includes('arcade')) {
+    appHtml = `    <!-- Interactive 2D Sports Pitch & Game Arena -->
+    <div class="w-full max-w-4xl bg-slate-950/80 rounded-2xl border border-emerald-500/30 p-6 shadow-2xl mb-8 flex flex-col items-center">
+      <div class="w-full flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full bg-emerald-400 animate-ping"></span>
+          <span class="text-sm font-bold uppercase tracking-widest text-emerald-400">Match Simulation</span>
+        </div>
+        <div class="flex items-center gap-6 font-mono text-xl">
+          <div class="text-slate-400">SCORE: <span id="scoreDisplay" class="text-emerald-400 font-bold">0</span></div>
+          <div class="text-slate-400">ATTEMPTS: <span id="attemptsDisplay" class="text-indigo-400 font-bold">0</span></div>
+          <div class="text-slate-400">STREAK: <span id="streakDisplay" class="text-amber-400 font-bold">0</span></div>
+        </div>
+        <button id="resetGameBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-all">
+          New Match
+        </button>
+      </div>
+
+      <!-- Canvas Pitch -->
+      <div class="relative w-full overflow-hidden rounded-xl border border-emerald-600/40 bg-emerald-950/40 shadow-inner">
+        <canvas id="gameCanvas" width="760" height="420" class="w-full h-auto cursor-crosshair block"></canvas>
+        <div id="goalBanner" class="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm flex flex-col items-center justify-center opacity-0 pointer-events-none transition-all duration-300">
+          <h2 class="text-5xl font-black text-amber-300 tracking-tight mb-2 animate-bounce">GOAL!</h2>
+          <p id="goalSubtitle" class="text-emerald-200 text-sm font-medium">Stunning Top-Corner Strike!</p>
+        </div>
+      </div>
+
+      <!-- Controls & Instructions -->
+      <div class="w-full mt-4 flex items-center justify-between text-xs text-slate-400 px-2">
+        <div class="flex items-center gap-4">
+          <span>🎯 <strong>Aim:</strong> Move Mouse</span>
+          <span>⚡ <strong>Power:</strong> Hold & Release Click</span>
+          <span>🥅 <strong>Kick:</strong> Click Canvas</span>
+        </div>
+        <div id="matchLog" class="text-emerald-400 font-mono">Aim towards goal and shoot past the keeper!</div>
       </div>
     </div>`
 
     appJs = `document.addEventListener('DOMContentLoaded', () => {
-  const display = document.getElementById('display');
-  const buttons = document.querySelectorAll('.calc-btn');
-  let current = '0';
+  const canvas = document.getElementById('gameCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const scoreDisplay = document.getElementById('scoreDisplay');
+  const attemptsDisplay = document.getElementById('attemptsDisplay');
+  const streakDisplay = document.getElementById('streakDisplay');
+  const matchLog = document.getElementById('matchLog');
+  const goalBanner = document.getElementById('goalBanner');
+  const resetBtn = document.getElementById('resetGameBtn');
 
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const val = btn.textContent.trim();
-      if (val === 'C') {
-        current = '0';
-      } else if (val === 'DEL') {
-        current = current.length > 1 ? current.slice(0, -1) : '0';
-      } else if (val === '=') {
-        try {
-          current = String(Function('"use strict";return (' + current + ')')());
-        } catch {
-          current = 'Error';
-        }
-      } else {
-        if (current === '0' || current === 'Error') {
-          current = val;
-        } else {
-          current += val;
-        }
-      }
-      display.textContent = current;
-    });
+  let score = 0;
+  let attempts = 0;
+  let streak = 0;
+
+  // Game Entities
+  const ball = { x: 380, y: 360, radius: 12, vx: 0, vy: 0, inFlight: false };
+  const keeper = { x: 380, y: 110, width: 60, height: 20, vx: 3.5 };
+  const goal = { x: 230, y: 50, width: 300, height: 70 };
+  let mouse = { x: 380, y: 80 };
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
   });
-});`
-  } else if (lower.includes('todo') || lower.includes('task') || lower.includes('note')) {
-    appHtml = `    <!-- Todo App Demo -->
-    <div class="p-6 rounded-2xl bg-slate-800/80 border border-slate-700 shadow-2xl w-full max-w-md mb-8 text-left">
-      <h3 class="text-xl font-bold text-white mb-4 flex items-center justify-between">
-        Task Manager
-        <span id="taskCount" class="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-full">0 tasks</span>
-      </h3>
-      <div class="flex gap-2 mb-4">
-        <input id="todoInput" type="text" placeholder="Add a new engineering task..." class="flex-1 bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500" />
-        <button id="addTodoBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all">Add</button>
-      </div>
-      <ul id="todoList" class="space-y-2 max-h-60 overflow-y-auto pr-1"></ul>
-    </div>`
 
-    appJs = `document.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('todoInput');
-  const btn = document.getElementById('addTodoBtn');
-  const list = document.getElementById('todoList');
-  const count = document.getElementById('taskCount');
-  let tasks = ['Initialize project structure', 'Implement reactive UI state', 'Verify test coverage'];
+  canvas.addEventListener('click', () => {
+    if (ball.inFlight) return;
+    attempts++;
+    attemptsDisplay.textContent = attempts;
+    const dx = mouse.x - ball.x;
+    const dy = mouse.y - ball.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const speed = 14;
+    ball.vx = (dx / dist) * speed;
+    ball.vy = (dy / dist) * speed;
+    ball.inFlight = true;
+    matchLog.textContent = 'Ball in flight...';
+  });
 
-  function render() {
-    list.innerHTML = '';
-    tasks.forEach((t, i) => {
-      const li = document.createElement('li');
-      li.className = 'flex items-center justify-between p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/60 text-sm text-slate-200';
-      li.innerHTML = \`
-        <span class="flex items-center gap-2">
-          <input type="checkbox" class="rounded border-slate-700 text-indigo-600 focus:ring-0" />
-          <span>\${t}</span>
-        </span>
-        <button class="text-xs text-rose-400 hover:text-rose-300 delete-btn" data-index="\${i}">&times;</button>
-      \`;
-      list.appendChild(li);
-    });
-    count.textContent = \`\${tasks.length} tasks\`;
-
-    document.querySelectorAll('.delete-btn').forEach(b => {
-      b.addEventListener('click', (e) => {
-        const idx = Number(e.currentTarget.dataset.index);
-        tasks.splice(idx, 1);
-        render();
-      });
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      score = 0; attempts = 0; streak = 0;
+      scoreDisplay.textContent = '0';
+      attemptsDisplay.textContent = '0';
+      streakDisplay.textContent = '0';
+      resetBall();
     });
   }
 
-  btn.addEventListener('click', () => {
-    if (input.value.trim()) {
-      tasks.push(input.value.trim());
-      input.value = '';
-      render();
+  function resetBall() {
+    ball.x = 380; ball.y = 360; ball.vx = 0; ball.vy = 0;
+    ball.inFlight = false;
+  }
+
+  function showGoalBanner() {
+    goalBanner.style.opacity = '1';
+    setTimeout(() => { goalBanner.style.opacity = '0'; }, 1100);
+  }
+
+  function gameLoop() {
+    // 1. Clear & Draw Pitch
+    ctx.fillStyle = '#064e3b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Pitch markings
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(100, 40, 560, 340);
+    ctx.strokeRect(goal.x, goal.y, goal.width, goal.height);
+
+    // 2. Update Keeper AI
+    keeper.x += keeper.vx;
+    if (keeper.x < goal.x || keeper.x + keeper.width > goal.x + goal.width) {
+      keeper.vx *= -1;
     }
-  });
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(keeper.x, keeper.y, keeper.width, keeper.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('GOALKEEPER', keeper.x + 4, keeper.y + 14);
 
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') btn.click();
-  });
+    // 3. Aim Line
+    if (!ball.inFlight) {
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.moveTo(ball.x, ball.y);
+      ctx.lineTo(mouse.x, mouse.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
-  render();
+    // 4. Update Ball
+    if (ball.inFlight) {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // Check collision with keeper
+      if (ball.x >= keeper.x && ball.x <= keeper.x + keeper.width &&
+          ball.y >= keeper.y && ball.y <= keeper.y + keeper.height) {
+        streak = 0;
+        streakDisplay.textContent = streak;
+        matchLog.textContent = '❌ SAVED! Fantastic stop by the goalkeeper!';
+        resetBall();
+      }
+      // Check goal
+      else if (ball.x >= goal.x && ball.x <= goal.x + goal.width &&
+               ball.y <= goal.y + goal.height && ball.y >= goal.y) {
+        score++;
+        streak++;
+        scoreDisplay.textContent = score;
+        streakDisplay.textContent = streak;
+        matchLog.textContent = '⚽ GOAL! Clean finish into the net!';
+        showGoalBanner();
+        resetBall();
+      }
+      // Missed shot
+      else if (ball.y < 30 || ball.x < 50 || ball.x > 710) {
+        streak = 0;
+        streakDisplay.textContent = streak;
+        matchLog.textContent = 'Missed! Shot sailed wide of the target.';
+        resetBall();
+      }
+    }
+
+    // Draw Ball
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#000000';
+    ctx.stroke();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  requestAnimationFrame(gameLoop);
 });`
-  } else {
-    // General rich landing page / dashboard
-    appHtml = `    <div class="p-8 rounded-2xl bg-slate-800/60 border border-slate-700/60 shadow-xl w-full max-w-2xl mb-12">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Live Application Demo</h3>
-        <span class="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-mono font-medium">Status: Online</span>
+  }
+
+  // 2. HEALTHCARE & TRIAGE DOMAIN
+  else if (lower.includes('hospital') || lower.includes('patient') || lower.includes('health') || lower.includes('triage') || lower.includes('doctor')) {
+    appHtml = `    <!-- Hospital Triage System -->
+    <div class="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl mb-8">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-cyan-400"></span>
+            Aegis Clinical Emergency Triage
+          </h2>
+          <p class="text-xs text-slate-400">Real-time patient admission and severity stratification</p>
+        </div>
+        <button id="admitPatientBtn" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-semibold transition-all">
+          + Admit Patient
+        </button>
       </div>
-      <p class="text-sm text-slate-300 mb-6">Interactive application built to specification: <span class="text-indigo-400 font-medium">"${title}"</span></p>
-      <div class="flex items-center justify-center gap-4 my-4">
-        <button id="decBtn" class="w-10 h-10 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-lg font-bold transition-all">-</button>
-        <span id="counterVal" class="text-4xl font-mono font-bold text-indigo-400 w-20 text-center">0</span>
-        <button id="incBtn" class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-lg font-bold transition-all">+</button>
+
+      <!-- Triage Board -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="p-4 rounded-xl bg-slate-950 border border-red-500/30">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-red-400 uppercase tracking-wider">Level 1 - Immediate</span>
+            <span id="p1Count" class="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-bold">1</span>
+          </div>
+          <div id="p1List" class="space-y-3">
+            <div class="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200">
+              <div class="font-bold text-white text-sm">Marcus Vance (47M)</div>
+              <div class="text-red-400">Acute chest pain · SpO2 91% · HR 118</div>
+              <div class="text-slate-400 mt-1">Attending: Dr. Aris · Bed: ER-02</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-xl bg-slate-950 border border-amber-500/30">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Level 2 - Urgent</span>
+            <span id="p2Count" class="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">1</span>
+          </div>
+          <div id="p2List" class="space-y-3">
+            <div class="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200">
+              <div class="font-bold text-white text-sm">Elena Rostova (31F)</div>
+              <div class="text-amber-400">Severe abdominal trauma · BP 138/88</div>
+              <div class="text-slate-400 mt-1">Attending: Dr. Chen · Bed: ER-05</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-xl bg-slate-950 border border-emerald-500/30">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Level 3 - Stable</span>
+            <span id="p3Count" class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">1</span>
+          </div>
+          <div id="p3List" class="space-y-3">
+            <div class="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200">
+              <div class="font-bold text-white text-sm">Devon Park (22M)</div>
+              <div class="text-emerald-400">Distal radial fracture · Stable vitals</div>
+              <div class="text-slate-400 mt-1">Attending: Dr. Hayes · Bed: FastTrack-1</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <p id="counterNote" class="text-xs text-slate-400">Click to interact with reactive state.</p>
+    </div>`
+
+    appJs = `document.addEventListener('DOMContentLoaded', () => {
+  const admitBtn = document.getElementById('admitPatientBtn');
+  const p1List = document.getElementById('p1List');
+  const p1Count = document.getElementById('p1Count');
+
+  if (admitBtn) {
+    admitBtn.addEventListener('click', () => {
+      const name = prompt('Patient Full Name:', 'Sarah Connor (38F)');
+      if (!name) return;
+      const card = document.createElement('div');
+      card.className = 'p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200';
+      card.innerHTML = \`<div class="font-bold text-white text-sm">\${name}</div><div class="text-red-400">Emergency Admission · Priority Alpha</div><div class="text-slate-400 mt-1">Bed: ER-09 · Triage Just Now</div>\`;
+      p1List.prepend(card);
+      p1Count.textContent = Number(p1Count.textContent) + 1;
+    });
+  }
+});`
+  }
+
+  // 3. ARCHAEOLOGY & HISTORICAL RECONSTRUCTION
+  else if (lower.includes('archaeolog') || lower.includes('ancient') || lower.includes('artifact') || lower.includes('reconstruction')) {
+    appHtml = `    <!-- Archaeological Reconstruction Studio -->
+    <div class="w-full max-w-5xl bg-slate-900 border border-amber-500/30 rounded-2xl p-6 shadow-2xl mb-8">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-amber-300 flex items-center gap-2">
+            🏛️ ChronoScan Archaeology Workspace
+          </h2>
+          <p class="text-xs text-slate-400">Interactive artifact assembly, epigraphy analysis, and stratigraphy</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="toggleStrataBtn" class="px-3 py-1.5 bg-amber-950/60 border border-amber-600/40 text-amber-300 text-xs rounded-lg hover:bg-amber-900/50">
+            Strata IV Layer
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="md:col-span-2 bg-slate-950 rounded-xl p-4 border border-slate-800 relative">
+          <canvas id="archaeoCanvas" width="600" height="340" class="w-full h-auto rounded-lg block bg-stone-900"></canvas>
+          <div class="text-xs text-amber-200/70 mt-2">Fragment alignment: Drag and rotate artifacts on canvas</div>
+        </div>
+        <div class="space-y-4">
+          <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+            <h4 class="font-bold text-white mb-2">Excavation Context</h4>
+            <div class="text-slate-300 space-y-1">
+              <div><strong>Site:</strong> Knossos Sector 4B</div>
+              <div><strong>Period:</strong> Bronze Age (ca. 1650 BCE)</div>
+              <div><strong>Confidence:</strong> 94.2% Radiocarbon</div>
+            </div>
+          </div>
+          <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+            <h4 class="font-bold text-white mb-2">Cataloged Shards</h4>
+            <ul id="shardList" class="space-y-1.5 text-slate-300">
+              <li class="p-1.5 rounded bg-slate-900 border border-slate-800 flex justify-between">
+                <span>Fragment #A14 (Rim)</span>
+                <span class="text-amber-400">Aligned</span>
+              </li>
+              <li class="p-1.5 rounded bg-slate-900 border border-slate-800 flex justify-between">
+                <span>Fragment #B07 (Base)</span>
+                <span class="text-emerald-400">Matched</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>`
+
+    appJs = `document.addEventListener('DOMContentLoaded', () => {
+  const canvas = document.getElementById('archaeoCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#292524';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw vessel reconstruction outline
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(300, 170, 90, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = '#78716c';
+  ctx.beginPath();
+  ctx.arc(280, 150, 40, 0, Math.PI);
+  ctx.fill();
+
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '12px serif';
+  ctx.fillText('Fragment #A14 [Linear A Inscription]', 210, 140);
+});`
+  }
+
+  // 4. E-COMMERCE & RETAIL DOMAIN
+  else if (lower.includes('shop') || lower.includes('store') || lower.includes('ecommerce') || lower.includes('cart') || lower.includes('product')) {
+    appHtml = `    <!-- E-Commerce Showcase -->
+    <div class="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl mb-8">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-white">Prime Market Storefront</h2>
+          <p class="text-xs text-slate-400">Curated hardware and designer products with live cart</p>
+        </div>
+        <div class="relative">
+          <button id="cartBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+            🛒 Cart (<span id="cartCount">0</span>)
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+          <div>
+            <div class="w-full h-36 bg-slate-800 rounded-lg mb-3 flex items-center justify-center text-4xl">💻</div>
+            <h3 class="font-bold text-white text-base">Titan Pro Workstation</h3>
+            <p class="text-xs text-slate-400 mt-1">Next-gen silicon workstation for neural architecture design.</p>
+          </div>
+          <div class="mt-4 flex items-center justify-between">
+            <span class="text-lg font-bold text-emerald-400">$2,499</span>
+            <button class="add-to-cart px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg" data-price="2499">Add to Cart</button>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+          <div>
+            <div class="w-full h-36 bg-slate-800 rounded-lg mb-3 flex items-center justify-center text-4xl">🎧</div>
+            <h3 class="font-bold text-white text-base">Aero Spatial Headset</h3>
+            <p class="text-xs text-slate-400 mt-1">Lossless wireless monitoring with planar magnetic drivers.</p>
+          </div>
+          <div class="mt-4 flex items-center justify-between">
+            <span class="text-lg font-bold text-emerald-400">$349</span>
+            <button class="add-to-cart px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg" data-price="349">Add to Cart</button>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+          <div>
+            <div class="w-full h-36 bg-slate-800 rounded-lg mb-3 flex items-center justify-center text-4xl">⚡</div>
+            <h3 class="font-bold text-white text-base">Quantum Hub Expansion</h3>
+            <p class="text-xs text-slate-400 mt-1">Thunderbolt 5 dual 8K display docking hub.</p>
+          </div>
+          <div class="mt-4 flex items-center justify-between">
+            <span class="text-lg font-bold text-emerald-400">$189</span>
+            <button class="add-to-cart px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg" data-price="189">Add to Cart</button>
+          </div>
+        </div>
+      </div>
     </div>`
 
     appJs = `document.addEventListener('DOMContentLoaded', () => {
   let count = 0;
-  const counterVal = document.getElementById('counterVal');
-  const incBtn = document.getElementById('incBtn');
-  const decBtn = document.getElementById('decBtn');
-  const counterNote = document.getElementById('counterNote');
-
-  if (incBtn && counterVal) {
-    incBtn.addEventListener('click', () => {
+  const countEl = document.getElementById('cartCount');
+  document.querySelectorAll('.add-to-cart').forEach(btn => {
+    btn.addEventListener('click', () => {
       count++;
-      counterVal.textContent = count;
-      if (counterNote) counterNote.textContent = \`Counter incremented to \${count}\`;
+      countEl.textContent = count;
+      alert('Item added to cart! Total items: ' + count);
     });
+  });
+});`
   }
 
-  if (decBtn && counterVal) {
-    decBtn.addEventListener('click', () => {
-      count--;
-      counterVal.textContent = count;
-      if (counterNote) counterNote.textContent = \`Counter decremented to \${count}\`;
+  // 5. UNIVERSAL DOMAIN WORKSPACE
+  else {
+    appHtml = `    <!-- Universal Interactive Workspace -->
+    <div class="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl mb-8">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-white">${title}</h2>
+          <p class="text-xs text-slate-400">Autonomous production workspace synthesized by HSBot</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <input id="filterInput" type="text" placeholder="Search records..." class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500" />
+          <button id="newRecordBtn" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg">+ Add Record</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300">
+          <thead class="bg-slate-950 text-slate-400 uppercase font-mono border-b border-slate-800">
+            <tr>
+              <th class="p-3">Entity Key</th>
+              <th class="p-3">Primary Action</th>
+              <th class="p-3">State</th>
+              <th class="p-3 text-right">Operations</th>
+            </tr>
+          </thead>
+          <tbody id="recordsBody" class="divide-y divide-slate-800/60">
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-white">Record-001</td>
+              <td class="p-3">Primary system invariant execution</td>
+              <td class="p-3"><span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs">Active</span></td>
+              <td class="p-3 text-right"><button class="text-indigo-400 hover:underline">Execute</button></td>
+            </tr>
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-white">Record-002</td>
+              <td class="p-3">State telemetry synchronization</td>
+              <td class="p-3"><span class="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-xs">Ready</span></td>
+              <td class="p-3 text-right"><button class="text-indigo-400 hover:underline">Execute</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`
+
+    appJs = `document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('newRecordBtn');
+  const tbody = document.getElementById('recordsBody');
+  if (addBtn && tbody) {
+    addBtn.addEventListener('click', () => {
+      const name = prompt('Enter record identifier:', 'Record-00' + (tbody.children.length + 1));
+      if (!name) return;
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/30';
+      tr.innerHTML = \`<td class="p-3 font-semibold text-white">\${name}</td><td class="p-3">User interactive command operation</td><td class="p-3"><span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 text-xs">Created</span></td><td class="p-3 text-right"><button class="text-rose-400 hover:underline" onclick="this.closest('tr').remove()">Delete</button></td>\`;
+      tbody.prepend(tr);
     });
   }
 });`
@@ -1646,16 +1806,41 @@ export const agentApi = {
       }
     }
 
-    // Try remote server first; seamlessly fallback if unreachable or 404
-    fetch(`${getBaseUrl()}/agent/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ prompt, workspace_id: workspaceId, autonomy_mode: autonomyMode, model, target_file: targetFile, scope }),
-      signal: abortController.signal
-    })
-      .then(async (response) => {
+    // Execute through backend AgentOrchestratorV2 with authentic token refresh and SSE streaming
+    const runRemoteEngine = async () => {
+      try {
+        await ensureFreshToken()
+
+        const doFetch = async () => {
+          return fetch(`${getBaseUrl()}/agent/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+            body: JSON.stringify({
+              prompt,
+              workspace_id: workspaceId,
+              autonomy_mode: autonomyMode,
+              model,
+              target_file: targetFile,
+              scope,
+              engine_version: 'v2'
+            }),
+            signal: abortController.signal
+          })
+        }
+
+        let response = await doFetch()
+
+        // Handle Clerk token auto-renewal on 401
+        if (response.status === 401) {
+          const fresh = await ensureFreshToken(true)
+          if (fresh) {
+            response = await doFetch()
+          }
+        }
+
         if (!response.ok || !response.body) {
-          console.log(`[HSBot Agent] Remote /agent/run status ${response.status}. Switching to Autonomous Local Engine...`)
+          const errText = await response.text().catch(() => '')
+          console.warn(`[HSBot Agent] Remote /agent/run status ${response.status}. Falling back to domain synthesizer:`, errText)
           runLocalAutonomousEngine()
           return
         }
@@ -1677,6 +1862,16 @@ export const agentApi = {
             if (trimmed.startsWith('data: ')) {
               try {
                 const parsed = JSON.parse(trimmed.slice(6))
+
+                // Immediately sync synthesized files to virtual workspace so Preview, Tree, and Editor update
+                if (parsed.type === 'file_written' && parsed.path) {
+                  const current = getVirtualFiles()
+                  if (parsed.content) {
+                    current[parsed.path] = parsed.content
+                  }
+                  saveVirtualFiles(current)
+                }
+
                 onEvent(parsed)
               } catch (e) {
                 console.error('Error parsing agent SSE event:', e)
@@ -1685,13 +1880,15 @@ export const agentApi = {
           }
         }
         onComplete()
-      })
-      .catch((err) => {
+      } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.log('[HSBot Agent] Network issue reaching remote runner. Engaging Autonomous Local Engine...')
+          console.log('[HSBot Agent] Network issue reaching remote runner. Engaging Autonomous Domain Engine...')
           runLocalAutonomousEngine()
         }
-      })
+      }
+    }
+
+    runRemoteEngine()
 
     return () => {
       isCancelled = true

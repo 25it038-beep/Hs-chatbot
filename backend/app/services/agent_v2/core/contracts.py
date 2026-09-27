@@ -226,28 +226,109 @@ class ProductDNA:
 
 
 @dataclass
+class AgentModelActivity:
+    """
+    Tracks model activity events for real-time visibility and timeline auditing (§16, §17).
+    """
+    timestamp: float
+    model: str
+    role: str
+    task: str
+    status: str
+    duration_s: float = 0.0
+    tool_calls: List[str] = field(default_factory=list)
+    files_changed: List[str] = field(default_factory=list)
+    result: str = ""
+    verification_status: str = "PENDING"
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class GenerationProvenanceRecord:
+    """
+    Cryptographic & structural provenance tracking to verify genuine AI generation (§43, §44).
+    """
+    project_id: str
+    task_id: str
+    model: str
+    role: str
+    prompt_version: str
+    input_context_hash: str
+    output_hash: str
+    files_created: List[str]
+    files_modified: List[str]
+    tools_used: List[str]
+    timestamp: float
+    is_genuine_ai: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TemplateContaminationReport:
+    """
+    Detects whether generated code has regressed into forbidden static template clones (§4).
+    """
+    is_contaminated: bool
+    confidence_score: float
+    matched_patterns: List[str]
+    details: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ApplicationUniquenessReport:
+    """
+    Validates structural uniqueness across different application requests (§26).
+    """
+    is_unique: bool
+    similarity_score: float
+    compared_project_id: Optional[str]
+    reasons: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ModelHandoffContract:
     """
-    Explicit, structured communication contract between virtual company specialists (§6).
-    Eliminates vague hidden context and ensures exact boundary compliance.
+    Explicit, structured communication contract between virtual company specialists (§6, §9, §18).
+    Every model receives complete product context and full-application understanding.
     """
     project_id: str
     task_id: str
     from_role: AgentRole
     to_role: AgentRole
+    original_user_request: str = ""
     product_specification: Optional[Dict[str, Any]] = None
     requirements: List[str] = field(default_factory=list)
+    product_dna: Optional[Dict[str, Any]] = None
     acceptance_criteria: List[str] = field(default_factory=list)
     technology_decision: Optional[Dict[str, Any]] = None
     architecture: Optional[Dict[str, Any]] = None
+    project_structure: Dict[str, Any] = field(default_factory=dict)
+    current_files: Dict[str, str] = field(default_factory=dict)
     relevant_files: List[str] = field(default_factory=list)
+    current_task: Dict[str, Any] = field(default_factory=dict)
+    previous_changes: List[str] = field(default_factory=list)
     current_project_state: str = "READY"
     previous_results: Dict[str, Any] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
+    tests: Dict[str, Any] = field(default_factory=dict)
     constraints: Dict[str, Any] = field(default_factory=dict)
     expected_output: str = ""
     verification_criteria: str = ""
     evidence: Dict[str, Any] = field(default_factory=dict)
+    provenance_records: List[Dict[str, Any]] = field(default_factory=list)
+    model_activities: List[Dict[str, Any]] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -271,3 +352,4 @@ class VerificationMatrixItem:
         d = asdict(self)
         d["status"] = self.status.value if isinstance(self.status, Enum) else self.status
         return d
+

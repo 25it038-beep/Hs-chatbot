@@ -4,7 +4,7 @@ import { useTheme } from '@/components/theme/ThemeProvider'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio, MessageSquare, Bot
+  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio, MessageSquare, Bot, Video
 } from 'lucide-react'
 import { isTauri } from '@/lib/tauri'
 import { useChat } from '@/stores/chat'
@@ -84,6 +84,18 @@ export function Header() {
               <Bot size={12} />
               <span>Agent Mode</span>
               <span className="hidden sm:inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+            <button
+              onClick={() => setAppMode('video')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                appMode === 'video'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Video size={12} />
+              <span>Video Studio</span>
+              <span className="hidden sm:inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
             </button>
           </div>
         </div>

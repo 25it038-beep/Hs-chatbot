@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
-from app.api import auth, chats, models, files, nvidia_api, browser, documents, live, agent, agent_v2
+from app.api import auth, chats, models, files, nvidia_api, browser, documents, live, agent, agent_v2, video
 from app.web.api import web_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
@@ -99,6 +99,7 @@ app.include_router(documents.router)
 app.include_router(live.router)
 app.include_router(agent.router)
 app.include_router(agent_v2.router)
+app.include_router(video.router)
 app.include_router(web_router)
 
 

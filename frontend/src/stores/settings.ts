@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type AppMode = 'chat' | 'agent' | 'files'
+export type AppMode = 'chat' | 'agent' | 'files' | 'video'
 
 interface SettingsState {
   sidebarOpen: boolean

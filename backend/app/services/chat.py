@@ -725,6 +725,9 @@ class ChatService:
                     web_images_md = ""
                     web_videos_md = ""
                     web_sources_md = ""
+                    web_sources_list = []
+                    with_videos = False
+                    video_task = None
                     from app.services.media.youtube import youtube_service
                     is_video_task = (
                         task == "video_search"
@@ -807,6 +810,7 @@ class ChatService:
                             await status_q.put(s)
 
                         force_images = task_decision.get("requires_images") and task != "web_images"
+                        with_videos = classify_video_intent(request.message) in ("required", "recommended")
                         # Provide current time for live context
                         now_iso = datetime.now(timezone.utc).isoformat()
                         retrieval_task = asyncio.create_task(

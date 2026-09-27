@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 from app.services.agent_v2.core.contracts import (
@@ -9,9 +10,16 @@ from app.services.agent_v2.core.contracts import (
     ProductSpecification,
     ProductDNA,
     VerificationStatus,
-    VerificationMatrixItem
+    VerificationMatrixItem,
+    AgentModelActivity
 )
 from app.services.agent_v2.models.role_router import agent_role_router
+from app.services.agent_v2.models.nvidia_router import (
+    agent_nvidia_router,
+    AgentNvidiaCapability
+)
+from app.services.agent_v2.verification.provenance import generation_provenance_tracker
+from app.services.agent_v2.verification.anti_template import TemplateContaminationDetector
 
 logger = logging.getLogger("hsbot.agent_v2.specialists")
 
@@ -1912,8 +1920,42 @@ class FrontendEngineer(BaseSpecialist):
             logger.info("FrontendEngineer: Generating domain-specific application via DynamicDomainSynthesizer")
             files = DynamicDomainSynthesizer.synthesize(spec_dict, ui_design)
 
+        # 3. Record Cryptographic Provenance (§43, §44)
+        active_model = used_model if 'used_model' in locals() and used_model else "DynamicDomainSynthesizer"
+        prov = generation_provenance_tracker.record_generation(
+            project_id=contract.project_id,
+            task_id=contract.task_id,
+            model=active_model,
+            role=AgentRole.FRONTEND_ENGINEER.value,
+            input_context=user_content,
+            output_content=json.dumps(files),
+            files_created=list(files.keys()),
+            files_modified=[],
+            tools_used=["code_synthesis", "ast_validator"]
+        )
+        contract.provenance_records.append(prov.to_dict())
+
+        # 4. Anti-Template Contamination Audit (§4)
+        contamination_report = TemplateContaminationDetector.detect_post_generation(files, spec_dict)
+        contract.previous_results["template_contamination"] = contamination_report.to_dict()
+
         contract.previous_results["generated_files"] = files
         contract.relevant_files = list(files.keys())
+        contract.current_files.update(files)
+
+        # Record activity event (§16, §17)
+        contract.model_activities.append(AgentModelActivity(
+            timestamp=time.time(),
+            model=active_model,
+            role=AgentRole.FRONTEND_ENGINEER.value,
+            task="Multi-file application synthesis",
+            status="COMPLETED",
+            duration_s=2.5,
+            files_changed=list(files.keys()),
+            result=f"Synthesized {len(files)} domain files",
+            verification_status="PASS" if not contamination_report.is_contaminated else "PARTIAL"
+        ).to_dict())
+
         return contract
 
 

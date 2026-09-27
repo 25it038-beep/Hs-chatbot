@@ -36,8 +36,10 @@ from app.services.agent_v2.qa.qa_engine import (
     NoveltyTestEngine,
     AgentCritic,
     TemplateContaminationDetector,
-    ApplicationUniquenessValidator
+    ApplicationUniquenessValidator,
 )
+from app.services.agent_v2.models.nvidia_router import agent_nvidia_router, AgentNvidiaCapability
+from app.services.agent_v2.verification.provenance import generation_provenance_tracker
 from app.services.agent.terminal import TerminalAgent
 from app.services.agent.qa_engine import VisualQAInspector, UserFlowVerifier
 from app.services.artifacts.engine import artifact_engine
@@ -139,6 +141,15 @@ class AgentOrchestratorV2:
         # Checkpoint: Plan Verified (§56)
         self.workspace.create_checkpoint("plan_verified", CheckpointType.PLAN_VERIFIED)
 
+        # Stage 4b: SHOW USER PLAN & VALIDATION (§8, §37)
+        yield {
+            "type": "plan_approval_ready",
+            "plan": plan.to_dict(),
+            "spec": spec.to_dict(),
+            "dna": dna.to_dict(),
+            "tech_stack": tech_stack.to_dict()
+        }
+
         # Stage 5: SPECIALIST AGENT EXECUTION (§23, §24, §25, §26)
         self.stage = OrchestratorStage.IMPLEMENTATION
         yield {"type": "stage_update", "stage": self.stage.value, "message": f"Specialist agents synthesizing {spec.product_name}..."}
@@ -148,10 +159,19 @@ class AgentOrchestratorV2:
             task_id="TASK-SYNTHESIS",
             from_role=AgentRole.CEO_PRODUCT_DIRECTOR,
             to_role=AgentRole.SOLUTION_ARCHITECT,
+            original_user_request=user_request,
             product_specification=spec.to_dict(),
             requirements=spec.core_workflow,
+            product_dna=dna.to_dict(),
             acceptance_criteria=["Zero template reuse", "Interactive state machine", "Responsive layout"]
         )
+
+        # Anti-Template Pre-Check (§4)
+        pre_check = TemplateContaminationDetector.detect_pre_generation(contract)
+        yield {
+            "type": "anti_template_pre_check",
+            "report": pre_check.to_dict()
+        }
 
         # 5a. Solution Architect
         yield {"type": "task_update", "task_id": "TASK-1", "status": "running"}
@@ -203,11 +223,30 @@ class AgentOrchestratorV2:
         }
         yield {"type": "task_update", "task_id": "TASK-2", "status": "completed"}
 
+        # Model routing visibility (§16)
+        primary_fe_model, _, _ = agent_nvidia_router.route_task(
+            role=AgentRole.FRONTEND_ENGINEER,
+            required_capabilities=[AgentNvidiaCapability.CODING, AgentNvidiaCapability.UI, AgentNvidiaCapability.ARCHITECTURE]
+        )
+        yield {
+            "type": "model_assigned",
+            "model": primary_fe_model.display_name,
+            "model_id": primary_fe_model.model_id,
+            "role": "Frontend Engineer",
+            "task": f"Synthesizing complete application files for {spec.product_name}",
+            "phase": "Implementation",
+            "tools": ["filesystem", "build", "code_generator"]
+        }
+
         # 5c. Frontend Engineer & Code Generator
         yield {"type": "task_update", "task_id": "TASK-3", "status": "running"}
         frontend = FrontendEngineer()
         contract = await frontend.execute(contract)
         generated_files = contract.previous_results.get("generated_files", {})
+
+        # Emit model activities (§17)
+        for act in contract.model_activities:
+            yield {"type": "model_activity", "activity": act}
 
         # Write files into real workspace (§29)
         for rel_path, file_content in generated_files.items():

@@ -106,6 +106,26 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - **Build/verify**: backend `pytest tests -q` (135), frontend `npx tsc --noEmit` + `npm run build`, desktop `cargo check` in `desktop/src-tauri` (requires `build.rs` with `tauri_build::build()` — was missing, OUT_DIR error). Run desktop: `cd desktop && npm run tauri dev` (needs backend + frontend dev servers).
 
 
+### AI Video Generation Studio (§30)
+- **What**: Production-grade, completely isolated AI Video Generation studio powered by NVIDIA NIM foundation video models (`wan-ai/wan2.2` and `nvidia/cosmos3-nano`). Allows Text-to-Video and Image-to-Video synthesis with HTTP 206 Partial Content range-streaming player, prompt enhancer, and high-speed MP4 downloads.
+- **Backend Architecture**: `backend/app/services/video/` (`models.py`, `schemas.py`, `validation.py`, `storage.py`, `enhancer.py`, `router.py`, `health.py`, `jobs.py`, and `providers/` with `NvidiaWanVideoProvider` and `NvidiaCosmosVideoProvider`).
+- **Endpoints**: `backend/app/api/video.py` mounted at `/api/video`:
+  - `GET /api/video/health` - Subsystem and NVIDIA provider readiness
+  - `GET /api/video/models` - Listing of supported models, resolutions, aspect ratios, durations, and capabilities
+  - `POST /api/video/generate` - Enqueues asynchronous generation job (max 2 concurrent workers)
+  - `GET /api/video/jobs/{job_id}` - Polls real elapsed time and lifecycle state (`QUEUED`, `SUBMITTING`, `GENERATING`, `PROCESSING`, `COMPLETED`, `FAILED`, `CANCELLED`)
+  - `POST /api/video/jobs/{job_id}/cancel` - Cancels an in-flight job
+  - `GET /api/video/jobs` - Retrieves user's video generation history
+  - `DELETE /api/video/jobs/{job_id}` - Deletes job and associated MP4 file
+  - `GET /api/video/{job_id}/stream` - HTTP 206 Range Streaming for native HTML5 scrubbing and seek
+  - `GET /api/video/{job_id}/download` - Direct MP4 download
+  - `POST /api/video/enhance-prompt` - Cinematic prompt enhancer (camera movement, lighting, style syntax)
+  - `POST /api/video/upload-reference` - Uploads starting reference frame for Image-to-Video
+- **Multi-Tenant Security & Isolation**: Real MP4 assets saved under `data/uploads/users/{user_id}/videos/` with path traversal guards. Cross-user access is strictly blocked (returns 404/401).
+- **Frontend Video Studio**: `frontend/src/components/video/` (`VideoGeneratorView.tsx`, `VideoPlayer.tsx`, `VideoJobCard.tsx`, `VideoHistory.tsx`) accessible via the Header mode switcher (`appMode === 'video'`).
+- **Tests**: `backend/tests/test_video_generation.py` (8/8 pass covering model registry, MP4 validation, prompt enhancer, upload, generation lifecycle, streaming 206, tenant isolation, and cancellation).
+
+
 ## Status
 Backend + Frontend both running. All 135 backend tests pass (16 API + browser agent + tab manager). Frontend has "Thinking" pulse indicator while waiting for first streaming token from NVIDIA. Auth-protected CRUD works end-to-end via JWT tokens. Desktop Tauri overlay compiles (cargo check OK); `tauri dev` smoke pending.
 

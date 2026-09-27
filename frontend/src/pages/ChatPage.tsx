@@ -5,6 +5,7 @@ import { ChatContainer } from '@/components/chat/ChatContainer'
 import { AgentPage } from '@/pages/AgentPage'
 import { AgentV2Shell } from '@/components/agent-v2/AgentV2Shell'
 import { AgentErrorBoundary } from '@/components/agent/AgentErrorBoundary'
+import { VideoGeneratorView } from '@/components/video/VideoGeneratorView'
 import { TitleBar } from '@/components/desktop/TitleBar'
 import { BrowserTabs } from '@/components/desktop/BrowserTabs'
 import { useSettings } from '@/stores/settings'
@@ -56,6 +57,8 @@ export function ChatPage() {
                 </div>
               )}
             </AgentErrorBoundary>
+          ) : appMode === 'video' ? (
+            <VideoGeneratorView />
           ) : (
             <ChatContainer />
           )}

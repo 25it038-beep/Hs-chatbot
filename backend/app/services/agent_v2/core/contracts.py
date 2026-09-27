@@ -105,6 +105,40 @@ class ToolPermissionLevel(str, Enum):
 
 
 @dataclass
+class AgentModelActivity:
+    timestamp: float
+    model: str
+    role: str
+    task: str
+    status: str
+    duration: float = 0.0
+    tool_calls: List[str] = field(default_factory=list)
+    files_changed: List[str] = field(default_factory=list)
+    result: str = ""
+    verification_status: str = "PENDING"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class GenerationProvenance:
+    project_id: str
+    task_id: str
+    model: str
+    prompt_version: str
+    input_context_hash: str
+    output_hash: str
+    files_created: List[str] = field(default_factory=list)
+    files_modified: List[str] = field(default_factory=list)
+    tools_used: List[str] = field(default_factory=list)
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class AdaptiveQuestion:
     question_id: str
     prompt: str

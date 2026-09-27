@@ -7,11 +7,10 @@
   ],
   "description": "HSBot Multi-provider AI Assistant Workspace",
   "scripts": {
-    "prebuild": "node scripts/install-native.cjs",
-    "build": "npm --prefix frontend run build",
-    "dev": "npm --prefix frontend run dev",
-    "lint": "npm --prefix frontend run build",
-    "preview": "npm --prefix frontend run preview"
+    "build": "npm run build --workspace=frontend",
+    "dev": "npm run dev --workspace=frontend",
+    "lint": "npm run lint --workspace=frontend",
+    "preview": "npm run preview --workspace=frontend"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",

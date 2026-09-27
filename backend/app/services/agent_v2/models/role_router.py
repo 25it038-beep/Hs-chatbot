@@ -16,6 +16,275 @@ logger = logging.getLogger("hsbot.agent_v2.models")
 
 
 @dataclass
+class AgentNvidiaModelHealth:
+    model_id: str
+    is_healthy: bool = True
+    consecutive_errors: int = 0
+    average_latency_ms: float = 1200.0
+    last_verified: float = field(default_factory=time.time)
+    circuit_breaker_active: bool = False
+    cooldown_until: float = 0.0
+
+    def record_success(self, latency_ms: float):
+        self.is_healthy = True
+        self.consecutive_errors = 0
+        self.average_latency_ms = 0.8 * self.average_latency_ms + 0.2 * latency_ms
+        self.circuit_breaker_active = False
+
+    def record_failure(self):
+        self.consecutive_errors += 1
+        if self.consecutive_errors >= 3:
+            self.circuit_breaker_active = True
+            self.is_healthy = False
+            self.cooldown_until = time.time() + 60.0
+
+
+@dataclass
+class AgentNvidiaModelScore:
+    model_id: str
+    reasoning: float = 0.8
+    coding: float = 0.8
+    planning: float = 0.8
+    agentic_ability: float = 0.8
+    tool_use: float = 0.8
+    context_tokens: int = 128000
+    has_vision: bool = False
+    has_multimodal: bool = False
+    reliability: float = 0.95
+    latency_score: float = 0.85
+
+    def calculate_score(self, task_type: str = "coding", needs_vision: bool = False) -> float:
+        if needs_vision and not self.has_vision:
+            return 0.0
+        if task_type == "architecture" or task_type == "planning":
+            return (
+                0.35 * self.reasoning +
+                0.25 * self.planning +
+                0.15 * self.agentic_ability +
+                0.10 * self.tool_use +
+                0.10 * self.reliability +
+                0.05 * self.latency_score
+            )
+        elif task_type == "coding":
+            return (
+                0.35 * self.coding +
+                0.20 * self.reasoning +
+                0.15 * self.agentic_ability +
+                0.15 * self.tool_use +
+                0.10 * self.reliability +
+                0.05 * self.latency_score
+            )
+        elif task_type == "vision":
+            return (
+                0.40 * (1.0 if self.has_vision else 0.0) +
+                0.25 * self.reasoning +
+                0.15 * self.agentic_ability +
+                0.10 * self.reliability +
+                0.10 * self.latency_score
+            )
+        else:
+            return (
+                0.25 * self.reasoning +
+                0.25 * self.coding +
+                0.15 * self.agentic_ability +
+                0.10 * self.tool_use +
+                0.15 * self.reliability +
+                0.10 * self.latency_score
+            )
+
+
+class AgentNvidiaCapabilityRegistry:
+    """Registry of NVIDIA hosted model profiles, context sizes, and modalities."""
+    CAPABILITY_PROFILES: Dict[str, AgentNvidiaModelScore] = {
+        "nvidia/nemotron-3-ultra-550b-a55b": AgentNvidiaModelScore(
+            model_id="nvidia/nemotron-3-ultra-550b-a55b",
+            reasoning=0.98,
+            coding=0.96,
+            planning=0.99,
+            agentic_ability=0.98,
+            tool_use=0.97,
+            context_tokens=1000000,
+            has_vision=False,
+            has_multimodal=False,
+            reliability=0.96,
+            latency_score=0.75
+        ),
+        "nvidia/nemotron-3.5-lightning-30b-a3b": AgentNvidiaModelScore(
+            model_id="nvidia/nemotron-3.5-lightning-30b-a3b",
+            reasoning=0.88,
+            coding=0.87,
+            planning=0.85,
+            agentic_ability=0.92,
+            tool_use=0.90,
+            context_tokens=128000,
+            has_vision=False,
+            has_multimodal=False,
+            reliability=0.98,
+            latency_score=0.95
+        ),
+        "moonshotai/kimi-k3": AgentNvidiaModelScore(
+            model_id="moonshotai/kimi-k3",
+            reasoning=0.94,
+            coding=0.97,
+            planning=0.91,
+            agentic_ability=0.95,
+            tool_use=0.94,
+            context_tokens=256000,
+            has_vision=True,
+            has_multimodal=True,
+            reliability=0.94,
+            latency_score=0.85
+        ),
+        "meta/muse-glimmer-30b": AgentNvidiaModelScore(
+            model_id="meta/muse-glimmer-30b",
+            reasoning=0.86,
+            coding=0.80,
+            planning=0.82,
+            agentic_ability=0.88,
+            tool_use=0.85,
+            context_tokens=64000,
+            has_vision=True,
+            has_multimodal=True,
+            reliability=0.92,
+            latency_score=0.90
+        ),
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": AgentNvidiaModelScore(
+            model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            reasoning=0.87,
+            coding=0.82,
+            planning=0.84,
+            agentic_ability=0.90,
+            tool_use=0.88,
+            context_tokens=64000,
+            has_vision=True,
+            has_multimodal=True,
+            reliability=0.93,
+            latency_score=0.92
+        ),
+        "nvidia/nemotron-3-super-120b-a12b": AgentNvidiaModelScore(
+            model_id="nvidia/nemotron-3-super-120b-a12b",
+            reasoning=0.93,
+            coding=0.91,
+            planning=0.92,
+            agentic_ability=0.93,
+            tool_use=0.92,
+            context_tokens=128000,
+            has_vision=False,
+            has_multimodal=False,
+            reliability=0.95,
+            latency_score=0.82
+        ),
+        "llama-3.1-70b": AgentNvidiaModelScore(
+            model_id="llama-3.1-70b",
+            reasoning=0.92,
+            coding=0.91,
+            planning=0.90,
+            agentic_ability=0.91,
+            tool_use=0.90,
+            context_tokens=128000,
+            has_vision=False,
+            has_multimodal=False,
+            reliability=0.95,
+            latency_score=0.88
+        ),
+        "codestral": AgentNvidiaModelScore(
+            model_id="codestral",
+            reasoning=0.89,
+            coding=0.94,
+            planning=0.84,
+            agentic_ability=0.89,
+            tool_use=0.92,
+            context_tokens=32000,
+            has_vision=False,
+            has_multimodal=False,
+            reliability=0.93,
+            latency_score=0.86
+        ),
+        "llama-3.2-11b": AgentNvidiaModelScore(
+            model_id="llama-3.2-11b",
+            reasoning=0.84,
+            coding=0.82,
+            planning=0.80,
+            agentic_ability=0.83,
+            tool_use=0.82,
+            context_tokens=128000,
+            has_vision=True,
+            has_multimodal=True,
+            reliability=0.96,
+            latency_score=0.97
+        )
+    }
+
+    @classmethod
+    def get_profile(cls, model_id: str) -> Optional[AgentNvidiaModelScore]:
+        return cls.CAPABILITY_PROFILES.get(model_id)
+
+
+class AgentNvidiaModelRegistry:
+    """Manages active health, scores, and runtime availability for NVIDIA Agent models."""
+    def __init__(self):
+        self._health: Dict[str, AgentNvidiaModelHealth] = {
+            m: AgentNvidiaModelHealth(model_id=m)
+            for m in AgentNvidiaCapabilityRegistry.CAPABILITY_PROFILES.keys()
+        }
+
+    def get_health(self, model_id: str) -> AgentNvidiaModelHealth:
+        if model_id not in self._health:
+            self._health[model_id] = AgentNvidiaModelHealth(model_id=model_id)
+        return self._health[model_id]
+
+    def reset_health(self, model_id: str):
+        self._health[model_id] = AgentNvidiaModelHealth(model_id=model_id)
+
+
+class AgentNvidiaModelRouter:
+    """
+    Selects primary model, fallback model, and last-resort compatible model
+    using the multi-vector scoring algorithm (§13, §14, §15, §40, §48).
+    """
+    def __init__(self, registry: Optional[AgentNvidiaModelRegistry] = None):
+        self.registry = registry or AgentNvidiaModelRegistry()
+
+    def select_model(
+        self,
+        task_type: str,
+        needs_vision: bool = False,
+        preferred_model: Optional[str] = None
+    ) -> Tuple[str, str, Optional[str]]:
+        """
+        Returns (primary_model, fallback_model, last_resort_model)
+        """
+        candidates = list(AgentNvidiaCapabilityRegistry.CAPABILITY_PROFILES.values())
+
+        # If vision is required, filter to models supporting vision
+        if needs_vision:
+            candidates = [c for c in candidates if c.has_vision]
+
+        # Filter out circuit-broken models if alternates exist
+        healthy_candidates = [
+            c for c in candidates
+            if not self.registry.get_health(c.model_id).circuit_breaker_active
+        ]
+        pool = healthy_candidates if healthy_candidates else candidates
+
+        # Score all pool models
+        scored = sorted(
+            pool,
+            key=lambda c: (
+                1.0 if c.model_id == preferred_model else 0.0,
+                c.calculate_score(task_type, needs_vision)
+            ),
+            reverse=True
+        )
+
+        primary = scored[0].model_id if scored else "llama-3.1-70b"
+        fallback = scored[1].model_id if len(scored) > 1 else "llama-3.1-70b"
+        last_resort = scored[2].model_id if len(scored) > 2 else "llama-3.2-11b"
+
+        return primary, fallback, last_resort
+
+
+@dataclass
 class RoleModelConfig:
     role: AgentRole
     role_name: str

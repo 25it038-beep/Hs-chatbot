@@ -18,6 +18,8 @@ SECRET_PATTERNS = [
 ALLOWED_COMMAND_ROOTS = {
     "python", "python3", "pip", "pip3", "pytest", "uvicorn", "flake8", "mypy", "black", "isort",
     "node", "npm", "npx", "pnpm", "yarn", "tsc", "vite", "eslint", "bun",
+    "cargo", "rustc", "go", "java", "javac", "mvn", "mvnw", "gradle", "gradlew",
+    "gcc", "g++", "clang", "cmake", "make", "dart", "flutter", "dotnet",
     "git", "echo", "cat", "ls", "dir", "mkdir", "find", "tree", "wc", "head", "tail", "grep"
 }
 

@@ -124,24 +124,50 @@ class ChatService:
         return chat
 
     async def get_chats(self, user_id: str, folder_id: str | None = None) -> list[Chat]:
-        query = select(Chat).where(Chat.user_id == user_id, Chat.is_archived == False)
+        query = select(Chat).where(
+            (Chat.user_id == user_id) | (Chat.user_id == "default_user_id"),
+            Chat.is_archived == False
+        )
         if folder_id:
             query = query.where(Chat.folder_id == folder_id)
         query = query.order_by(desc(Chat.updated_at))
         result = await self.db.execute(query)
         chats = result.scalars().all()
+        has_updates = False
         for chat in chats:
+            if chat.user_id == "default_user_id":
+                chat.user_id = user_id
+                has_updates = True
             count_result = await self.db.execute(
                 select(func.count(Message.id)).where(Message.chat_id == chat.id)
             )
             chat.message_count = count_result.scalar() or 0
+        if has_updates:
+            try:
+                await self.db.commit()
+            except Exception:
+                await self.db.rollback()
         return chats
 
     async def get_chat(self, chat_id: str, user_id: str) -> Chat | None:
         result = await self.db.execute(
-            select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
+            select(Chat).where(Chat.id == chat_id)
         )
-        return result.scalar_one_or_none()
+        chat = result.scalar_one_or_none()
+        if not chat:
+            return None
+        # Strict user isolation: refuse access if owned by another distinct user
+        if chat.user_id and chat.user_id not in (user_id, "default_user_id"):
+            return None
+        # Adopt legacy unassigned chat for the authenticated user
+        if chat.user_id == "default_user_id" or not chat.user_id:
+            chat.user_id = user_id
+            try:
+                await self.db.commit()
+                await self.db.refresh(chat)
+            except Exception:
+                await self.db.rollback()
+        return chat
 
     async def update_chat(self, chat_id: str, user_id: str, data: ChatUpdate) -> Chat | None:
         chat = await self.get_chat(chat_id, user_id)

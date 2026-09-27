@@ -10,11 +10,13 @@ import { BrowserTabs } from '@/components/desktop/BrowserTabs'
 import { useSettings } from '@/stores/settings'
 import { isTauri } from '@/lib/tauri'
 import { Download } from 'lucide-react'
+import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 
 export function ChatPage() {
   const { setSidebarOpen, appMode } = useSettings()
   const [compact, setCompact] = useState(false)
   const [agentVersion, setAgentVersion] = useState<'v2' | 'classic'>('v2')
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false)
 
   useEffect(() => {
     const handleResize = () => {
@@ -69,19 +71,19 @@ export function ChatPage() {
               © {new Date().getFullYear()} HSBot — HS AI Solution
             </a>
             {!isTauri && (
-              <a
-                href="/downloads/HSBot_1.0.0_x64-setup.exe"
-                download="HSBot_1.0.0_x64-setup.exe"
+              <button
+                onClick={() => setDownloadModalOpen(true)}
                 className="flex items-center gap-1.5 text-primary hover:underline font-medium transition-colors"
                 title="Download HSBot Windows Setup (.exe)"
               >
                 <Download size={11} />
                 <span>Download Windows App (.exe)</span>
-              </a>
+              </button>
             )}
           </footer>
         )}
       </div>
+      <WindowsDownloadModal open={downloadModalOpen} onOpenChange={setDownloadModalOpen} />
     </div>
   )
 }

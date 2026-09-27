@@ -239,12 +239,24 @@ async def download_file(
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Path traversal security guard
+    # Path traversal security guard: file must reside within configured storage/upload directories
     resolved = Path(file_path).resolve()
-    base_upload = Path(settings.upload_dir).resolve()
-    try:
-        resolved.relative_to(base_upload)
-    except ValueError:
+    allowed_bases = [
+        Path(settings.upload_dir).resolve(),
+        Path(settings.storage_dir).resolve(),
+        Path("./data").resolve(),
+        Path("./storage").resolve(),
+    ]
+    is_safe = False
+    for base in allowed_bases:
+        try:
+            resolved.relative_to(base)
+            is_safe = True
+            break
+        except ValueError:
+            pass
+
+    if not is_safe:
         raise HTTPException(status_code=403, detail="Access denied")
 
     return FastApiFileResponse(

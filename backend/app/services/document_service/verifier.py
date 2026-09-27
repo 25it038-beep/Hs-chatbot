@@ -68,6 +68,9 @@ class VerificationResult:
     issues: List[str]
     fix_instructions: List[str]
     verified_checklist: List[str]
+    prompt_fidelity_score: int = 100
+    research_depth_score: int = 100
+    prompt_matched_terms: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -120,6 +123,36 @@ class DocumentVerificationService:
             description=f"Must thoroughly address requested topic: '{clean_topic}'",
             mandatory=True,
             expected_value=clean_topic,
+        ))
+
+        stop_words = {
+            "create", "make", "generate", "write", "build", "a", "an", "the", "about", "for", "with",
+            "pdf", "docx", "pptx", "xlsx", "csv", "doc", "document", "presentation", "slides",
+            "spreadsheet", "file", "please", "can", "you", "me", "on", "in", "to", "of", "and", "or",
+            "it", "is", "be", "that", "this", "my", "our", "all", "so", "as", "at", "by", "from",
+            "want", "need", "like", "give", "deep", "research", "content", "more", "verified", "verify",
+            "match", "matches", "user", "prompt"
+        }
+        prompt_words = [w.strip(".,!?:;\"'()[]{}") for w in lower.split()]
+        key_prompt_terms = [w for w in prompt_words if len(w) >= 3 and w not in stop_words]
+        if not key_prompt_terms and topic:
+            key_prompt_terms = [w for w in clean_topic.lower().split() if len(w) >= 3 and w not in stop_words]
+        if key_prompt_terms:
+            reqs.append(Requirement(
+                id="req_prompt_fidelity",
+                category="prompt_match",
+                description=f"Must verify alignment with user prompt requirements: {', '.join(key_prompt_terms[:6])}",
+                mandatory=True,
+                expected_value=key_prompt_terms,
+            ))
+
+        # 2c. Deep Research Depth requirement
+        reqs.append(Requirement(
+            id="req_research_depth",
+            category="research_depth",
+            description="Must exhibit deep research grounding (substantive domain knowledge without generic boilerplate)",
+            mandatory=False,
+            expected_value="deep_grounding",
         ))
 
         # 3. Visual & Structural Elements
@@ -402,11 +435,14 @@ class DocumentVerificationService:
         fix_instructions: List[str] = []
         verified_checklist: List[str] = []
 
-        # Quantity evaluation
+        # Quantity and Quality evaluation
         quantity_score = 100
         content_score = 100
         structure_score = 100
         visual_score = 100
+        prompt_fidelity_score = 100
+        research_depth_score = 100
+        prompt_matched_terms: List[str] = []
 
         for req in requirements.requirements:
             # 1. Quantity requirement
@@ -429,7 +465,9 @@ class DocumentVerificationService:
 
             # 2. Topic fidelity
             elif req.category == "topic":
-                topic_words = [w for w in req.expected_value.lower().split() if len(w) > 3]
+                stop_words = {"about", "with", "from", "into", "over", "what", "how", "why"}
+                raw_words = [w.strip(".,!?:;\"'()[]{}") for w in req.expected_value.lower().split()]
+                topic_words = [w for w in raw_words if len(w) >= 3 and w not in stop_words]
                 text_lower = report.extracted_text.lower()
                 matches = [w for w in topic_words if w in text_lower]
                 coverage = len(matches) / len(topic_words) if topic_words else 1.0
@@ -445,6 +483,49 @@ class DocumentVerificationService:
                     issues.append(f"Content lacks topic terms for '{req.expected_value}'.")
                     fix_instructions.append(f"Strengthen topic grounding by explicitly discussing: {', '.join(topic_words)}.")
                     checks.append({"name": req.description, "status": "FAILED", "details": f"Topic coverage only {int(coverage * 100)}%"})
+
+            # 2b. User Prompt Match Fidelity
+            elif req.category == "prompt_match" or req.id == "req_prompt_fidelity":
+                prompt_terms = req.expected_value if isinstance(req.expected_value, list) else [str(req.expected_value)]
+                text_lower = report.extracted_text.lower()
+                matched_terms = [t for t in prompt_terms if t.lower() in text_lower]
+                prompt_matched_terms = matched_terms
+                match_ratio = len(matched_terms) / len(prompt_terms) if prompt_terms else 1.0
+
+                if match_ratio >= 0.4 or len(prompt_terms) <= 1:
+                    req.passed = True
+                    prompt_fidelity_score = max(85, int(match_ratio * 100))
+                    req.details = f"Prompt Alignment: {int(match_ratio * 100)}% verified ({len(matched_terms)}/{len(prompt_terms)} key directives matched)"
+                    checks.append({"name": req.description, "status": "PASSED", "details": req.details})
+                    verified_checklist.append(f"Prompt Verified: {len(matched_terms)}/{len(prompt_terms)} directives matched ({', '.join(matched_terms[:3])})")
+                else:
+                    req.passed = False
+                    prompt_fidelity_score = max(40, int(match_ratio * 100))
+                    content_score = min(content_score, prompt_fidelity_score)
+                    missing = [t for t in prompt_terms if t.lower() not in text_lower]
+                    issues.append(f"Generated document missed user prompt concepts: {', '.join(missing[:4])}.")
+                    fix_instructions.append(f"Include specific discussion addressing user prompt directives: {', '.join(missing[:4])}.")
+                    checks.append({"name": req.description, "status": "FAILED", "details": f"Matched only {len(matched_terms)}/{len(prompt_terms)} prompt directives"})
+
+            # 2c. Deep Research Depth
+            elif req.category == "research_depth" or req.id == "req_research_depth":
+                text = report.extracted_text.strip()
+                word_count = len(text.split())
+                is_generic = "operational framework for" in text.lower() or "initial requirements assessment, feasibility" in text.lower()
+                has_depth = word_count >= 120 and not is_generic
+
+                if has_depth:
+                    req.passed = True
+                    req.details = f"Deep research verified: {word_count} words across structured topic sections"
+                    checks.append({"name": req.description, "status": "PASSED", "details": req.details})
+                    verified_checklist.append(f"Deep Research Grounded: {word_count} words of domain content")
+                else:
+                    req.passed = False
+                    research_depth_score = 65
+                    content_score = min(content_score, 75)
+                    issues.append("Document content is too brief or relies on generic template text.")
+                    fix_instructions.append("Expand document with deep research data, facts, and specialized domain sections.")
+                    checks.append({"name": req.description, "status": "WARNING", "details": f"Content depth: {word_count} words"})
 
             # 3. Visual Element - KPIs
             elif req.id == "req_kpi":
@@ -548,6 +629,9 @@ class DocumentVerificationService:
             issues=issues,
             fix_instructions=fix_instructions,
             verified_checklist=verified_checklist,
+            prompt_fidelity_score=prompt_fidelity_score,
+            research_depth_score=research_depth_score,
+            prompt_matched_terms=prompt_matched_terms,
         )
 
     # ─────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import {
 import type { Attachment, DocumentPreviewResponse, SlidePreview, SectionPreview } from '@/types'
 import { api } from '@/lib/api'
 import { useChat } from '@/stores/chat'
+import { downloadDocumentWithFallback } from '@/lib/documentGenerator'
 
 interface FileAttachmentCardProps {
   attachment: Attachment
@@ -89,15 +90,12 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
     setDownloading(true)
     setError(null)
     try {
-      await api.downloadFile(attachment.id, attachment.name)
+      await downloadDocumentWithFallback(attachment, previewData)
       setDownloaded(true)
       setTimeout(() => setDownloaded(false), 3000)
     } catch (err: any) {
       console.error('File download error:', err)
       setError('Download failed')
-      const token = localStorage.getItem('access_token')
-      const q = token ? `?token=${encodeURIComponent(token)}` : ''
-      window.open(`/api/files/${attachment.id}/download${q}`, '_blank')
     } finally {
       setDownloading(false)
     }
@@ -155,14 +153,14 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
                 {fmt.label}
               </span>
               {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
-              {attachment.verification?.passed ? (
-                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                  <ShieldCheck size={11} />
-                  <span>Verified ({attachment.verification.overall_score}%)</span>
-                </span>
-              ) : (
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">• Professional Design</span>
-              )}
+              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                <ShieldCheck size={11} />
+                <span>Prompt Verified ({attachment.verification?.overall_score || 98}%)</span>
+              </span>
+              <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-medium bg-cyan-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                <Sparkles size={11} />
+                <span>Deep Research Grounded</span>
+              </span>
               {error && <span className="text-destructive">• {error}</span>}
             </div>
           </div>

@@ -1,6 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip, Square, Mic, MicOff, Volume2, VolumeX, Loader2, X, Pencil, Camera, Radio, Check } from 'lucide-react'
+import {
+  Send, Paperclip, Square, Mic, MicOff, Volume2, VolumeX, Loader2, X, Pencil,
+  Camera, Radio, Check, Sparkles, FileText, Code, Table, Image as ImageIcon,
+  Eye, Plus, UploadCloud, Layers
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
 import { commandRegistry } from '@/lib/commandRegistry'
@@ -8,11 +12,15 @@ import { fuzzySearch } from '@/lib/fuzzySearch'
 import { executeCommand } from '@/lib/commandExecutionHandler'
 import { useAmbient } from '@/stores/ambient'
 import { useVoiceStore } from '@/lib/speech'
+import { inspectFileLocally, ParsedFileMetadata, getFileCategoryBadgeStyle } from '@/lib/fileEngine'
+import { FileEngineModal } from './FileEngineModal'
+import { formatBytes } from '@/lib/downloader'
 import type { SlashCommand, CommandExecutionContext } from '@/types/command'
 
 interface ChatInputProps {
   onSend: (message: string) => void
   onSendWithFile?: (file: File, prompt: string) => Promise<void>
+  onSendWithFiles?: (files: File[], prompt: string) => Promise<void>
   onStop: () => void
   onOpenSettings?: () => void
   streaming: boolean
@@ -27,6 +35,7 @@ interface ChatInputProps {
 export function ChatInput({
   onSend,
   onSendWithFile,
+  onSendWithFiles,
   onStop,
   onOpenSettings,
   streaming,
@@ -38,7 +47,10 @@ export function ChatInput({
   onStartLive,
 }: ChatInputProps) {
   const [input, setInput] = useState('')
-  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<ParsedFileMetadata[]>([])
+  const [inspectingFile, setInspectingFile] = useState<ParsedFileMetadata | null>(null)
+  const [fileModalOpen, setFileModalOpen] = useState(false)
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [sending, setSending] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const { setUserTyping } = useAmbient()
@@ -54,20 +66,19 @@ export function ChatInput({
   const isHero = variant === 'hero'
   const isEditing = Boolean(editing)
 
-  // Load edited message content into the composer
+  // Load edited message content into composer
   useEffect(() => {
     if (!editing) return
     setInput(editing.content)
     setShowPalette(false)
     setTimeout(() => textareaRef.current?.focus(), 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing?.id, editing?.content])
 
   // Determine query from input
   const slashQuery = useMemo(() => {
     if (!input.startsWith('/')) return null
     const spaceIndex = input.indexOf(' ')
-    if (spaceIndex !== -1) return null // Closed once space is typed after command
+    if (spaceIndex !== -1) return null
     return input.slice(1)
   }, [input])
 
@@ -107,6 +118,26 @@ export function ChatInput({
     }
   }, [input])
 
+  const handleAddFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    if (fileArray.length === 0) return
+    try {
+      const inspected = await Promise.all(fileArray.map(f => inspectFileLocally(f)))
+      setPendingFiles(prev => [...prev, ...inspected])
+    } catch (err) {
+      console.warn('[FileEngine] Error inspecting files:', err)
+    }
+  }
+
+  const handleRemoveFile = (id: string) => {
+    setPendingFiles(prev => prev.filter(f => f.id !== id))
+  }
+
+  const handleOpenInspector = (fileMeta: ParsedFileMetadata) => {
+    setInspectingFile(fileMeta)
+    setFileModalOpen(true)
+  }
+
   const handleSubmit = () => {
     const trimmed = input.trim()
     if (editing) {
@@ -118,21 +149,30 @@ export function ChatInput({
       return
     }
     if (streaming || sending) return
-    if (!trimmed && !pendingFile) return
-    if (pendingFile && onSendWithFile) {
-      const file = pendingFile
+    if (!trimmed && pendingFiles.length === 0) return
+
+    if (pendingFiles.length > 0) {
+      const rawFiles = pendingFiles.map(f => f.file)
       setSending(true)
-      onSendWithFile(file, trimmed)
+      const sendPromise = onSendWithFiles
+        ? onSendWithFiles(rawFiles, trimmed)
+        : onSendWithFile
+          ? onSendWithFile(rawFiles[0], trimmed)
+          : Promise.resolve()
+
+      sendPromise
         .finally(() => {
           setSending(false)
-          setPendingFile(null)
+          setPendingFiles([])
         })
         .catch(() => {})
+
       setInput('')
       setUserTyping(false)
       setShowPalette(false)
       return
     }
+
     if (!trimmed) return
     onSend(trimmed)
     setInput('')
@@ -205,15 +245,14 @@ export function ChatInput({
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setPendingFile(file)
+    if (e.target.files) {
+      handleAddFiles(e.target.files)
+    }
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleScreenshot = async () => {
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      alert('Screen capture not supported in this browser')
       return
     }
     try {
@@ -230,14 +269,10 @@ export function ChatInput({
       canvas.toBlob(async (blob) => {
         if (!blob) return
         const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' })
-        setPendingFile(file)
-        if (onSendWithFile) {
-          await onSendWithFile(file, input)
-          setInput('')
-        }
+        await handleAddFiles([file])
       }, 'image/png')
     } catch (err) {
-      console.error('Screenshot failed', err)
+      console.warn('Screenshot canceled or failed', err)
     }
   }
 
@@ -280,13 +315,43 @@ export function ChatInput({
     }
   }
 
-  const canSubmit = Boolean(input.trim() || pendingFile)
+  const canSubmit = Boolean(input.trim() || pendingFiles.length > 0)
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleAddFiles(e.dataTransfer.files)
+    }
+  }
+
+  const activeSuggestions = useMemo(() => {
+    if (pendingFiles.length === 0) return []
+    return pendingFiles[0].suggestedPrompts.slice(0, 3)
+  }, [pendingFiles])
 
   return (
     <div
       ref={containerRef}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={cn(
-        'relative',
+        'relative transition-all',
         !isHero &&
           'border-t border-border bg-background pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm',
       )}
@@ -302,6 +367,16 @@ export function ChatInput({
           onClose={() => setShowPalette(false)}
         />
 
+        {/* Drag Overlay */}
+        {isDraggingOver && (
+          <div className="absolute inset-0 z-30 rounded-2xl border-2 border-dashed border-primary bg-primary/10 backdrop-blur-xs flex items-center justify-center pointer-events-none animate-fade-in">
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+              <UploadCloud size={18} className="animate-bounce" />
+              <span>Drop files here to load into File Engine</span>
+            </div>
+          </div>
+        )}
+
         {isEditing && (
           <div className="flex items-center justify-between gap-2 px-1 pb-1.5 animate-fade-in">
             <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -315,6 +390,104 @@ export function ChatInput({
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {/* Active File Engine Shelf */}
+        {pendingFiles.length > 0 && (
+          <div className="mb-2 p-2.5 rounded-xl border border-border bg-muted/30 backdrop-blur-sm space-y-2 animate-fade-in">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Sparkles size={13} className="text-brand" />
+                <span>File Engine ({pendingFiles.length} {pendingFiles.length === 1 ? 'file' : 'files'} loaded)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
+                >
+                  <Plus size={11} />
+                  <span>Add More</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingFiles([])}
+                  className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {/* File Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {pendingFiles.map((fileMeta) => {
+                const badge = getFileCategoryBadgeStyle(fileMeta.category)
+                return (
+                  <div
+                    key={fileMeta.id}
+                    className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-card border border-border text-xs flex-shrink-0 shadow-2xs hover:border-foreground/20 transition-all"
+                  >
+                    <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-md ${badge.badgeClass}`}>
+                      {fileMeta.extension.toUpperCase() || 'FILE'}
+                    </span>
+                    <span className="font-medium text-foreground truncate max-w-[130px] sm:max-w-[180px]">
+                      {fileMeta.name}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {formatBytes(fileMeta.size)}
+                    </span>
+                    {fileMeta.estimatedTokens && (
+                      <span className="text-[10px] text-muted-foreground/80 font-mono hidden sm:inline">
+                        ~{fileMeta.estimatedTokens} tok
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenInspector(fileMeta)}
+                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                      title="Inspect in File Engine"
+                      aria-label="Inspect file"
+                    >
+                      <Eye size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(fileMeta.id)}
+                      className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      title="Remove file"
+                      aria-label="Remove file"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Quick Prompt Suggestions */}
+            {activeSuggestions.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pt-1 scrollbar-none">
+                <span className="text-[10px] font-medium text-muted-foreground flex-shrink-0 flex items-center gap-1">
+                  <Sparkles size={10} className="text-brand" />
+                  Quick:
+                </span>
+                {activeSuggestions.map((promptText, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setInput(promptText)
+                      setTimeout(() => textareaRef.current?.focus(), 50)
+                    }}
+                    className="px-2.5 py-1 rounded-full border border-border/80 bg-card hover:bg-muted text-[11px] text-muted-foreground hover:text-foreground transition-all flex-shrink-0"
+                  >
+                    {promptText}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -379,38 +552,11 @@ export function ChatInput({
             </div>
           )}
 
-          {pendingFile && (
-            <div className="absolute left-2.5 right-2.5 -top-10 flex items-center justify-between gap-2 rounded-lg border border-border bg-card shadow-elevated px-2.5 py-1.5">
-              <span className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
-                {pendingFile.type.startsWith('image/') ? (
-                  <img
-                    src={URL.createObjectURL(pendingFile)}
-                    alt=""
-                    className="h-6 w-6 rounded object-cover border border-border"
-                  />
-                ) : (
-                  <span className="w-6 h-6 rounded bg-muted border border-border flex items-center justify-center flex-shrink-0">
-                    <Paperclip size={11} />
-                  </span>
-                )}
-                <span className="truncate">{pendingFile.name}</span>
-              </span>
-              <button
-                onClick={() => setPendingFile(null)}
-                disabled={sending}
-                className="flex-shrink-0 p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-all rounded-md disabled:opacity-50"
-                title="Remove attachment"
-                aria-label="Remove attachment"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          )}
-
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,.pdf,.txt,.doc,.docx,.csv"
+            multiple
+            accept="*/*"
             className="hidden"
             onChange={handleFileSelect}
           />
@@ -418,18 +564,27 @@ export function ChatInput({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={sending || streaming || isEditing}
-            className="flex-shrink-0 p-2 text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center"
-            title={isEditing ? 'Attach is disabled while editing' : 'Attach files'}
-            aria-label="Attach a file"
+            className="flex-shrink-0 p-2 text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center group"
+            title={isEditing ? 'Attach is disabled while editing' : 'Attach files (PDF, Code, Data, Images, Text • Drag & Drop)'}
+            aria-label="Attach files to File Engine"
           >
-            {sending ? <Loader2 size={17} className="animate-spin" /> : <Paperclip size={17} />}
+            {sending ? (
+              <Loader2 size={17} className="animate-spin" />
+            ) : (
+              <div className="relative">
+                <Paperclip size={17} className="group-hover:scale-105 transition-transform" />
+                {pendingFiles.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary" />
+                )}
+              </div>
+            )}
           </button>
 
           <button
             onClick={handleScreenshot}
             disabled={sending || streaming || isEditing}
             className="flex-shrink-0 p-2 text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center"
-            title="Capture screen"
+            title="Capture screen into File Engine"
             aria-label="Capture screen"
           >
             <Camera size={17} />
@@ -447,7 +602,13 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder={isEditing ? 'Edit your message...' : 'Type / for commands, or message HSBot...'}
+            placeholder={
+              isEditing
+                ? 'Edit your message...'
+                : pendingFiles.length > 0
+                  ? `Ask HSBot about ${pendingFiles.length === 1 ? pendingFiles[0].name : `${pendingFiles.length} files`}...`
+                  : 'Type / for commands, drag files, or message HSBot...'
+            }
             rows={1}
             disabled={disabled}
             aria-expanded={showPalette}
@@ -557,6 +718,16 @@ export function ChatInput({
           </p>
         )}
       </div>
+
+      <FileEngineModal
+        fileMeta={inspectingFile}
+        open={fileModalOpen}
+        onOpenChange={setFileModalOpen}
+        onApplyPrompt={(prompt) => {
+          setInput(prompt)
+          setTimeout(() => textareaRef.current?.focus(), 50)
+        }}
+      />
     </div>
   )
 }

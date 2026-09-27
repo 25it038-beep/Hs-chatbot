@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-  plugins: [react()],
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   resolve: {
     alias: {
@@ -11,6 +10,34 @@ export default defineConfig({
       'next-themes': path.resolve(__dirname, './src/components/theme/ThemeProvider.tsx'),
     },
   },
+  plugins: [
+    react(),
+    {
+      name: 'serve-downloads-with-headers',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url && req.url.startsWith('/downloads/')) {
+            const rawFilename = path.basename(req.url.split('?')[0])
+            res.setHeader('Content-Disposition', `attachment; filename="${rawFilename}"`)
+            res.setHeader('Access-Control-Allow-Origin', '*')
+            res.setHeader('Cache-Control', 'public, max-age=3600')
+          }
+          next()
+        })
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url && req.url.startsWith('/downloads/')) {
+            const rawFilename = path.basename(req.url.split('?')[0])
+            res.setHeader('Content-Disposition', `attachment; filename="${rawFilename}"`)
+            res.setHeader('Access-Control-Allow-Origin', '*')
+            res.setHeader('Cache-Control', 'public, max-age=3600')
+          }
+          next()
+        })
+      }
+    }
+  ],
   server: {
     port: 3000,
     host: '0.0.0.0',

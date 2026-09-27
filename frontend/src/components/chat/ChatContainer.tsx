@@ -16,6 +16,8 @@ import { AIThinking } from '@/components/animations/LoadingAnimation'
 import { isTauri } from '@/lib/tauri'
 import { LiveVoice as LivePanel } from '@/live'
 import { useVoiceStore } from '@/lib/speech'
+import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
+import { formatBytes } from '@/lib/downloader'
 
 const SUGGESTIONS = [
   {
@@ -82,6 +84,7 @@ export function ChatContainer() {
   const [isAtBottom, setIsAtBottom] = React.useState(true)
   const [editingMessage, setEditingMessage] = React.useState<Message | null>(null)
   const [attachedFiles, setAttachedFiles] = React.useState<FileInfo[]>([])
+  const [downloadModalOpen, setDownloadModalOpen] = React.useState(false)
   const liveConvIdRef = React.useRef<string>('')
 
   if (!liveConvIdRef.current) {
@@ -202,38 +205,74 @@ export function ChatContainer() {
     setEditingMessage(null)
   }
 
-  const handleSendWithFile = async (file: File, prompt: string) => {
+  const handleSendWithFiles = async (files: File[], prompt: string) => {
+    if (files.length === 0) {
+      if (prompt.trim()) await handleSend(prompt)
+      return
+    }
+
     let targetChat = currentChat
     if (!targetChat) {
       targetChat = await createChat()
     }
     const chatId = targetChat?.id
-    let filename = file.name
-    let uploadRes: FileInfo | null = null
-    try {
-      uploadRes = await api.uploadFile(file) as FileInfo
-      filename = uploadRes.filename || file.name
-      if (uploadRes) {
-        const uploadedFile: FileInfo = uploadRes
-        setAttachedFiles(prev => [...prev, uploadedFile])
+
+    const uploadedInfos: FileInfo[] = []
+    for (const f of files) {
+      try {
+        const uploadRes = await api.uploadFile(f) as FileInfo
+        if (uploadRes) {
+          uploadedInfos.push(uploadRes)
+        }
+      } catch {
+        uploadedInfos.push({
+          id: `local-${Date.now()}-${Math.random()}`,
+          filename: f.name,
+          size: f.size,
+          content_type: f.type,
+          text_preview: '',
+          chunk_count: 1,
+          created_at: new Date().toISOString(),
+        })
       }
-    } catch {
-      // upload failed — fall back to raw filename; chat will report if file is missing
     }
 
-    if (file.type.startsWith('image/')) {
-      await sendMessage(`[Image: ${filename}]${prompt ? ` ${prompt}` : ''}`, chatId)
+    if (uploadedInfos.length > 0) {
+      setAttachedFiles(prev => [...prev, ...uploadedInfos])
+    }
+
+    // Single image prompt
+    if (files.length === 1 && files[0].type.startsWith('image/')) {
+      await sendMessage(`[Image: ${files[0].name}]${prompt ? ` ${prompt}` : ''}`, chatId)
       return
     }
 
+    // Single document prompt
+    if (files.length === 1) {
+      if (!prompt) {
+        await addAssistantMessage(
+          `I've received and indexed **${files[0].name}** (${formatBytes(files[0].size)}). What would you like me to do? You can ask for a full summary, key takeaways, specific code explanations, or data insights.`,
+        )
+        return
+      }
+      await sendMessage(`[File: ${files[0].name}] ${prompt}`, chatId)
+      return
+    }
+
+    // Multi-file batch prompt
+    const names = files.map(f => f.name).join(', ')
     if (!prompt) {
       await addAssistantMessage(
-        `I've received **${filename}**. To analyze it, tell me what you'd like to know — e.g. "Summarize this PDF", "Extract the key points", or "What is this about?"`,
+        `Loaded **${files.length} files** into the HSBot File Engine:\n${files.map(f => `• **${f.name}** (${formatBytes(f.size)})`).join('\n')}\n\nWhat would you like to analyze, compare, or extract across these files?`,
       )
       return
     }
 
-    await sendMessage(`[File: ${filename}] ${prompt}`, chatId)
+    await sendMessage(`[Files: ${names}] ${prompt}`, chatId)
+  }
+
+  const handleSendWithFile = async (file: File, prompt: string) => {
+    await handleSendWithFiles([file], prompt)
   }
 
   if (messages.length === 0) {
@@ -256,6 +295,7 @@ export function ChatContainer() {
             <ChatInput
               onSend={handleSend}
               onSendWithFile={handleSendWithFile}
+              onSendWithFiles={handleSendWithFiles}
               onStop={cancelStream}
               streaming={streaming}
               variant="hero"
@@ -306,16 +346,15 @@ export function ChatContainer() {
 
             {!isTauri && (
               <div className="flex items-center justify-center mt-6">
-                <a
-                  href="/downloads/HSBot_1.0.0_x64-setup.exe"
-                  download="HSBot_1.0.0_x64-setup.exe"
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/80 bg-card/60 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-all duration-150 shadow-xs group"
+                <button
+                  onClick={() => setDownloadModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/80 bg-card/60 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-all duration-150 shadow-xs group cursor-pointer"
                   title="Download HSBot for Windows (.exe)"
                 >
                   <Monitor size={12} className="text-primary" />
                   <span>Get HSBot for Windows (Floating Overlay • Ctrl+Space)</span>
                   <Download size={11} className="opacity-60 group-hover:opacity-100 transition-opacity" />
-                </a>
+                </button>
               </div>
             )}
           </div>
@@ -433,6 +472,7 @@ export function ChatContainer() {
       <ChatInput
         onSend={handleSend}
         onSendWithFile={handleSendWithFile}
+        onSendWithFiles={handleSendWithFiles}
         onStop={cancelStream}
         streaming={streaming}
         editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
@@ -446,6 +486,7 @@ export function ChatContainer() {
         onClose={() => setLiveOpen(false)}
         onSaveToChat={handleLiveMessageSaved}
       />
+      <WindowsDownloadModal open={downloadModalOpen} onOpenChange={setDownloadModalOpen} />
       </div>
       <ArtifactSidePanel />
     </div>

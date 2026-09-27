@@ -252,6 +252,7 @@ export interface FileInfo {
   text_preview: string
   chunk_count: number
   analysis?: string
+  created_at?: string
 }
 
 export interface ImageGenResponse {

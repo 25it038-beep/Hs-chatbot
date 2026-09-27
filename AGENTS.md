@@ -8,7 +8,7 @@ Multi-provider AI chat assistant with RAG (Retrieval-Augmented Generation), file
 - **Vector Store**: Qdrant
 - **AI Providers**: NVIDIA NIM, OpenAI, Anthropic, Google Gemini, Ollama, OpenRouter, LM Studio, Azure OpenAI, SambaNova (fast default)
 - **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS 4, Zustand, Radix UI, Clerk Auth (`@clerk/clerk-react`)
-- **Authentication**: Clerk Authentication (`VITE_CLERK_PUBLISHABLE_KEY`) as primary default, with fallback JWT auth
+- **Authentication & Multi-Tenant Security**: Strict Clerk Authentication (`VITE_CLERK_PUBLISHABLE_KEY`) with RS256 JWKS verification and local HS256 JWT auth. **Guest login completely removed**. All user spaces (chats, folders, uploaded files, agent workspaces, artifacts) are strictly isolated with IDOR and path traversal protection. Unauthenticated requests return 401.
 
 ## Key Structure
 - `backend/app/` - FastAPI server (main.py, config.py, database.py, models/, schemas/, api/, services/, middleware/)

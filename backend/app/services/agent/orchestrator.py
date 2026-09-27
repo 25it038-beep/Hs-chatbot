@@ -14,6 +14,8 @@ from app.services.nvidia.chat import NvidiaChatProvider
 from app.services.agent.app_generator import (
     AppDomain,
     AppDomainClassifier,
+    AdaptiveRequirementEngine,
+    ProductRequirementSnapshot,
     AgentMultiProviderExecutor,
     UniversalAppSynthesizer
 )
@@ -55,13 +57,19 @@ class AgentOrchestrator:
         if new_state in AGENT_STATES:
             self.state = new_state
 
-    async def generate_plan(self, user_request: str) -> TaskGraph:
+    async def generate_plan(
+        self,
+        user_request: str,
+        snapshot: Optional[ProductRequirementSnapshot] = None
+    ) -> TaskGraph:
         """Analyzes the user request and repository context to construct a structured TaskGraph."""
         self.set_state("PLANNING")
         context_summary = self.repo_intel.summarize_context()
 
-        # Identify application domain
-        domain, meta = AppDomainClassifier.classify(user_request)
+        if snapshot is None:
+            snapshot = AdaptiveRequirementEngine.create_snapshot(user_request)
+
+        domain = snapshot.domain
         wants_zip = True  # Always package verified project as a downloadable ZIP artifact
         wants_doc = any(w in user_request.lower() for w in ["pdf", "pptx", "presentation", "docx", "spreadsheet", "xlsx", "report"])
 
@@ -71,10 +79,16 @@ class AgentOrchestrator:
         t1 = TaskNode("TASK-1", "Inspect Workspace & Architecture", "Analyze repository structure, existing files and dependencies", tool_hint="repo_intel")
         graph.add_task(t1)
 
-        t2 = TaskNode("TASK-2", "Plan Architecture & Requirements", f"Determine {domain.value.replace('_', ' ').title()} schemas, UI components, and state models", dependencies=["TASK-1"], tool_hint="llm_plan")
+        t2 = TaskNode(
+            "TASK-2",
+            "Plan Architecture & Requirements",
+            f"Determine {snapshot.product_name} schemas, entities ({', '.join(snapshot.key_entities[:3])}), and state models",
+            dependencies=["TASK-1"],
+            tool_hint="llm_plan"
+        )
         graph.add_task(t2)
 
-        code_title = f"Synthesize {domain.value.replace('_', ' ').title()} Application"
+        code_title = f"Synthesize {snapshot.product_name}"
         code_desc = f"Generate complete multi-file {domain.value} workspace with interactive UI, state, and styling"
         t3 = TaskNode("TASK-3", code_title, code_desc, dependencies=["TASK-2"], tool_hint="app_generator")
         graph.add_task(t3)
@@ -118,7 +132,7 @@ class AgentOrchestrator:
         self.commands_run.clear()
         self.artifacts_created.clear()
 
-        # Step 0: Advanced User Prompt Understanding Engine (Section 0 - 48)
+        # Step 0: Advanced User Prompt Understanding Engine & Adaptive Requirement Engine
         understanding_engine = PromptUnderstandingEngine(self.repo_intel.summarize_context())
         understanding = understanding_engine.analyze(user_request)
         yield {
@@ -126,9 +140,16 @@ class AgentOrchestrator:
             "understanding": understanding.to_dict()
         }
 
+        # Step 0b: Product Requirement Snapshot (Source of Truth)
+        snapshot = AdaptiveRequirementEngine.create_snapshot(user_request)
+        yield {
+            "type": "requirement_snapshot",
+            "snapshot": snapshot.to_dict()
+        }
+
         # Step 1: Initial Planning
-        yield {"type": "agent_state", "state": "PLANNING", "message": f"Planning: {understanding.primary_goal}..."}
-        plan = await self.generate_plan(user_request)
+        yield {"type": "agent_state", "state": "PLANNING", "message": f"Planning: {snapshot.product_name} ({snapshot.domain.value})..."}
+        plan = await self.generate_plan(user_request, snapshot=snapshot)
         yield {"type": "plan_created", "plan": plan.to_dict()}
 
         # Step 2: Inspection
@@ -143,7 +164,7 @@ class AgentOrchestrator:
         # Step 3: Architecture
         self.set_state("PLANNING")
         plan.mark_running("TASK-2")
-        yield {"type": "agent_state", "state": "PLANNING", "message": "Structuring component interfaces..."}
+        yield {"type": "agent_state", "state": "PLANNING", "message": f"Structuring {snapshot.product_name} component interfaces..."}
         await asyncio.sleep(0.3)
         plan.mark_completed("TASK-2")
         yield {"type": "task_update", "task": plan.tasks["TASK-2"].to_dict()}
@@ -151,15 +172,13 @@ class AgentOrchestrator:
         # Step 4: Coding
         self.set_state("CODING")
         plan.mark_running("TASK-3")
-        yield {"type": "agent_state", "state": "CODING", "message": "Implementing application components..."}
-
-        # Step 4: Multi-Provider High-Fidelity Universal Application Generation
-        yield {"type": "agent_state", "state": "CODING", "message": f"Synthesizing complete application components for {understanding.primary_goal}..."}
+        yield {"type": "agent_state", "state": "CODING", "message": f"Synthesizing complete application components for {snapshot.product_name}..."}
 
         generated_files, source_info = await AgentMultiProviderExecutor.generate_project(
             user_request=user_request,
             workspace_summary=repo_summary,
-            requested_model=model
+            requested_model=model,
+            snapshot=snapshot
         )
 
         for rel_path, file_content in generated_files.items():

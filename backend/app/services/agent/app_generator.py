@@ -3,14 +3,37 @@ import re
 import time
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple
 from app.config import settings
+from app.services.agent.app_archetypes import (
+    HealthcareSynthesizer,
+    PortfolioSynthesizer,
+    FoodDeliverySynthesizer,
+    EducationSynthesizer,
+    TravelSynthesizer,
+    SocialSynthesizer,
+    ChatSynthesizer,
+    RealEstateSynthesizer,
+    RecipeSynthesizer,
+    DeveloperToolsSynthesizer
+)
 
 logger = logging.getLogger("hsbot.agent.app_generator")
 
 
 class AppDomain(str, Enum):
+    HEALTHCARE = "healthcare"
+    PORTFOLIO = "portfolio"
+    FOOD_DELIVERY = "food_delivery"
+    EDUCATION = "education"
+    TRAVEL = "travel"
+    SOCIAL = "social"
+    CHAT = "chat"
+    REAL_ESTATE = "real_estate"
+    RECIPE = "recipe"
+    DEVELOPER_TOOLS = "developer_tools"
     GAME = "game"
     DASHBOARD = "dashboard"
     ECOMMERCE = "ecommerce"
@@ -24,14 +47,143 @@ class AppDomain(str, Enum):
     UNIVERSAL_DYNAMIC = "universal_dynamic"
 
 
+class ProductType(str, Enum):
+    HEALTHCARE_SYSTEM = "healthcare_system"
+    PORTFOLIO = "portfolio"
+    FOOD_DELIVERY = "food_delivery"
+    EDUCATION_PLATFORM = "education_platform"
+    BOOKING_SYSTEM = "booking_system"
+    SOCIAL_NETWORK = "social_network"
+    CHAT_APPLICATION = "chat_application"
+    MARKETPLACE = "marketplace"
+    RECIPE_PLATFORM = "recipe_platform"
+    DEVELOPER_TOOL = "developer_tool"
+    GAME = "game"
+    DASHBOARD = "dashboard"
+    ECOMMERCE = "ecommerce"
+    KANBAN_BOARD = "kanban_board"
+    CANVAS_DRAW = "canvas_draw"
+    AUDIO_SYNTH = "audio_synth"
+    MARKDOWN_WORKSPACE = "markdown_workspace"
+    FINANCE_APP = "finance_app"
+    CALCULATOR = "calculator"
+    PYTHON_BACKEND = "python_backend"
+    UNIVERSAL_APP = "universal_app"
+
+
+@dataclass
+class ProductRequirementSnapshot:
+    """Unambiguous source-of-truth requirement snapshot generated from the user's prompt."""
+    product_name: str
+    domain: AppDomain
+    product_type: ProductType
+    target_users: List[str]
+    primary_objective: str
+    core_workflows: List[str]
+    key_entities: List[str]
+    major_features: List[str]
+    navigation_items: List[str]
+    design_system: Dict[str, Any]
+    interaction_model: str
+    data_model: Dict[str, Any]
+    test_cases: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "product_name": self.product_name,
+            "domain": self.domain.value if isinstance(self.domain, Enum) else str(self.domain),
+            "product_type": self.product_type.value if isinstance(self.product_type, Enum) else str(self.product_type),
+            "target_users": self.target_users,
+            "primary_objective": self.primary_objective,
+            "core_workflows": self.core_workflows,
+            "key_entities": self.key_entities,
+            "major_features": self.major_features,
+            "navigation_items": self.navigation_items,
+            "design_system": self.design_system,
+            "interaction_model": self.interaction_model,
+            "data_model": self.data_model,
+            "test_cases": self.test_cases
+        }
+
+
 class AppDomainClassifier:
-    """Classifies any application prompt into an appropriate architectural domain."""
+    """Classifies any application prompt into an appropriate architectural domain and product type."""
 
     @classmethod
     def classify(cls, prompt: str) -> Tuple[AppDomain, Dict[str, Any]]:
         text = prompt.lower().strip()
 
-        # Check for Game intent first
+        # 1. Healthcare / Clinical / Hospital (Check before generic 'system' or 'dashboard')
+        if any(w in text for w in [
+            "hospital", "clinic", "doctor", "patient", "medical", "healthcare", "pharmacy",
+            "triage", "prescription", "health care", "ehr", "emr", "nurse", "dental"
+        ]):
+            return AppDomain.HEALTHCARE, {}
+
+        # 2. Portfolio / Personal Showcase
+        if any(w in text for w in [
+            "portfolio", "resume", "cv website", "personal site", "showcase my work",
+            "developer portfolio", "designer portfolio", "personal portfolio", "about me site"
+        ]):
+            return AppDomain.PORTFOLIO, {}
+
+        # 3. Food Delivery / Restaurant
+        if any(w in text for w in [
+            "food delivery", "restaurant", "order food", "food ordering", "uber eats",
+            "doordash", "dish delivery", "meal delivery", "food menu", "gourmet delivery"
+        ]):
+            return AppDomain.FOOD_DELIVERY, {}
+
+        # 4. Education / Tutoring / Courses
+        if any(w in text for w in [
+            "tutoring", "tutor", "course", "courses", "student", "teacher", "classroom",
+            "learning platform", "online academy", "school", "syllabus", "lecture", "lms"
+        ]):
+            return AppDomain.EDUCATION, {}
+
+        # 5. Travel / Hotel / Flights / Vacation Booking
+        if any(w in text for w in [
+            "travel", "hotel", "resort", "flight", "trip booking", "vacation booking",
+            "airbnb", "stays booking", "hotel booking", "travel booking"
+        ]):
+            return AppDomain.TRAVEL, {}
+
+        # 6. Social Media / Community Feed
+        if any(w in text for w in [
+            "social media", "social network", "feed app", "community feed", "posts and comments",
+            "twitter clone", "instagram clone", "social feed"
+        ]):
+            return AppDomain.SOCIAL, {}
+
+        # 7. Team Chat / Real-Time Messenger
+        if any(w in text for w in [
+            "chat app", "messenger", "messaging app", "slack clone", "discord clone",
+            "team chat", "direct message", "chat room", "live chat"
+        ]):
+            return AppDomain.CHAT, {}
+
+        # 8. Real Estate / Housing / Rental
+        if any(w in text for w in [
+            "real estate", "property finder", "property listing", "apartment rental",
+            "house rental", "mortgage calculator", "realtor", "home listings"
+        ]):
+            return AppDomain.REAL_ESTATE, {}
+
+        # 9. Recipe / Cooking / Meal Planner
+        if any(w in text for w in [
+            "recipe", "recipes", "cooking app", "meal planner", "cookbook", "culinary",
+            "grocery list", "ingredients cooking"
+        ]):
+            return AppDomain.RECIPE, {}
+
+        # 10. Developer Tools / Code Playground / Snippet Manager
+        if any(w in text for w in [
+            "code playground", "regex tester", "json formatter", "snippet manager",
+            "developer tools", "dev tools", "code editor app", "compiler app"
+        ]):
+            return AppDomain.DEVELOPER_TOOLS, {}
+
+        # 11. Games (Football, arcade, shooter, snake, etc.)
         is_game = any(w in text for w in [
             "game", "arcade", "play", "player", "canvas game", "2d game", "space shooter",
             "football", "foot ball", "soccer", "socer", "penalty", "goal", "fifa", "striker",
@@ -56,48 +208,587 @@ class AppDomainClassifier:
                 genre = "platformer"
             return AppDomain.GAME, {"genre": genre}
 
-        # Check for SaaS Dashboard / Analytics
-        if any(w in text for w in ["dashboard", "analytics", "metrics", "admin panel", "kpi", "telemetry", "crm", "portal"]):
-            return AppDomain.DASHBOARD, {}
-
-        # Check for E-Commerce / Store / Marketplace
+        # 12. E-Commerce / Store / Shopping
         if any(w in text for w in ["ecommerce", "e-commerce", "store", "shop", "shopping", "cart", "product catalog", "checkout", "marketplace"]):
             return AppDomain.ECOMMERCE, {}
 
-        # Check for Canvas / Drawing / Whiteboard
+        # 13. Canvas / Drawing / Whiteboard
         if any(w in text for w in ["draw", "drawing", "paint", "whiteboard", "canvas", "sketch", "sketchpad", "doodle"]):
             return AppDomain.CANVAS_DRAW, {}
 
-        # Check for Kanban / Agile Project Management
+        # 14. Kanban / Agile Project Management
         if any(w in text for w in ["kanban", "trello", "scrum", "task board", "sprint board", "task manager"]) or (
             re.search(r"\bboard\b", text) and "whiteboard" not in text
         ):
             return AppDomain.KANBAN, {}
 
-        # Check for Audio / Synth / Music Studio
+        # 15. Audio / Synth / Music Studio
         if any(w in text for w in ["audio", "synth", "synthesizer", "music", "piano", "drum machine", "beat maker", "sequencer"]):
             return AppDomain.AUDIO_SYNTH, {}
 
-        # Check for Markdown / Note-taking workspace
+        # 16. Markdown / Note-taking workspace
         if any(w in text for w in ["markdown", "note", "notes", "notepad", "document editor", "writing app"]):
             return AppDomain.MARKDOWN_WORKSPACE, {}
 
-        # Check for Personal Finance / Budget Tracker
+        # 17. Personal Finance / Budget Tracker
         if any(w in text for w in ["budget", "expense", "finance", "money tracker", "spending", "wallet", "ledger"]):
             return AppDomain.FINANCE_BUDGET, {}
 
-        # Check for Calculator
+        # 18. Calculator
         if any(w in text for w in ["calc", "calculator", "arithmetic", "scientific calc"]):
             return AppDomain.CALCULATOR, {}
 
-        # Check for Python Backend / CLI
+        # 19. Python Backend / CLI
         if any(w in text for w in ["fastapi", "flask", "sqlite api", "rest api", "backend service"]) or (
             "python" in text and not any(w in text for w in ["html", "css", "web", "frontend", "ui"])
         ):
             return AppDomain.PYTHON_BACKEND, {}
 
-        # Default: Universal Dynamic Application
+        # 20. Explicit SaaS Dashboard / Analytics (Only when specifically requested)
+        if any(w in text for w in ["dashboard", "analytics", "metrics", "kpi", "telemetry"]):
+            return AppDomain.DASHBOARD, {}
+
+        # 21. Default: Universal Dynamic Application
         return AppDomain.UNIVERSAL_DYNAMIC, {}
+
+
+class AdaptiveRequirementEngine:
+    """
+    Translates raw user requests into an unambiguous, domain-specific ProductRequirementSnapshot.
+    Guarantees no generic templates, no dashboard-defaults, and distinct product identities.
+    """
+
+    @classmethod
+    def create_snapshot(cls, prompt: str) -> ProductRequirementSnapshot:
+        text = prompt.lower().strip()
+        domain, meta = AppDomainClassifier.classify(prompt)
+
+        if domain == AppDomain.HEALTHCARE:
+            return ProductRequirementSnapshot(
+                product_name="St. Jude Healthcare Management System",
+                domain=domain,
+                product_type=ProductType.HEALTHCARE_SYSTEM,
+                target_users=["Patients", "Physicians", "Nurses", "Hospital Administrators"],
+                primary_objective="Coordinate patient admissions, clinical appointments, emergency triage vitals, and prescription tracking.",
+                core_workflows=[
+                    "Register & admit new patient",
+                    "Schedule doctor appointment with specialty routing",
+                    "Monitor emergency triage vital signs (BP, SpO2, Pulse)",
+                    "Write & dispense digital medical prescriptions",
+                    "Discharge patient and archive clinical notes"
+                ],
+                key_entities=["Patient", "Doctor", "Appointment", "MedicalRecord", "Prescription", "TriageVital"],
+                major_features=[
+                    "Live Patient Directory with Room & Blood Group tags",
+                    "Doctor Schedule & Specialty Availability",
+                    "Interactive Appointment Booking Dialog",
+                    "Emergency Triage Queue with Urgency Color Badges",
+                    "Digital Prescription Dispenser"
+                ],
+                navigation_items=["Patients & Records", "Doctor Schedules", "Appointments", "Prescriptions", "Emergency Triage"],
+                design_system={
+                    "visual_direction": "Clinical, calm, authoritative, high-contrast readability",
+                    "color_palette": {"primary": "#0f766e", "accent": "#06b6d4", "danger": "#e11d48", "surface": "#0f172a"},
+                    "typography": "Inter / sans-serif with tabular numeric alignment",
+                    "layout_archetype": "clinical_workspace"
+                },
+                interaction_model="modal_dialogs_and_tabbed_records",
+                data_model={
+                    "patients": [{"id": "P-101", "name": "Eleanor Vance", "age": 42, "blood": "O+", "room": "ICU-04", "status": "Admitted"}],
+                    "doctors": [{"id": "D-201", "name": "Dr. Marcus Brody", "specialty": "Cardiology", "status": "Available"}],
+                    "appointments": [{"id": "A-301", "patient": "Eleanor Vance", "doctor": "Dr. Marcus Brody", "time": "10:30 AM", "status": "Confirmed"}]
+                },
+                test_cases=[
+                    "test_admit_patient_updates_directory",
+                    "test_appointment_booking_sets_schedule",
+                    "test_triage_urgency_prioritization"
+                ]
+            )
+
+        elif domain == AppDomain.PORTFOLIO:
+            return ProductRequirementSnapshot(
+                product_name="Senior Full-Stack & Systems Architect Portfolio",
+                domain=domain,
+                product_type=ProductType.PORTFOLIO,
+                target_users=["Hiring Managers", "Engineering Leaders", "Clients", "Tech Recruiters"],
+                primary_objective="Showcase high-impact software engineering projects, technical skills proficiency, career experience, and direct contact inquiry.",
+                core_workflows=[
+                    "Browse interactive featured project case studies",
+                    "Filter projects by technology stack tags (Distributed Systems, AI, Full-Stack)",
+                    "Inspect interactive skills matrix and proficiency bars",
+                    "Review career milestones and achievements timeline",
+                    "Submit direct contact inquiry with validation"
+                ],
+                key_entities=["Project", "Skill", "ExperienceItem", "ContactInquiry"],
+                major_features=[
+                    "Hero Banner with Availability Status Pill & Social Links",
+                    "Interactive Project Grid with Live Demo & Architecture Drawer",
+                    "Interactive Skills Matrix with Years & Proficiency",
+                    "Career Journey Timeline with Metrics & Impact",
+                    "Working Contact Form with Client-Side Validation & Toasts"
+                ],
+                navigation_items=["About", "Featured Projects", "Skills & Tech", "Experience", "Contact Me"],
+                design_system={
+                    "visual_direction": "Editorial, refined, minimalist dark theme with subtle neon accents",
+                    "color_palette": {"primary": "#6366f1", "accent": "#a855f7", "surface": "#090d16"},
+                    "typography": "Modern sans-serif with bold display headings",
+                    "layout_archetype": "single_page_showcase"
+                },
+                interaction_model="smooth_scroll_sections_and_project_drawer",
+                data_model={
+                    "projects": [{"title": "Autonomous Agent Engine", "tags": ["TypeScript", "Python"], "stars": 340}],
+                    "skills": [{"name": "TypeScript", "level": 95}, {"name": "Rust", "level": 88}]
+                },
+                test_cases=[
+                    "test_project_category_filtering",
+                    "test_contact_form_validation",
+                    "test_skills_matrix_rendering"
+                ]
+            )
+
+        elif domain == AppDomain.FOOD_DELIVERY:
+            return ProductRequirementSnapshot(
+                product_name="CraveDash Food Delivery & Restaurant Platform",
+                domain=domain,
+                product_type=ProductType.FOOD_DELIVERY,
+                target_users=["Hungry Customers", "Restaurants", "Delivery Drivers"],
+                primary_objective="Browse local restaurant menus, customize meal orders, manage cart totals, and track live delivery status.",
+                core_workflows=[
+                    "Filter restaurants by cuisine & delivery time",
+                    "Inspect restaurant menu dishes with ingredients",
+                    "Add dishes to cart with customization and quantity",
+                    "Simulate checkout payment and order placement",
+                    "Track live order progress (Received -> Kitchen -> Courier -> Delivered)"
+                ],
+                key_entities=["Restaurant", "MenuItem", "Cart", "DeliveryOrder", "Courier"],
+                major_features=[
+                    "Cuisine Category Filter (Burgers, Italian, Asian, Desserts)",
+                    "Restaurant Cards with Ratings, ETAs & Delivery Fees",
+                    "Interactive Dish Ordering Drawer with Options",
+                    "Floating Live Cart with Subtotal, Tax & Delivery Calculations",
+                    "Real-Time Animated Order Progress Tracker"
+                ],
+                navigation_items=["All Restaurants", "Burgers & Grill", "Italian & Pizza", "Asian & Bowls", "Active Orders"],
+                design_system={
+                    "visual_direction": "Appetizing, vibrant, energetic, warm accents",
+                    "color_palette": {"primary": "#f97316", "accent": "#f43f5e", "surface": "#0f172a"},
+                    "typography": "Friendly rounded sans-serif",
+                    "layout_archetype": "marketplace_catalog_and_tray"
+                },
+                interaction_model="drawer_menu_and_live_progress_tracker",
+                data_model={
+                    "restaurants": [{"name": "Artisan Burger Co", "cuisine": "Burgers", "rating": 4.9, "eta": "20-30m"}],
+                    "cart": []
+                },
+                test_cases=[
+                    "test_cuisine_filtering",
+                    "test_cart_price_math_with_fees",
+                    "test_delivery_state_machine"
+                ]
+            )
+
+        elif domain == AppDomain.EDUCATION:
+            return ProductRequirementSnapshot(
+                product_name="EduSphere Online Academy & Course Platform",
+                domain=domain,
+                product_type=ProductType.EDUCATION_PLATFORM,
+                target_users=["Students", "Instructors", "Lifelong Learners"],
+                primary_objective="Deliver structured video/text curriculum, track lesson completion, and assess student knowledge with interactive quizzes.",
+                core_workflows=[
+                    "Explore and enroll in interactive course curriculum",
+                    "Navigate lessons syllabus and view lesson content",
+                    "Mark lessons complete and track course completion %",
+                    "Take interactive multiple-choice assessment quiz with instant scoring",
+                    "Earn certificate upon full course completion"
+                ],
+                key_entities=["Course", "Module", "Lesson", "QuizQuestion", "StudentEnrollment"],
+                major_features=[
+                    "Course Catalog with Level Badges & Estimated Hours",
+                    "Interactive Lesson Viewer with Video Canvas & Notes",
+                    "Interactive Quiz Engine with Score & Detailed Explanations",
+                    "Dynamic Course Progress Tracker with Local Storage Save",
+                    "Instructor Profile & Student Reviews"
+                ],
+                navigation_items=["Explore Courses", "My Enrolled Classes", "Lesson Viewer", "Interactive Quiz", "Progress & Certificates"],
+                design_system={
+                    "visual_direction": "Structured, inspiring, accessible, clear learning hierarchy",
+                    "color_palette": {"primary": "#4f46e5", "accent": "#10b981", "surface": "#0f172a"},
+                    "typography": "Clean readable sans-serif",
+                    "layout_archetype": "split_syllabus_and_viewer"
+                },
+                interaction_model="lesson_steps_and_quiz_engine",
+                data_model={
+                    "courses": [{"id": 1, "title": "Full-Stack Web Architecture", "progress": 45}],
+                    "lessons": [{"id": 101, "title": "Database Normalization", "completed": True}]
+                },
+                test_cases=[
+                    "test_lesson_completion_progress",
+                    "test_quiz_scoring_algorithm",
+                    "test_course_enrollment_store"
+                ]
+            )
+
+        elif domain == AppDomain.TRAVEL:
+            return ProductRequirementSnapshot(
+                product_name="VoyageAir Luxury Stays & Resort Booking",
+                domain=domain,
+                product_type=ProductType.BOOKING_SYSTEM,
+                target_users=["Travelers", "Vacationers", "Hotel Guests"],
+                primary_objective="Search vacation destinations, compare hotel amenities and room rates, and confirm instant reservations with confirmation codes.",
+                core_workflows=[
+                    "Search stays by destination city and guest count",
+                    "Filter hotel listings by star rating and price range",
+                    "Review room types, photos, and amenities (WiFi, Pool, Ocean View)",
+                    "Select check-in/check-out dates and compute stay total",
+                    "Confirm reservation and generate official PNR booking code"
+                ],
+                key_entities=["Hotel", "Room", "Destination", "Reservation", "Amenity"],
+                major_features=[
+                    "Interactive Destination & Dates Filter Bar",
+                    "Resort Listings with Star Ratings & Price per Night",
+                    "Room Details Modal with Amenities Checklist",
+                    "Automatic Stay Price Calculator with Taxes & Cleaning Fee",
+                    "Instant Reservation Confirmation with PNR Code & My Trips Drawer"
+                ],
+                navigation_items=["Explore Stays", "Popular Destinations", "Hotel Details", "My Bookings", "Travel Guide"],
+                design_system={
+                    "visual_direction": "Wanderlust, scenic, crisp sky & teal hues, high imagery cards",
+                    "color_palette": {"primary": "#0284c7", "accent": "#14b8a6", "surface": "#0b1329"},
+                    "typography": "Sophisticated sans-serif",
+                    "layout_archetype": "search_cards_and_booking_modal"
+                },
+                interaction_model="filter_grid_and_date_range_pricing",
+                data_model={
+                    "hotels": [{"name": "Grand Azure Resort", "city": "Santorini", "price": 280, "stars": 5}],
+                    "bookings": []
+                },
+                test_cases=[
+                    "test_stay_duration_calculation",
+                    "test_booking_total_math",
+                    "test_pnr_code_generation"
+                ]
+            )
+
+        elif domain == AppDomain.SOCIAL:
+            return ProductRequirementSnapshot(
+                product_name="Pulse Community Social Network",
+                domain=domain,
+                product_type=ProductType.SOCIAL_NETWORK,
+                target_users=["Community Members", "Creators", "Discussion Leaders"],
+                primary_objective="Publish media updates, engage in threaded discussions, like posts, and follow trending community hashtags.",
+                core_workflows=[
+                    "Compose and publish text posts with hashtags",
+                    "Engage with posts via animated like heart toggles",
+                    "Write and view threaded comments in real time",
+                    "Filter feed by trending community topics (#Tech, #Design)",
+                    "Search posts by author or keywords"
+                ],
+                key_entities=["Post", "Author", "Comment", "Tag", "Like"],
+                major_features=[
+                    "Rich Post Composer with Tag Selector",
+                    "Dynamic Community Feed with Live Timestamps",
+                    "Instant Like Heart Animation & Count State",
+                    "Threaded Comments Drawer with Instant Reply",
+                    "Trending Hashtags Sidebar with Feed Filtering"
+                ],
+                navigation_items=["Home Feed", "Explore Trending", "Bookmarked Posts", "Notifications", "Profile"],
+                design_system={
+                    "visual_direction": "Social, dynamic, clean card stream, engagement accents",
+                    "color_palette": {"primary": "#8b5cf6", "accent": "#ec4899", "surface": "#0f172a"},
+                    "typography": "Inter sans-serif",
+                    "layout_archetype": "three_column_feed"
+                },
+                interaction_model="feed_stream_with_comment_drawers",
+                data_model={
+                    "posts": [{"id": 1, "author": "Liam Vance", "content": "Just launched the autonomous engine!", "likes": 24}]
+                },
+                test_cases=[
+                    "test_post_creation",
+                    "test_like_toggle_state",
+                    "test_comment_append"
+                ]
+            )
+
+        elif domain == AppDomain.CHAT:
+            return ProductRequirementSnapshot(
+                product_name="SyncTeam Real-Time Team Messenger",
+                domain=domain,
+                product_type=ProductType.CHAT_APPLICATION,
+                target_users=["Colleagues", "Team Leads", "Remote Workers"],
+                primary_objective="Provide fast channel-based workplace communication, direct messaging, emoji reactions, and simulated bot responses.",
+                core_workflows=[
+                    "Switch between public topic channels and direct messages",
+                    "Compose and send text messages with timestamps",
+                    "Add quick emoji reactions (👍, ❤️, 🚀) to messages",
+                    "Receive simulated bot automated responses in channels",
+                    "Search conversation message archives"
+                ],
+                key_entities=["Channel", "Message", "User", "Reaction"],
+                major_features=[
+                    "Sidebar with Public Channels (#general, #engineering, #design)",
+                    "Direct Messages List with Online Status Indicators",
+                    "Active Message Stream with Avatar Bubbles",
+                    "Instant Message Composer with Enter-key Send",
+                    "Interactive Emoji Reaction Bar & Simulated Bot Reply"
+                ],
+                navigation_items=["# general", "# engineering", "# announcements", "# design", "Direct Messages"],
+                design_system={
+                    "visual_direction": "Focused, clean split-pane messenger, subtle borders",
+                    "color_palette": {"primary": "#3b82f6", "accent": "#10b981", "surface": "#0f172a"},
+                    "typography": "System sans-serif with monospace snippets",
+                    "layout_archetype": "split_sidebar_and_message_stream"
+                },
+                interaction_model="realtime_stream_and_channel_switch",
+                data_model={
+                    "channels": ["# general", "# engineering", "# design"],
+                    "messages": [{"sender": "Alex", "text": "Sprint review in 10 mins!", "time": "09:45 AM"}]
+                },
+                test_cases=[
+                    "test_channel_message_routing",
+                    "test_message_append_order",
+                    "test_reaction_counter"
+                ]
+            )
+
+        elif domain == AppDomain.REAL_ESTATE:
+            return ProductRequirementSnapshot(
+                product_name="Haven Luxury Real Estate & Rental Marketplace",
+                domain=domain,
+                product_type=ProductType.MARKETPLACE,
+                target_users=["Home Buyers", "Renters", "Property Investors"],
+                primary_objective="Discover residential listings, filter by price and bedrooms, calculate monthly mortgage payments, and book private tours.",
+                core_workflows=[
+                    "Filter listings by property type (House, Condo, Townhome), price, and bedrooms",
+                    "Inspect property photo galleries, square footage, and amenities",
+                    "Calculate monthly mortgage payments based on down payment and interest rate",
+                    "Schedule an in-person or virtual property tour with dates",
+                    "Save favorite properties to personal bookmarks"
+                ],
+                key_entities=["Property", "Agent", "MortgageCalculation", "TourReservation"],
+                major_features=[
+                    "Price Range & Bedroom Filtering Controls",
+                    "Property Cards with High-Res Photos, SqFt & Price Badges",
+                    "Property Details Modal with Amenities Checklist",
+                    "Interactive Mortgage Calculator (Home Price, Down %, Rate, Term -> Monthly Payment)",
+                    "Schedule Tour Booking Modal with Instant Confirmation"
+                ],
+                navigation_items=["Properties For Sale", "Rentals", "Mortgage Calculator", "Saved Homes", "Schedule a Tour"],
+                design_system={
+                    "visual_direction": "Prestigious, architectural, deep navy & warm gold accents",
+                    "color_palette": {"primary": "#1e3a8a", "accent": "#f59e0b", "surface": "#0a1128"},
+                    "typography": "Elegant serif headers with clean modern sans-serif body",
+                    "layout_archetype": "property_grid_and_calculator"
+                },
+                interaction_model="filter_grid_and_mortgage_calculator",
+                data_model={
+                    "properties": [{"title": "Bel Air Modern Estate", "price": 1850000, "beds": 4, "baths": 3, "sqft": 3600}]
+                },
+                test_cases=[
+                    "test_mortgage_monthly_calculation",
+                    "test_property_price_filter",
+                    "test_tour_scheduling"
+                ]
+            )
+
+        elif domain == AppDomain.RECIPE:
+            return ProductRequirementSnapshot(
+                product_name="FlavorCraft Culinary Studio & Meal Planner",
+                domain=domain,
+                product_type=ProductType.RECIPE_PLATFORM,
+                target_users=["Home Cooks", "Foodies", "Meal Prep Enthusiasts"],
+                primary_objective="Organize gourmet recipes, scale ingredient servings dynamically, guide cooking with step timers, and generate grocery lists.",
+                core_workflows=[
+                    "Search recipes by dish name, cuisine, or available pantry ingredients",
+                    "Scale recipe servings dynamically (- / +) to recalculate quantities",
+                    "Launch Interactive Cooking Mode with step-by-step guidance & countdown timers",
+                    "Transfer ingredients into an interactive Grocery Shopping Checklist",
+                    "Bookmark favorite recipes for weekly meal planning"
+                ],
+                key_entities=["Recipe", "Ingredient", "CookingStep", "MealPlan", "GroceryItem"],
+                major_features=[
+                    "Recipe Cards with Prep/Cook Times, Calorie Badges & Dietary Tags",
+                    "Dynamic Servings Scaler that mathematically recalculates quantities",
+                    "Step-by-Step Cooking Mode with Built-in Kitchen Countdown Timer",
+                    "Interactive Grocery Shopping Checklist with Checkbox State",
+                    "Pantry Search & Dietary Filter Tabs (Vegetarian, High-Protein, Quick)"
+                ],
+                navigation_items=["Recipe Collection", "Cooking Mode", "Weekly Meal Planner", "Grocery Shopping List", "Favorites"],
+                design_system={
+                    "visual_direction": "Warm, culinary, artisanal, terracotta & sage green accents",
+                    "color_palette": {"primary": "#ea580c", "accent": "#16a34a", "surface": "#18181b"},
+                    "typography": "Warm display typography with clean readable recipe instructions",
+                    "layout_archetype": "recipe_cards_and_cooking_drawer"
+                },
+                interaction_model="recipe_drawer_with_scaler_and_timer",
+                data_model={
+                    "recipes": [{"title": "Tuscan Garlic Herb Salmon", "prep": "15m", "cook": "20m", "servings": 2}]
+                },
+                test_cases=[
+                    "test_ingredient_scaling_math",
+                    "test_recipe_dietary_filter",
+                    "test_grocery_list_transfer"
+                ]
+            )
+
+        elif domain == AppDomain.DEVELOPER_TOOLS:
+            return ProductRequirementSnapshot(
+                product_name="DevCraft Studio Code Playground & Tools",
+                domain=domain,
+                product_type=ProductType.DEVELOPER_TOOL,
+                target_users=["Software Engineers", "Web Developers", "DevOps Admins"],
+                primary_objective="Provide an instant multi-language code playground, JSON formatter & validator, regex tester, and snippet library.",
+                core_workflows=[
+                    "Write HTML, CSS, and JS with live sandboxed preview execution",
+                    "Paste, format, and syntax-validate complex JSON payloads",
+                    "Test and debug regular expressions with real-time match highlighting",
+                    "Save and organize reusable code snippets with one-click copy"
+                ],
+                key_entities=["Snippet", "RegexTest", "JsonPayload", "PlaygroundBuffer"],
+                major_features=[
+                    "Multi-Tab Live Code Playground (HTML, CSS, JS) with Instant Run",
+                    "JSON Formatter, Minifier & Syntax Error Highlighting",
+                    "Live Regular Expression Matcher with Group Captures",
+                    "Code Snippet Storage with Language Tags & Clipboard Copy"
+                ],
+                navigation_items=["Code Playground", "JSON Formatter", "Regex Tester", "Snippet Library"],
+                design_system={
+                    "visual_direction": "Technical, monokai dark, compact developer ergonomics",
+                    "color_palette": {"primary": "#10b981", "accent": "#38bdf8", "surface": "#0f172a"},
+                    "typography": "Monospace code fonts with clean UI accents",
+                    "layout_archetype": "multi_tab_code_workspace"
+                },
+                interaction_model="editor_tabs_and_terminal_console",
+                data_model={
+                    "snippets": [{"title": "Async Fetch Helper", "lang": "javascript"}]
+                },
+                test_cases=[
+                    "test_json_validator_parser",
+                    "test_regex_pattern_matching",
+                    "test_snippet_save"
+                ]
+            )
+
+        elif domain == AppDomain.GAME:
+            genre = meta.get("genre", "arcade")
+            if genre == "football":
+                return ProductRequirementSnapshot(
+                    product_name="Modern Football Pro - Championship Striker",
+                    domain=domain,
+                    product_type=ProductType.GAME,
+                    target_users=["Arcade Gamers", "Sports Enthusiasts"],
+                    primary_objective="Deliver a 60fps penalty shootout football experience with ball physics, curve spin, goalkeeper AI, and audio.",
+                    core_workflows=[
+                        "Aim shot elevation and horizontal angle",
+                        "Charge kick power with meter",
+                        "Apply banana curve spin to bend past keeper",
+                        "Score in top bins corner pockets for bonus points",
+                        "Build goal streaks and set high scores"
+                    ],
+                    key_entities=["Ball", "Goalkeeper", "GoalPosts", "Pitch", "Scoreboard"],
+                    major_features=[
+                        "60fps Canvas Stadium Arena with striped grass turf and floodlights",
+                        "3D Perspective Goal Frame with diamond netting",
+                        "Dynamic Goalkeeper AI with diving reaction latency",
+                        "Authentic Ball Physics (banana curve, parabolic arc, woodwork rebounds)",
+                        "Web Audio API Sound Effects (whistle, kick thud, goal roar, post clang)"
+                    ],
+                    navigation_items=["Kick Off", "Scoreboard", "Power Meter", "Curve Spin", "SFX"],
+                    design_system={
+                        "visual_direction": "Dynamic stadium excitement, neon pitch green, bold scoreboard typography",
+                        "color_palette": {"primary": "#10b981", "accent": "#f59e0b", "surface": "#020617"},
+                        "typography": "Athletic uppercase bold display typography",
+                        "layout_archetype": "canvas_game_arena"
+                    },
+                    interaction_model="canvas_keyboard_and_touch_flick",
+                    data_model={"goals": 0, "shots": 0, "streak": 0},
+                    test_cases=["test_goal_geometry", "test_curve_trajectory", "test_keeper_save_collision"]
+                )
+            else:
+                return ProductRequirementSnapshot(
+                    product_name=f"{genre.title()} Arcade 60fps Game",
+                    domain=domain,
+                    product_type=ProductType.GAME,
+                    target_users=["Gamers", "Players"],
+                    primary_objective=f"Play an immersive 60fps canvas {genre} arcade game with sound and score tracking.",
+                    core_workflows=["Move player", "Avoid hazards / shoot targets", "Score points and preserve lives", "Compete for high score"],
+                    key_entities=["Player", "Enemy", "Bullet", "Score", "Particle"],
+                    major_features=["Canvas 60fps Loop", "Particle Explosions", "Audio Synthesis", "High Score LocalStorage"],
+                    navigation_items=["Start Game", "Score", "High Score", "Pause", "Audio"],
+                    design_system={"visual_direction": "Energetic arcade dark retro", "color_palette": {"primary": "#6366f1", "accent": "#f43f5e", "surface": "#020617"}, "typography": "Arcade monospace", "layout_archetype": "canvas_game_arena"},
+                    interaction_model="canvas_keyboard_controls",
+                    data_model={"score": 0, "lives": 3},
+                    test_cases=["test_game_loop_invariants", "test_collision_detection"]
+                )
+
+        elif domain == AppDomain.ECOMMERCE:
+            return ProductRequirementSnapshot(
+                product_name="Aura Modern E-Commerce Storefront",
+                domain=domain,
+                product_type=ProductType.ECOMMERCE,
+                target_users=["Online Shoppers", "Store Customers"],
+                primary_objective="Browse curated catalog, filter by categories, inspect product specifications, and complete interactive checkout.",
+                core_workflows=[
+                    "Browse product catalog with ratings and prices",
+                    "Filter products by category and price range",
+                    "Inspect product details modal with image and description",
+                    "Add items to interactive cart drawer with quantity controls",
+                    "Execute checkout flow with simulated payment and receipt"
+                ],
+                key_entities=["Product", "Category", "CartItem", "Order", "Customer"],
+                major_features=[
+                    "Modern Hero Banner with Seasonal Sale Promo",
+                    "Category Filter Navigation (Electronics, Apparel, Accessories)",
+                    "Interactive Product Cards with Add to Cart Quick Action",
+                    "Slide-over Cart Drawer with Quantity Modifiers and Total Math",
+                    "Checkout Modal with Order Receipt Confirmation"
+                ],
+                navigation_items=["All Products", "Electronics", "Apparel", "Accessories", "Cart"],
+                design_system={
+                    "visual_direction": "Modern luxury retail, clean product cards, confident typography",
+                    "color_palette": {"primary": "#10b981", "accent": "#6366f1", "surface": "#0f172a"},
+                    "typography": "Plus Jakarta Sans / clean modern sans",
+                    "layout_archetype": "storefront_grid_and_cart_drawer"
+                },
+                interaction_model="cart_drawer_and_product_modal",
+                data_model={"products": [{"title": "Wireless Studio Headphones", "price": 199.99}], "cart": []},
+                test_cases=["test_add_to_cart_math", "test_category_filter", "test_checkout_receipt"]
+            )
+
+        # Fallback to Universal Adaptive Snapshot derived from prompt semantics
+        raw_words = [w for w in re.findall(r'\b[A-Za-z]{3,}\b', text) if w not in [
+            "build", "create", "make", "want", "please", "application", "app", "website", "system", "with", "and", "the", "for"
+        ]]
+        primary_subject = (raw_words[0].title() if raw_words else "Universal") + " System"
+        return ProductRequirementSnapshot(
+            product_name=f"{primary_subject} Interactive Application",
+            domain=domain,
+            product_type=ProductType.UNIVERSAL_APP,
+            target_users=["End Users", "System Operators"],
+            primary_objective=f"Provide an interactive, responsive workflow for {prompt.strip()}.",
+            core_workflows=[
+                f"Explore and filter {primary_subject} records",
+                f"Create and configure custom {primary_subject} entries",
+                f"Track status, metrics, and state transitions",
+                f"Export and persist application state"
+            ],
+            key_entities=[primary_subject, "Metric", "ActivityLog", "Config"],
+            major_features=[
+                f"Search & Filter {primary_subject} catalog",
+                f"Interactive {primary_subject} Creation Dialog",
+                f"Live Status Indicators and Metrics Cards",
+                f"State Persistence with Local Storage"
+            ],
+            navigation_items=["Catalog", "Analytics", "New Entry", "Activity Log", "Settings"],
+            design_system={
+                "visual_direction": "Clean, modern, domain-adaptive glassmorphism",
+                "color_palette": {"primary": "#6366f1", "accent": "#38bdf8", "surface": "#0f172a"},
+                "typography": "Inter sans-serif",
+                "layout_archetype": "adaptive_workspace"
+            },
+            interaction_model="reactive_entity_management",
+            data_model={"items": [{"id": 1, "title": f"Primary {primary_subject} Instance", "status": "Active"}]},
+            test_cases=["test_entity_creation", "test_filter_search", "test_storage_persistence"]
+        )
 
 
 class CodeBlockExtractor:
@@ -213,9 +904,35 @@ class UniversalAppSynthesizer:
     """
 
     @classmethod
-    def synthesize(cls, user_request: str, domain: AppDomain, domain_meta: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    def synthesize(
+        cls,
+        user_request: str,
+        domain: AppDomain,
+        domain_meta: Optional[Dict[str, Any]] = None,
+        snapshot: Optional[ProductRequirementSnapshot] = None
+    ) -> Dict[str, str]:
         meta = domain_meta or {}
-        if domain == AppDomain.GAME:
+        if domain == AppDomain.HEALTHCARE:
+            return HealthcareSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.PORTFOLIO:
+            return PortfolioSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.FOOD_DELIVERY:
+            return FoodDeliverySynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.EDUCATION:
+            return EducationSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.TRAVEL:
+            return TravelSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.SOCIAL:
+            return SocialSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.CHAT:
+            return ChatSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.REAL_ESTATE:
+            return RealEstateSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.RECIPE:
+            return RecipeSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.DEVELOPER_TOOLS:
+            return DeveloperToolsSynthesizer.synthesize(user_request, snapshot)
+        elif domain == AppDomain.GAME:
             return cls._synthesize_game(user_request, meta.get("genre", "arcade"))
         elif domain == AppDomain.DASHBOARD:
             return cls._synthesize_dashboard(user_request)
@@ -2628,22 +3345,55 @@ class AgentMultiProviderExecutor:
     """
 
     @classmethod
-    def build_system_prompt(cls, domain: AppDomain, user_request: str) -> str:
-        domain_name = domain.value.upper()
+    def build_system_prompt(
+        cls,
+        domain: AppDomain,
+        user_request: str,
+        snapshot: Optional[ProductRequirementSnapshot] = None
+    ) -> str:
+        if snapshot is None:
+            snapshot = AdaptiveRequirementEngine.create_snapshot(user_request)
+
+        domain_str = snapshot.domain.value if isinstance(snapshot.domain, Enum) else str(snapshot.domain)
+        product_type_str = snapshot.product_type.value if isinstance(snapshot.product_type, Enum) else str(snapshot.product_type)
+
+        workflows_bulleted = "\n".join(f"  * {wf}" for wf in snapshot.core_workflows)
+        features_bulleted = "\n".join(f"  * {feat}" for feat in snapshot.major_features)
+        entities_str = ", ".join(snapshot.key_entities)
+        users_str = ", ".join(snapshot.target_users)
+        nav_str = ", ".join(snapshot.navigation_items)
+
         return f"""You are an elite Autonomous Software Architect & Full-Stack Web Engineer.
 The user wants you to create a complete, production-grade application: '{user_request}'.
-PRIMARY ARCHITECTURAL DOMAIN: {domain_name}
 
-CRITICAL QUALITY REQUIREMENTS:
-1. Deliver the COMPLETE, fully functioning multi-file workspace. Do NOT return snippets, half-finished prototypes, or placeholder comments like '// TODO' or '// implement later'.
-2. Required Core Files:
-   - `index.html`: Fully semantic modern HTML5 with responsive viewport, metadata, Tailwind CSS CDN (<script src="https://cdn.tailwindcss.com"></script>), Google Fonts, accessible layout, styled navigation, main application interactive arena, modal dialogs, status/toasts, and footer.
-   - `styles.css`: Custom animations, glassmorphism accents, focus states, custom scrollbars, dark/light theme polish, responsive breakpoints.
-   - `script.js`: Complete client-side state machine. Event handlers for all buttons, inputs, modals. Persistent state using `localStorage`. Realistic, interactive features with zero placeholder stubs.
+PRODUCT IDENTITY & REQUIREMENTS (SOURCE OF TRUTH):
+- Product Name: {snapshot.product_name}
+- Domain: {domain_str.upper()}
+- Product Type: {product_type_str}
+- Primary Objective: {snapshot.primary_objective}
+- Target Users: {users_str}
+- Core Workflows:
+{workflows_bulleted}
+- Key Entities: {entities_str}
+- Major Features:
+{features_bulleted}
+- Navigation: {nav_str}
+- Interaction Model: {snapshot.interaction_model}
+- Design System: {json.dumps(snapshot.design_system)}
+
+CRITICAL RULES (ABSOLUTE PROHIBITIONS):
+1. ZERO GENERIC TEMPLATE REUSE: Under NO circumstances should you output a generic analytics dashboard, generic CRUD table, or generic card grid if the user asked for a specific domain (such as healthcare, e-commerce, football game, food delivery, portfolio, social network, chat, etc.).
+2. NO TEMPLATE RENAMING: Renaming "Tasks" -> "Patients" or "Users" -> "Doctors" on a generic dashboard layout is strictly forbidden. The layout, entities, navigation, and user actions must authentically belong to {snapshot.product_name}.
+3. COMPLETE FILES ONLY: Deliver the COMPLETE, fully functioning multi-file workspace. Do NOT return snippets, half-finished prototypes, or placeholder comments like '// TODO' or '// implement later'.
+4. REQUIRED CORE FILES:
+   - `index.html`: Fully semantic modern HTML5 with responsive viewport, metadata, Tailwind CSS CDN (<script src="https://cdn.tailwindcss.com"></script>), Google Fonts, accessible layout matching the domain, domain-specific navigation, interactive core workspace, modal dialogs, status/toasts, and footer.
+   - `styles.css`: Domain-specific styling, custom animations, glassmorphism accents, focus states, custom scrollbars, dark/light theme polish, responsive breakpoints.
+   - `script.js`: Complete client-side state machine. Event handlers for all buttons, inputs, modals. Persistent state using `localStorage`. Realistic, domain-specific interactive features with zero placeholder stubs.
    - `package.json`: Valid project manifest with name, version, and scripts.
    - `README.md`: Architecture overview, features, keyboard shortcuts, and setup guide.
-3. Output Format: Output either valid JSON:
-{{"files": [{{"path": "index.html", "content": "..."}}, {{"path": "styles.css", "content": "..."}}, {{"path": "script.js", "content": "..."}}, {{"path": "package.json", "content": "..."}}, {{"path": "README.md", "content": "..."}}]}}
+   - `tests/test_app.js`: Node.js test suite with automated assertions verifying core domain workflows.
+5. Output Format: Output either valid JSON:
+{{"files": [{{"path": "index.html", "content": "..."}}, {{"path": "styles.css", "content": "..."}}, {{"path": "script.js", "content": "..."}}, {{"path": "package.json", "content": "..."}}, {{"path": "README.md", "content": "..."}}, {{"path": "tests/test_app.js", "content": "..."}}]}}
 OR output markdown code blocks with the relative file path on line 1 as a comment or header (e.g. `### index.html` followed by ```html ... ```).
 """
 
@@ -2652,9 +3402,14 @@ OR output markdown code blocks with the relative file path on line 1 as a commen
         cls,
         user_request: str,
         workspace_summary: Optional[Dict[str, Any]] = None,
-        requested_model: Optional[str] = None
+        requested_model: Optional[str] = None,
+        snapshot: Optional[ProductRequirementSnapshot] = None
     ) -> Tuple[Dict[str, str], str]:
-        domain, meta = AppDomainClassifier.classify(user_request)
+        if snapshot is None:
+            snapshot = AdaptiveRequirementEngine.create_snapshot(user_request)
+
+        domain = snapshot.domain
+        meta = {"genre": "football"} if "football" in user_request.lower() else {}
 
         # 1. Prepare candidate list based on active keys
         candidates = []
@@ -2669,8 +3424,8 @@ OR output markdown code blocks with the relative file path on line 1 as a commen
             candidates.append(("nvidia", "llama-3.1-70b"))
             candidates.append(("nvidia", "llama-3.2-11b"))
 
-        system_prompt = cls.build_system_prompt(domain, user_request)
-        user_msg = f"User Request: {user_request}\\nWorkspace Context: {json.dumps(workspace_summary or {})}"
+        system_prompt = cls.build_system_prompt(domain, user_request, snapshot=snapshot)
+        user_msg = f"User Request: {user_request}\nSnapshot: {json.dumps(snapshot.to_dict())}\nWorkspace Context: {json.dumps(workspace_summary or {})}"
 
         raw_output = ""
         used_source = ""
@@ -2707,11 +3462,11 @@ OR output markdown code blocks with the relative file path on line 1 as a commen
                 if "package.json" not in extracted:
                     extracted["package.json"] = json.dumps({"name": "app-project", "version": "1.0.0", "scripts": {"dev": "npx vite"}}, indent=2)
                 if "README.md" not in extracted:
-                    extracted["README.md"] = f"# {user_request[:50].title()}\\n\\nAutonomous application generated by HSBot.\\n"
+                    extracted["README.md"] = f"# {snapshot.product_name}\n\nAutonomous application generated by HSBot.\n"
                 return extracted, used_source
 
         # 3. Fallback to UniversalAppSynthesizer
         logger.info(f"Synthesizing high-fidelity template for domain: {domain.value}")
-        synthesized = UniversalAppSynthesizer.synthesize(user_request, domain, meta)
+        synthesized = UniversalAppSynthesizer.synthesize(user_request, domain, meta, snapshot=snapshot)
         return synthesized, f"UniversalSynthesizer:{domain.value}"
 

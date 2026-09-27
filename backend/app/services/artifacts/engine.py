@@ -120,7 +120,10 @@ class UniversalArtifactEngine:
 
         excludes = set(exclude_dirs or ["node_modules", ".git", "__pycache__", "dist", ".next", ".cache", "artifacts"])
         artifact_id = str(uuid.uuid4())[:8]
-        dest_path = self.storage_dir / f"{artifact_id}_{zip_filename}"
+        user_part = str(user_id) if user_id else "common"
+        dest_dir = self.storage_dir / user_part
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / f"{artifact_id}_{zip_filename}"
 
         total_files = 0
         total_uncompressed_bytes = 0
@@ -255,8 +258,8 @@ class UniversalArtifactEngine:
         art = self.registry.get(artifact_id)
         return art.to_dict() if art else None
 
-    def list_artifacts(self, chat_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        return [a.to_dict() for a in self.registry.list_artifacts(chat_id=chat_id)]
+    def list_artifacts(self, chat_id: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [a.to_dict() for a in self.registry.list_artifacts(chat_id=chat_id, user_id=user_id)]
 
 # Singleton instance
 artifact_engine = UniversalArtifactEngine()

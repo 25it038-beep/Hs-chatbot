@@ -48,7 +48,8 @@ export const useAuth = create<AuthState>((set) => ({
 
   loadUser: async () => {
     const token = localStorage.getItem('access_token')
-    if (!token) {
+    if (!token || token === 'hsbot_guest_token' || token === 'hsbot_default_access_token') {
+      clearTokens()
       set({ user: null, initialized: true })
       return
     }

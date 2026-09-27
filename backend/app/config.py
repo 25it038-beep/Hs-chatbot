@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # Clerk Authentication Configuration
+    clerk_secret_key: Optional[str] = os.getenv("CLERK_SECRET_KEY")
+    clerk_publishable_key: Optional[str] = os.getenv("CLERK_PUBLISHABLE_KEY") or os.getenv("VITE_CLERK_PUBLISHABLE_KEY")
+    clerk_issuer_url: Optional[str] = os.getenv("CLERK_ISSUER_URL")
+
     database_url: str = "sqlite+aiosqlite:///./data/hsbot.db"
 
     redis_url: str = "redis://localhost:6379/0"

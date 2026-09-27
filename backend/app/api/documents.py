@@ -89,8 +89,10 @@ async def list_files(chat_id: str, current_user: User = Depends(get_current_user
 
 @router.get("/download")
 async def download_file(chat_id: str, filename: str, current_user: User = Depends(get_current_user)):
+    safe_filename = os.path.basename(filename)
     workspace = get_chat_workspace_dir(str(current_user.id), chat_id)
-    fp = os.path.join(workspace, filename)
-    if not os.path.isfile(fp):
+    fp = os.path.join(workspace, safe_filename)
+    resolved = os.path.abspath(fp)
+    if not resolved.startswith(os.path.abspath(workspace)) or not os.path.isfile(resolved):
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=fp, filename=filename)
+    return FileResponse(path=resolved, filename=safe_filename)

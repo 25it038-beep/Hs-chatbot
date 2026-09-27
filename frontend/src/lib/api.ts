@@ -84,7 +84,10 @@ async function refreshAccessToken(): Promise<boolean> {
 }
 
 export function getAuthHeader(): Record<string, string> {
-  const token = accessToken || localStorage.getItem('access_token') || 'hsbot_default_access_token'
+  const token = accessToken || localStorage.getItem('access_token')
+  if (!token || token === 'hsbot_default_access_token' || token === 'hsbot_guest_token') {
+    return {}
+  }
   return { Authorization: `Bearer ${token}` }
 }
 

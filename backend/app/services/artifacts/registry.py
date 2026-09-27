@@ -107,6 +107,8 @@ class PersistentArtifactRegistry:
                 created_at=time.time(),
                 updated_at=time.time(),
                 version=kwargs.get("version", 1),
+                user_id=kwargs.get("user_id"),
+                chat_id=kwargs.get("chat_id"),
                 validation_status="passed",
                 delivery_status="ready"
             )

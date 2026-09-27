@@ -1,5 +1,6 @@
 import os
 import uuid
+from pathlib import Path
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse as FastApiFileResponse
@@ -64,7 +65,9 @@ async def upload_file(
     file_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename or "unknown")[1] or ".bin"
     safe_name = f"{file_id}{ext}"
-    file_path = os.path.join(settings.upload_dir, safe_name)
+    user_upload_dir = os.path.join(settings.upload_dir, "users", str(current_user.id), "uploads")
+    os.makedirs(user_upload_dir, exist_ok=True)
+    file_path = os.path.join(user_upload_dir, safe_name)
 
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
@@ -75,6 +78,23 @@ async def upload_file(
     RAGService.cache_file(current_user.id, file.filename or "unknown", file_path, result["text"], file_id)
 
     content_type = file.content_type or "application/octet-stream"
+
+    # Persist in GeneratedFile database table with ownership
+    try:
+        gen_file = GeneratedFile(
+            id=file_id,
+            user_id=current_user.id,
+            filename=file.filename or "unknown",
+            storage_path=file_path,
+            mime_type=content_type,
+            file_size=len(content),
+            status="ready",
+        )
+        db.add(gen_file)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+
     if analyze:
         if content_type.startswith("image/"):
             try:
@@ -110,6 +130,9 @@ async def upload_multiple_files(
     db: AsyncSession = Depends(get_db),
 ):
     results = []
+    user_upload_dir = os.path.join(settings.upload_dir, "users", str(current_user.id), "uploads")
+    os.makedirs(user_upload_dir, exist_ok=True)
+
     for file in files:
         max_size = settings.max_file_size_mb * 1024 * 1024
         content = await file.read()
@@ -118,12 +141,29 @@ async def upload_multiple_files(
         file_id = str(uuid.uuid4())
         ext = os.path.splitext(file.filename or "unknown")[1] or ".bin"
         safe_name = f"{file_id}{ext}"
-        file_path = os.path.join(settings.upload_dir, safe_name)
+        file_path = os.path.join(user_upload_dir, safe_name)
         async with aiofiles.open(file_path, "wb") as f:
             await f.write(content)
         rag = RAGService(db, current_user.id)
         result = await rag.process_file(file_path, file.filename or "unknown", file_id)
+        RAGService.cache_file(current_user.id, file.filename or "unknown", file_path, result["text"], file_id)
         content_type = file.content_type or "application/octet-stream"
+
+        try:
+            gen_file = GeneratedFile(
+                id=file_id,
+                user_id=current_user.id,
+                filename=file.filename or "unknown",
+                storage_path=file_path,
+                mime_type=content_type,
+                file_size=len(content),
+                status="ready",
+            )
+            db.add(gen_file)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
         if analyze:
             if content_type.startswith("image/"):
                 try:
@@ -158,7 +198,19 @@ async def download_file(
     user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Downloads a file by file_id as a real binary FileResponse."""
+    """Downloads a file by file_id as a real binary FileResponse with strict tenant isolation."""
+    from app.utils.security import decode_token
+
+    active_user = user
+    if not active_user and token:
+        payload = decode_token(token)
+        if payload and payload.get("sub"):
+            u_res = await db.execute(select(User).where(User.id == str(payload["sub"])))
+            active_user = u_res.scalar_one_or_none()
+
+    if not active_user:
+        raise HTTPException(status_code=401, detail="Authentication required to download files.")
+
     # Look up in GeneratedFile table
     stmt = select(GeneratedFile).where(GeneratedFile.id == file_id)
     res = await db.execute(stmt)
@@ -169,19 +221,31 @@ async def download_file(
     media_type = "application/octet-stream"
 
     if file_record:
+        if file_record.user_id and file_record.user_id != active_user.id:
+            raise HTTPException(status_code=404, detail="File not found")
         file_path = file_record.storage_path
         filename = file_record.filename
         media_type = file_record.mime_type
     else:
-        # Fallback check in upload_dir or storage dir
-        for fname in os.listdir(settings.upload_dir):
-            if fname.startswith(file_id):
-                file_path = os.path.join(settings.upload_dir, fname)
-                filename = fname
-                break
+        # Check ONLY in the authenticated user's isolated uploads directory
+        user_dir = os.path.join(settings.upload_dir, "users", str(active_user.id), "uploads")
+        if os.path.exists(user_dir):
+            for fname in os.listdir(user_dir):
+                if fname.startswith(file_id):
+                    file_path = os.path.join(user_dir, fname)
+                    filename = fname
+                    break
 
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
+
+    # Path traversal security guard
+    resolved = Path(file_path).resolve()
+    base_upload = Path(settings.upload_dir).resolve()
+    try:
+        resolved.relative_to(base_upload)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     return FastApiFileResponse(
         path=file_path,
@@ -194,16 +258,29 @@ async def download_file(
 @router.get("/{file_id}/preview")
 async def preview_file(
     file_id: str,
+    token: Optional[str] = Query(None),
     user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Returns structured preview and design specification data for a generated document."""
+    """Returns structured preview and design specification data with strict tenant isolation."""
     import json
+    from app.utils.security import decode_token
+
+    active_user = user
+    if not active_user and token:
+        payload = decode_token(token)
+        if payload and payload.get("sub"):
+            u_res = await db.execute(select(User).where(User.id == str(payload["sub"])))
+            active_user = u_res.scalar_one_or_none()
+
+    if not active_user:
+        raise HTTPException(status_code=401, detail="Authentication required to preview files.")
+
     stmt = select(GeneratedFile).where(GeneratedFile.id == file_id)
     res = await db.execute(stmt)
     file_record = res.scalar_one_or_none()
 
-    if not file_record:
+    if not file_record or (file_record.user_id and file_record.user_id != active_user.id):
         raise HTTPException(status_code=404, detail="File not found")
 
     preview_json = {}

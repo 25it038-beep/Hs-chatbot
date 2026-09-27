@@ -54,11 +54,13 @@ class AgentOrchestrator:
     def __init__(
         self,
         workspace_id: str = "default",
+        user_id: Optional[str] = None,
         base_dir: Optional[str] = None,
         autonomy_mode: str = "AUTO" # ASK | SUPERVISED | AUTO
     ):
         self.workspace_id = workspace_id
-        self.workspace = get_workspace(workspace_id, base_dir)
+        self.user_id = user_id
+        self.workspace = get_workspace(workspace_id, user_id=user_id, base_dir=base_dir)
         self.terminal = TerminalAgent(self.workspace.root)
         self.repo_intel = RepositoryIndex(self.workspace.root)
         self.llm = NvidiaChatProvider()

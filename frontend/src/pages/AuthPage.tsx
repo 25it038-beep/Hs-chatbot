@@ -3,7 +3,7 @@ import { SignIn, SignUp, useUser, useAuth as useClerkAuth } from '@clerk/clerk-r
 import { useAuth } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Eye, EyeOff, UserCheck, KeyRound, Sparkles } from 'lucide-react'
+import { Eye, EyeOff, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HAS_CLERK } from '@/lib/clerkConfig'
 import { setTokens } from '@/lib/api'
@@ -57,21 +57,6 @@ export function AuthPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     }
-  }
-
-  const handleGuestLogin = () => {
-    setTokens('hsbot_guest_token', '')
-    useAuth.setState({
-      user: {
-        id: 'guest_' + Math.random().toString(36).substring(2, 8),
-        username: 'Guest User',
-        email: 'guest@hsbot.ai',
-        display_name: 'Guest User',
-        is_active: true,
-        created_at: new Date().toISOString(),
-      },
-      initialized: true,
-    })
   }
 
   if (HAS_CLERK && isClerkSignedIn) {
@@ -152,22 +137,12 @@ export function AuthPage() {
               )}
             </div>
 
-            {/* Quick Access / Alternate Options */}
-            <div className="w-full flex flex-col gap-2.5 mt-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full h-10 rounded-xl text-xs font-medium border-border/80 hover:bg-muted/60 shadow-xs flex items-center justify-center gap-2"
-                onClick={handleGuestLogin}
-              >
-                <Sparkles size={14} className="text-primary" />
-                <span>Continue as Guest (Instant Access)</span>
-              </Button>
-
+            {/* Alternate Option: Local Authentication */}
+            <div className="w-full flex flex-col gap-2 mt-2">
               <button
                 type="button"
                 onClick={() => setAuthMethod('local')}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors text-center py-1 flex items-center justify-center gap-1.5"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors text-center py-2 flex items-center justify-center gap-1.5 rounded-lg hover:bg-muted/40"
               >
                 <KeyRound size={12} />
                 <span>Sign in with HSBot username & password</span>
@@ -262,24 +237,7 @@ export function AuthPage() {
                 ) : mode === 'login' ? 'Sign In' : 'Create Account'}
               </Button>
 
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border/60" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-card px-2 text-muted-foreground/60">or</span>
-                </div>
-              </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full h-10 rounded-lg text-xs font-medium border-border/80 hover:bg-muted/50"
-                onClick={handleGuestLogin}
-              >
-                <UserCheck size={14} className="mr-1.5 text-primary" />
-                <span>Continue as Guest (Instant Access)</span>
-              </Button>
 
               {HAS_CLERK && (
                 <button

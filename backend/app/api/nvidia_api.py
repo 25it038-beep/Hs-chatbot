@@ -242,6 +242,17 @@ async def nvidia_chat(
     user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if request.chat_id and not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required to access saved chat conversations. Please sign in.",
+        )
+    if request.chat_id and user:
+        svc = ChatService(db)
+        existing_chat = await svc.get_chat(request.chat_id, user.id)
+        if not existing_chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
     original_message = request.message
     from app.services.retrieval.url_handler import handle_url_fetching
     from app.services.live_router import classify_live_intent
@@ -436,7 +447,7 @@ async def nvidia_chat(
                                 provider="nvidia",
                                 extra_data={"attachments": all_attachments},
                             ))
-                            chat_res = await db.execute(select(Chat).where(Chat.id == chat_id))
+                            chat_res = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == u_id))
                             chat_obj = chat_res.scalar_one_or_none()
                             if chat_obj and chat_obj.title == "New Chat":
                                 chat_obj.title = doc_intent.title

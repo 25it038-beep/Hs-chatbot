@@ -97,7 +97,7 @@ async def get_agent_state(
     workspace_id: str = "default",
     user: User = Depends(get_current_user)
 ):
-    orchestrator = AgentOrchestrator(workspace_id=workspace_id)
+    orchestrator = AgentOrchestrator(workspace_id=workspace_id, user_id=user.id)
     summary = orchestrator.repo_intel.summarize_context()
     return {
         "status": orchestrator.state,
@@ -111,7 +111,7 @@ async def plan_agent_task(
     req: PlanRequest,
     user: User = Depends(get_current_user)
 ):
-    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id)
+    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id, user_id=user.id)
     plan = await orchestrator.generate_plan(req.prompt)
     return {
         "success": True,
@@ -127,7 +127,7 @@ async def understand_user_prompt(
     Analyzes prompt through the 48-section HSBOT Prompt Understanding Pipeline.
     Runs BEFORE requirement discovery, adaptive quiz, tool calling, or execution.
     """
-    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id)
+    orchestrator = AgentOrchestrator(workspace_id=req.workspace_id, user_id=user.id)
     engine = PromptUnderstandingEngine(orchestrator.repo_intel.summarize_context())
     understanding = engine.analyze(
         prompt=req.prompt,
@@ -149,6 +149,7 @@ async def run_agent(
     """
     orchestrator = AgentOrchestrator(
         workspace_id=req.workspace_id,
+        user_id=user.id,
         autonomy_mode=req.autonomy_mode
     )
 
@@ -183,7 +184,7 @@ async def get_workspace_tree(
     workspace_id: str = "default",
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(workspace_id)
+    ws = get_workspace(workspace_id, user_id=user.id)
     return ws.get_project_structure()
 
 @router.get("/workspace/file")
@@ -194,7 +195,7 @@ async def read_workspace_file(
     end_line: Optional[int] = None,
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(workspace_id)
+    ws = get_workspace(workspace_id, user_id=user.id)
     res = ws.read_file(path, start_line=start_line, end_line=end_line)
     if not res.get("success"):
         raise HTTPException(status_code=404, detail=res.get("error"))
@@ -205,7 +206,7 @@ async def write_workspace_file(
     req: FileWriteRequest,
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(req.workspace_id)
+    ws = get_workspace(req.workspace_id, user_id=user.id)
     res = ws.write_file(req.path, req.content)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error"))
@@ -216,7 +217,7 @@ async def edit_workspace_file(
     req: FileEditRequest,
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(req.workspace_id)
+    ws = get_workspace(req.workspace_id, user_id=user.id)
     res = ws.edit_file(req.path, req.target_content, req.replacement_content)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error"))
@@ -228,7 +229,7 @@ async def delete_workspace_file(
     workspace_id: str = "default",
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(workspace_id)
+    ws = get_workspace(workspace_id, user_id=user.id)
     res = ws.delete_file(path)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error"))
@@ -239,7 +240,7 @@ async def download_workspace_zip(
     workspace_id: str = "default",
     user: User = Depends(get_current_user)
 ):
-    ws = get_workspace(workspace_id)
+    ws = get_workspace(workspace_id, user_id=user.id)
     zip_res = artifact_engine.create_zip_project(
         workspace_dir=ws.root,
         zip_filename=f"{workspace_id}-workspace.zip",
@@ -261,7 +262,7 @@ async def run_terminal_command(
     user: User = Depends(get_current_user)
 ):
     from app.services.agent.terminal import TerminalAgent
-    ws = get_workspace(req.workspace_id)
+    ws = get_workspace(req.workspace_id, user_id=user.id)
     term = TerminalAgent(ws.root)
     result = await term.execute(req.command, timeout_seconds=req.timeout or 30)
     return result
@@ -271,7 +272,7 @@ async def list_artifacts(
     chat_id: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    artifacts = artifact_engine.list_artifacts(chat_id=chat_id)
+    artifacts = artifact_engine.list_artifacts(chat_id=chat_id, user_id=user.id)
     return {"artifacts": artifacts}
 
 @router.get("/artifacts/{artifact_id}/download")
@@ -280,7 +281,7 @@ async def download_artifact(
     user: User = Depends(get_current_user)
 ):
     record = artifact_engine.get_artifact(artifact_id)
-    if not record:
+    if not record or (record.get("user_id") and record["user_id"] != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     file_path = Path(record["storage_path"])
@@ -298,6 +299,11 @@ async def get_artifact_preview(
     artifact_id: str,
     user: User = Depends(get_current_user)
 ):
+    from app.services.artifacts.registry import artifact_registry
+    art = artifact_registry.get(artifact_id)
+    if not art or (art.user_id and art.user_id != user.id):
+        raise HTTPException(status_code=404, detail="Artifact preview unavailable")
+
     from app.services.artifacts.preview import artifact_preview
     res = artifact_preview.get_preview(artifact_id)
     if not res:
@@ -309,6 +315,11 @@ async def get_artifact_content(
     artifact_id: str,
     user: User = Depends(get_current_user)
 ):
+    from app.services.artifacts.registry import artifact_registry
+    art = artifact_registry.get(artifact_id)
+    if not art or (art.user_id and art.user_id != user.id):
+        raise HTTPException(status_code=404, detail="Artifact content unavailable")
+
     from app.services.artifacts.preview import artifact_preview
     res = artifact_preview.get_content(artifact_id)
     if not res:
@@ -322,7 +333,7 @@ async def get_artifact_versions(
 ):
     from app.services.artifacts.registry import artifact_registry
     art = artifact_registry.get(artifact_id)
-    if not art:
+    if not art or (art.user_id and art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"artifact_id": art.artifact_id, "current_version": art.version, "versions": [v.to_dict() for v in art.versions]}
 
@@ -336,11 +347,16 @@ async def edit_artifact_route(
     req: ArtifactEditRequest,
     user: User = Depends(get_current_user)
 ):
+    from app.services.artifacts.registry import artifact_registry
+    art = artifact_registry.get(artifact_id)
+    if not art or (art.user_id and art.user_id != user.id):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     from app.services.artifacts.editor import artifact_editor
-    success, art, msg = await artifact_editor.edit_artifact(artifact_id, req.instruction, req.target)
+    success, updated_art, msg = await artifact_editor.edit_artifact(artifact_id, req.instruction, req.target)
     if not success:
         raise HTTPException(status_code=400, detail=msg)
-    return {"success": True, "artifact": art.to_dict(), "message": msg}
+    return {"success": True, "artifact": updated_art.to_dict(), "message": msg}
 
 @router.post("/artifacts/{artifact_id}/restore/{version}")
 async def restore_artifact_version_route(
@@ -349,6 +365,10 @@ async def restore_artifact_version_route(
     user: User = Depends(get_current_user)
 ):
     from app.services.artifacts.registry import artifact_registry
+    existing_art = artifact_registry.get(artifact_id)
+    if not existing_art or (existing_art.user_id and existing_art.user_id != user.id):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     art = artifact_registry.restore_version(artifact_id, version)
     if not art:
         raise HTTPException(status_code=400, detail=f"Could not restore version {version}")
@@ -363,6 +383,11 @@ async def convert_artifact_route(
     req: ArtifactConvertRequest,
     user: User = Depends(get_current_user)
 ):
+    from app.services.artifacts.registry import artifact_registry
+    existing_art = artifact_registry.get(artifact_id)
+    if not existing_art or (existing_art.user_id and existing_art.user_id != user.id):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     from app.services.artifacts.editor import artifact_editor
     success, art, msg = await artifact_editor.convert_artifact(artifact_id, req.target_format)
     if not success:

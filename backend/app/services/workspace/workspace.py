@@ -16,12 +16,14 @@ class WorkspaceManager:
     Provides sandboxed file operations with path traversal prevention,
     atomic edits, unified diff generation, and structured audit events.
     """
-    def __init__(self, workspace_id: str = "default", base_dir: Optional[str] = None):
+    def __init__(self, workspace_id: str = "default", user_id: Optional[str] = None, base_dir: Optional[str] = None):
         self.workspace_id = workspace_id
+        self.user_id = user_id
         if base_dir:
             self.root = Path(base_dir).resolve()
         else:
-            default_root = Path(settings.upload_dir) / "workspaces" / workspace_id
+            user_part = str(user_id) if user_id else "global"
+            default_root = Path(settings.upload_dir) / "workspaces" / user_part / workspace_id
             self.root = default_root.resolve()
         
         self.root.mkdir(parents=True, exist_ok=True)
@@ -317,8 +319,9 @@ class WorkspaceManager:
 # Global or multi-tenant registry for workspaces
 _workspaces: Dict[str, WorkspaceManager] = {}
 
-def get_workspace(workspace_id: str = "default", base_dir: Optional[str] = None) -> WorkspaceManager:
-    key = f"{workspace_id}:{base_dir or ''}"
+def get_workspace(workspace_id: str = "default", user_id: Optional[str] = None, base_dir: Optional[str] = None) -> WorkspaceManager:
+    user_part = str(user_id) if user_id else "global"
+    key = f"{user_part}:{workspace_id}:{base_dir or ''}"
     if key not in _workspaces:
-        _workspaces[key] = WorkspaceManager(workspace_id, base_dir)
+        _workspaces[key] = WorkspaceManager(workspace_id=workspace_id, user_id=user_id, base_dir=base_dir)
     return _workspaces[key]

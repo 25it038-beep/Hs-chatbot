@@ -3,6 +3,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { ChatContainer } from '@/components/chat/ChatContainer'
 import { AgentPage } from '@/pages/AgentPage'
+import { AgentV2Shell } from '@/components/agent-v2/AgentV2Shell'
 import { AgentErrorBoundary } from '@/components/agent/AgentErrorBoundary'
 import { TitleBar } from '@/components/desktop/TitleBar'
 import { BrowserTabs } from '@/components/desktop/BrowserTabs'
@@ -13,6 +14,7 @@ import { Download } from 'lucide-react'
 export function ChatPage() {
   const { setSidebarOpen, appMode } = useSettings()
   const [compact, setCompact] = useState(false)
+  const [agentVersion, setAgentVersion] = useState<'v2' | 'classic'>('v2')
 
   useEffect(() => {
     const handleResize = () => {
@@ -34,8 +36,23 @@ export function ChatPage() {
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
           {appMode === 'agent' ? (
-            <AgentErrorBoundary panelName="Autonomous Agent Workbench">
-              <AgentPage />
+            <AgentErrorBoundary panelName="Autonomous AI Product Company Workbench">
+              {agentVersion === 'v2' ? (
+                <AgentV2Shell onToggleClassic={() => setAgentVersion('classic')} />
+              ) : (
+                <div className="flex-1 flex flex-col h-full overflow-hidden">
+                  <div className="h-8 px-4 bg-muted/60 border-b border-border flex items-center justify-between text-xs font-mono">
+                    <span className="text-muted-foreground">Classic Agent Mode</span>
+                    <button
+                      onClick={() => setAgentVersion('v2')}
+                      className="text-primary hover:underline font-bold"
+                    >
+                      Switch to Agent V2 (AI Company)
+                    </button>
+                  </div>
+                  <AgentPage />
+                </div>
+              )}
             </AgentErrorBoundary>
           ) : (
             <ChatContainer />

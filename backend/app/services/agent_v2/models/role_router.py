@@ -323,16 +323,24 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REASONING,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 2. Requirements Analyst
-    AgentRole.REQUIREMENTS_ANALYST: RoleModelConfig(
-        role=AgentRole.REQUIREMENTS_ANALYST,
-        role_name="Requirements Analyst",
+    AgentRole.PRODUCT_STRATEGIST: RoleModelConfig(
+        role=AgentRole.PRODUCT_STRATEGIST,
+        role_name="Product Strategist",
         model="nvidia/nemotron-3-ultra-550b-a55b",
-        responsibility="Find missing/ambiguous requirements and decide what must be asked",
+        responsibility="Market differentiation, competitive edge, and feature prioritization",
+        capability=AgentModelCapability.REASONING,
+        fallback_model="llama-3.1-70b"
+    ),
+    AgentRole.REQUIREMENTS_DIRECTOR: RoleModelConfig(
+        role=AgentRole.REQUIREMENTS_DIRECTOR,
+        role_name="Requirements Director",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Requirement completeness verification and acceptance governance",
         capability=AgentModelCapability.REQUIREMENT_ANALYSIS,
         fallback_model="llama-3.1-70b"
     ),
+
+    # 2. Discovery Layer
     AgentRole.PRODUCT_ANALYST: RoleModelConfig(
         role=AgentRole.PRODUCT_ANALYST,
         role_name="Requirements Analyst",
@@ -341,8 +349,22 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REQUIREMENT_ANALYSIS,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 3. Research / Technical Analyst
+    AgentRole.REQUIREMENTS_ANALYST: RoleModelConfig(
+        role=AgentRole.REQUIREMENTS_ANALYST,
+        role_name="Requirements Analyst",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Find missing/ambiguous requirements and decide what must be asked",
+        capability=AgentModelCapability.REQUIREMENT_ANALYSIS,
+        fallback_model="llama-3.1-70b"
+    ),
+    AgentRole.RESEARCH_AGENT: RoleModelConfig(
+        role=AgentRole.RESEARCH_AGENT,
+        role_name="Research Agent",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Research external libraries, documentation, APIs, and domain constraints",
+        capability=AgentModelCapability.UNDERSTANDING,
+        fallback_model="llama-3.1-70b"
+    ),
     AgentRole.RESEARCH_TECHNICAL_ANALYST: RoleModelConfig(
         role=AgentRole.RESEARCH_TECHNICAL_ANALYST,
         role_name="Research / Technical Analyst",
@@ -351,8 +373,24 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.UNDERSTANDING,
         fallback_model="llama-3.1-70b"
     ),
+    AgentRole.DOMAIN_ANALYST: RoleModelConfig(
+        role=AgentRole.DOMAIN_ANALYST,
+        role_name="Domain Analyst",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Extract industry norms, regulatory constraints, and domain standards",
+        capability=AgentModelCapability.UNDERSTANDING,
+        fallback_model="llama-3.1-70b"
+    ),
+    AgentRole.REQUIREMENT_VALIDATOR: RoleModelConfig(
+        role=AgentRole.REQUIREMENT_VALIDATOR,
+        role_name="Requirement Validator",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Verify requirement consistency, eliminate conflicts and ambiguous scope",
+        capability=AgentModelCapability.REQUIREMENT_ANALYSIS,
+        fallback_model="llama-3.1-70b"
+    ),
 
-    # 4. Master Planner
+    # 3. Planning Layer
     AgentRole.MASTER_PLANNER: RoleModelConfig(
         role=AgentRole.MASTER_PLANNER,
         role_name="Master Planner",
@@ -361,8 +399,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.ARCHITECTURE,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 5. Solution Architect
     AgentRole.SOLUTION_ARCHITECT: RoleModelConfig(
         role=AgentRole.SOLUTION_ARCHITECT,
         role_name="Solution Architect",
@@ -371,8 +407,32 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.ARCHITECTURE,
         fallback_model="llama-3.1-70b"
     ),
+    AgentRole.TECHNICAL_ARCHITECT: RoleModelConfig(
+        role=AgentRole.TECHNICAL_ARCHITECT,
+        role_name="Technical Architect",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Low-level software patterns, concurrency, protocol, and runtime choices",
+        capability=AgentModelCapability.ARCHITECTURE,
+        fallback_model="llama-3.1-70b"
+    ),
+    AgentRole.DATA_ARCHITECT: RoleModelConfig(
+        role=AgentRole.DATA_ARCHITECT,
+        role_name="Data Architect",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Data modeling, state persistence, schema migrations, and consistency",
+        capability=AgentModelCapability.ARCHITECTURE,
+        fallback_model="codestral"
+    ),
+    AgentRole.AI_ARCHITECT: RoleModelConfig(
+        role=AgentRole.AI_ARCHITECT,
+        role_name="AI Architect",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="AI models, agent loops, prompt topology, and embedding strategies",
+        capability=AgentModelCapability.REASONING,
+        fallback_model="llama-3.1-70b"
+    ),
 
-    # 6. UX Researcher
+    # 4. Design Layer
     AgentRole.UX_RESEARCHER: RoleModelConfig(
         role=AgentRole.UX_RESEARCHER,
         role_name="UX Researcher",
@@ -381,8 +441,14 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.UNDERSTANDING,
         fallback_model="llama-3.2-11b"
     ),
-
-    # 7. UI/UX Designer
+    AgentRole.UX_ARCHITECT: RoleModelConfig(
+        role=AgentRole.UX_ARCHITECT,
+        role_name="UX Architect",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Information hierarchy, screen flows, state transitions, and usability",
+        capability=AgentModelCapability.UNDERSTANDING,
+        fallback_model="llama-3.2-11b"
+    ),
     AgentRole.UI_UX_DESIGNER: RoleModelConfig(
         role=AgentRole.UI_UX_DESIGNER,
         role_name="UI/UX Designer",
@@ -391,8 +457,22 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.UI,
         fallback_model="llama-3.2-11b"
     ),
-
-    # 8. Visual / Screenshot Analyst
+    AgentRole.DESIGN_SYSTEM_ENGINEER: RoleModelConfig(
+        role=AgentRole.DESIGN_SYSTEM_ENGINEER,
+        role_name="Design System Engineer",
+        model="moonshotai/kimi-k3",
+        responsibility="Component primitives, typography, theme tokens, and color system",
+        capability=AgentModelCapability.UI,
+        fallback_model="llama-3.2-11b"
+    ),
+    AgentRole.VISUAL_DESIGN_REVIEWER: RoleModelConfig(
+        role=AgentRole.VISUAL_DESIGN_REVIEWER,
+        role_name="Visual Design Reviewer",
+        model="meta/muse-glimmer-30b",
+        responsibility="Inspect visual hierarchy, alignment, contrast, and typography execution",
+        capability=AgentModelCapability.VISION,
+        fallback_model="llama-3.2-11b"
+    ),
     AgentRole.VISUAL_SCREENSHOT_ANALYST: RoleModelConfig(
         role=AgentRole.VISUAL_SCREENSHOT_ANALYST,
         role_name="Visual / Screenshot Analyst",
@@ -402,7 +482,7 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         fallback_model="llama-3.2-11b"
     ),
 
-    # 9. Frontend Architect
+    # 5. Engineering Layer
     AgentRole.FRONTEND_ARCHITECT: RoleModelConfig(
         role=AgentRole.FRONTEND_ARCHITECT,
         role_name="Frontend Architect",
@@ -411,8 +491,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 10. Frontend Engineer
     AgentRole.FRONTEND_ENGINEER: RoleModelConfig(
         role=AgentRole.FRONTEND_ENGINEER,
         role_name="Frontend Engineer",
@@ -421,8 +499,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 11. Backend Architect
     AgentRole.BACKEND_ARCHITECT: RoleModelConfig(
         role=AgentRole.BACKEND_ARCHITECT,
         role_name="Backend Architect",
@@ -431,8 +507,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.ARCHITECTURE,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 12. Backend Engineer
     AgentRole.BACKEND_ENGINEER: RoleModelConfig(
         role=AgentRole.BACKEND_ENGINEER,
         role_name="Backend Engineer",
@@ -441,8 +515,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 13. Database Engineer
     AgentRole.DATABASE_ENGINEER: RoleModelConfig(
         role=AgentRole.DATABASE_ENGINEER,
         role_name="Database Engineer",
@@ -451,8 +523,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 14. AI Engineer
     AgentRole.AI_ENGINEER: RoleModelConfig(
         role=AgentRole.AI_ENGINEER,
         role_name="AI Engineer",
@@ -461,8 +531,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REASONING,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 15. Integration Engineer
     AgentRole.INTEGRATION_ENGINEER: RoleModelConfig(
         role=AgentRole.INTEGRATION_ENGINEER,
         role_name="Integration Engineer",
@@ -471,8 +539,16 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
+    AgentRole.INFRASTRUCTURE_ENGINEER: RoleModelConfig(
+        role=AgentRole.INFRASTRUCTURE_ENGINEER,
+        role_name="Infrastructure Engineer",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Build configuration, scripts, bundling, and deployment setup",
+        capability=AgentModelCapability.CODING,
+        fallback_model="codestral"
+    ),
 
-    # 16. Game Engineer
+    # 6. Specialized Engineering
     AgentRole.GAME_ENGINEER: RoleModelConfig(
         role=AgentRole.GAME_ENGINEER,
         role_name="Game Engineer",
@@ -481,8 +557,14 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 17. 3D / Graphics Engineer
+    AgentRole.SIMULATION_ENGINEER: RoleModelConfig(
+        role=AgentRole.SIMULATION_ENGINEER,
+        role_name="Simulation Engineer",
+        model="moonshotai/kimi-k3",
+        responsibility="Agent-based models, physical simulations, time-stepped calculations",
+        capability=AgentModelCapability.CODING,
+        fallback_model="codestral"
+    ),
     AgentRole.GRAPHICS_3D_ENGINEER: RoleModelConfig(
         role=AgentRole.GRAPHICS_3D_ENGINEER,
         role_name="3D / Graphics Engineer",
@@ -491,28 +573,32 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
-
-    # 18. Debug Engineer
-    AgentRole.DEBUG_ENGINEER: RoleModelConfig(
-        role=AgentRole.DEBUG_ENGINEER,
-        role_name="Debug Engineer",
+    AgentRole.MEDIA_ENGINEER: RoleModelConfig(
+        role=AgentRole.MEDIA_ENGINEER,
+        role_name="Media Engineer",
+        model="moonshotai/kimi-k3",
+        responsibility="Audio, video, waveform processing, and media pipelines",
+        capability=AgentModelCapability.CODING,
+        fallback_model="codestral"
+    ),
+    AgentRole.IOT_HARDWARE_ENGINEER: RoleModelConfig(
+        role=AgentRole.IOT_HARDWARE_ENGINEER,
+        role_name="IoT / Hardware Engineer",
         model="nvidia/nemotron-3-super-120b-a12b",
-        responsibility="Diagnose errors, trace failures, repair code",
-        capability=AgentModelCapability.DEBUGGING,
+        responsibility="Sensor telemetry, serial/websocket protocols, and device status",
+        capability=AgentModelCapability.CODING,
+        fallback_model="codestral"
+    ),
+    AgentRole.DATA_ENGINEER: RoleModelConfig(
+        role=AgentRole.DATA_ENGINEER,
+        role_name="Data Engineer",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Data pipelines, transformations, ETL, and export utilities",
+        capability=AgentModelCapability.CODING,
         fallback_model="codestral"
     ),
 
-    # 19. Fast Repair Agent
-    AgentRole.FAST_REPAIR_AGENT: RoleModelConfig(
-        role=AgentRole.FAST_REPAIR_AGENT,
-        role_name="Fast Repair Agent",
-        model="nvidia/nemotron-3.5-lightning-30b-a3b",
-        responsibility="Small fixes, repetitive corrections, quick retries",
-        capability=AgentModelCapability.DEBUGGING,
-        fallback_model="codestral"
-    ),
-
-    # 20. Test Engineer
+    # 7. Quality Layer
     AgentRole.TEST_ENGINEER: RoleModelConfig(
         role=AgentRole.TEST_ENGINEER,
         role_name="Test Engineer",
@@ -521,8 +607,30 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.TESTING,
         fallback_model="codestral"
     ),
-
-    # 21. Browser / GUI Agent
+    AgentRole.DEBUG_ENGINEER: RoleModelConfig(
+        role=AgentRole.DEBUG_ENGINEER,
+        role_name="Debug Engineer",
+        model="nvidia/nemotron-3-super-120b-a12b",
+        responsibility="Diagnose errors, trace failures, repair code",
+        capability=AgentModelCapability.DEBUGGING,
+        fallback_model="codestral"
+    ),
+    AgentRole.FAST_REPAIR_AGENT: RoleModelConfig(
+        role=AgentRole.FAST_REPAIR_AGENT,
+        role_name="Fast Repair Agent",
+        model="nvidia/nemotron-3.5-lightning-30b-a3b",
+        responsibility="Small fixes, repetitive corrections, quick retries",
+        capability=AgentModelCapability.DEBUGGING,
+        fallback_model="codestral"
+    ),
+    AgentRole.BROWSER_QA_ENGINEER: RoleModelConfig(
+        role=AgentRole.BROWSER_QA_ENGINEER,
+        role_name="Browser QA Engineer",
+        model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        responsibility="Browser interaction testing, form workflows, navigation QA",
+        capability=AgentModelCapability.VISION,
+        fallback_model="llama-3.2-11b"
+    ),
     AgentRole.BROWSER_GUI_AGENT: RoleModelConfig(
         role=AgentRole.BROWSER_GUI_AGENT,
         role_name="Browser / GUI Agent",
@@ -531,8 +639,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.VISION,
         fallback_model="llama-3.2-11b"
     ),
-
-    # 22. Visual QA Engineer
     AgentRole.VISUAL_QA_ENGINEER: RoleModelConfig(
         role=AgentRole.VISUAL_QA_ENGINEER,
         role_name="Visual QA Engineer",
@@ -541,8 +647,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.VISION,
         fallback_model="llama-3.2-11b"
     ),
-
-    # 23. Security Engineer
     AgentRole.SECURITY_ENGINEER: RoleModelConfig(
         role=AgentRole.SECURITY_ENGINEER,
         role_name="Security Engineer",
@@ -551,8 +655,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REASONING,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 24. Performance Engineer
     AgentRole.PERFORMANCE_ENGINEER: RoleModelConfig(
         role=AgentRole.PERFORMANCE_ENGINEER,
         role_name="Performance Engineer",
@@ -561,8 +663,6 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REASONING,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 25. Code Reviewer
     AgentRole.CODE_REVIEWER: RoleModelConfig(
         role=AgentRole.CODE_REVIEWER,
         role_name="Code Reviewer",
@@ -571,8 +671,16 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REVIEW,
         fallback_model="llama-3.1-70b"
     ),
+    AgentRole.ARCHITECTURE_REVIEWER: RoleModelConfig(
+        role=AgentRole.ARCHITECTURE_REVIEWER,
+        role_name="Architecture Reviewer",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Validate architecture boundaries, modularity, and technical feasibility",
+        capability=AgentModelCapability.REVIEW,
+        fallback_model="llama-3.1-70b"
+    ),
 
-    # 26. Product Critic
+    # 8. Final Layer
     AgentRole.PRODUCT_CRITIC: RoleModelConfig(
         role=AgentRole.PRODUCT_CRITIC,
         role_name="Product Critic",
@@ -589,8 +697,22 @@ ROLE_MODEL_REGISTRY: Dict[AgentRole, RoleModelConfig] = {
         capability=AgentModelCapability.REASONING,
         fallback_model="llama-3.1-70b"
     ),
-
-    # 27. Final Verification Engineer
+    AgentRole.RELEASE_ENGINEER: RoleModelConfig(
+        role=AgentRole.RELEASE_ENGINEER,
+        role_name="Release Engineer",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Packaging, artifact creation, distribution verification, and manifest finalization",
+        capability=AgentModelCapability.VERIFICATION,
+        fallback_model="llama-3.1-70b"
+    ),
+    AgentRole.INDEPENDENT_FINAL_VERIFIER: RoleModelConfig(
+        role=AgentRole.INDEPENDENT_FINAL_VERIFIER,
+        role_name="Final Verification Engineer",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
+        responsibility="Independent final acceptance against requirements",
+        capability=AgentModelCapability.VERIFICATION,
+        fallback_model="llama-3.1-70b"
+    ),
     AgentRole.FINAL_VERIFICATION_ENGINEER: RoleModelConfig(
         role=AgentRole.FINAL_VERIFICATION_ENGINEER,
         role_name="Final Verification Engineer",

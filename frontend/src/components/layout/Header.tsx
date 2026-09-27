@@ -9,7 +9,7 @@ import {
 import { isTauri } from '@/lib/tauri'
 import { useChat } from '@/stores/chat'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
-import { HAS_CLERK } from '@/lib/clerkConfig'
+import { HAS_CLERK, CLERK_PUBLISHABLE_KEY } from '@/lib/clerkConfig'
 
 const THEME_CYCLE = ['light', 'dark', 'system'] as const
 type ThemeOption = (typeof THEME_CYCLE)[number]
@@ -113,7 +113,7 @@ export function Header() {
               <Download size={11} className="opacity-70" />
             </Button>
           )}
-          {HAS_CLERK && <ClerkUserAvatar />}
+          {HAS_CLERK && CLERK_PUBLISHABLE_KEY && <ClerkUserAvatar />}
           <Button
             variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
             onClick={() => setTheme(current.next)}

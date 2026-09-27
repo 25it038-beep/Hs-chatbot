@@ -13,6 +13,7 @@
     "preview": "npm run preview --workspace=frontend"
   },
   "dependencies": {
+    "@google/genai": "^2.24.0",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
     "@types/ws": "^8.18.1",

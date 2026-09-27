@@ -15,15 +15,15 @@ function getBaseUrlInternal(): string {
 
   if (isBrowser) {
     const hostname = window.location.hostname
+    // If on Google Cloud Run or local dev or same-origin deployment, use relative /api
+    if (hostname.includes('run.app') || isLocalhost || hostname.endsWith('.local')) {
+      return '/api'
+    }
     // If deployed on Render static site (e.g. hs-chatbot-3.onrender.com)
     if (hostname.includes('onrender.com')) {
       if (hostname.includes('hs-chatbot-2')) {
         return '/api'
       }
-      return 'https://hs-chatbot-2.onrender.com/api'
-    }
-    // Any other remote host without explicit VITE_API_URL
-    if (!isLocalhost && !hostname.endsWith('.local')) {
       return 'https://hs-chatbot-2.onrender.com/api'
     }
   }

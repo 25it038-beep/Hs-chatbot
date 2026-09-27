@@ -9,7 +9,7 @@ import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { isTauri, listenForHotkeyFocus } from '@/lib/tauri'
-import { HAS_CLERK } from '@/lib/clerkConfig'
+import { HAS_CLERK, CLERK_PUBLISHABLE_KEY } from '@/lib/clerkConfig'
 
 // Keep Render backend warm — ping every 4 minutes so it never cold-starts
 function useKeepAlive() {
@@ -153,7 +153,7 @@ export default function App() {
           <ChatPage />
           <SettingsPage />
         </>
-      ) : HAS_CLERK ? (
+      ) : HAS_CLERK && CLERK_PUBLISHABLE_KEY ? (
         <ClerkAppInner />
       ) : !initialized ? (
         <LoadingScreen />

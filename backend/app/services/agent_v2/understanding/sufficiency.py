@@ -117,7 +117,24 @@ class RequirementSufficiencyEngine:
 
         # 1. Determine Product Name
         name_candidate = "OmniCraft Realization"
-        if "football" in text or "soccer" in text:
+        if "car" in text or "racing" in text or "drive" in text:
+            name_candidate = "Turbo Drive 2D — High-Speed Highway Racing"
+            domain = "car_game"
+            platform = "web"
+            core_wf = [
+                "Control high-performance sports car along multi-lane highway",
+                "Dodge incoming traffic vehicles and road obstacles with Arrow keys / WASD",
+                "Collect fuel canisters and activate Nitro Turbo speed boosts",
+                "Track real-time speedometer, distance traveled, high scores, and crash resets"
+            ]
+            entities = ["PlayerCar", "TrafficCar", "HighwayLane", "Speedometer", "NitroBoost", "HighScores"]
+            features = [
+                "2D Canvas parallax highway racing engine with dynamic lane striping",
+                "Multi-lane dynamic traffic AI spawning at progressive velocities",
+                "Interactive dashboard with digital speedometer (km/h), distance score, and nitro gauge",
+                "Dual keyboard and on-screen touch/mouse steering controls with crash detection"
+            ]
+        elif "football" in text or "soccer" in text:
             name_candidate = "Apex Premier Football Arena"
             domain = "game"
             platform = "web"
@@ -133,6 +150,57 @@ class RequirementSufficiencyEngine:
                 "Mouse drag flick and keyboard angle controls",
                 "Reactive goalkeeper AI with trajectory diving",
                 "Auditory whistle cues and goal celebration banners"
+            ]
+        elif "crypto" in text or "bitcoin" in text or "finance" in text:
+            name_candidate = "ApexCrypto Live Market Terminal & Portfolio"
+            domain = "finance"
+            platform = "web"
+            core_wf = [
+                "Monitor real-time price tickers across major crypto pairs",
+                "Analyze interactive price trends and candlestick charts",
+                "Simulate instant buy and sell orders with portfolio balance tracking",
+                "Manage watchlists and set custom price alerts"
+            ]
+            entities = ["CryptoAsset", "PriceTicker", "OrderBook", "PortfolioBalance", "TradeHistory"]
+            features = [
+                "Real-time simulated WebSocket price ticker feeds",
+                "Interactive SVG price trend chart with 24h gainers/losers",
+                "Instant paper-trading simulator with $50,000 demo portfolio",
+                "Order execution history and transaction audit table"
+            ]
+        elif "kanban" in text or "task" in text or "trello" in text:
+            name_candidate = "SprintFlow Agile Kanban Studio"
+            domain = "productivity"
+            platform = "web"
+            core_wf = [
+                "Organize product tasks across Backlog, In Progress, Review, and Done columns",
+                "Drag and drop cards across lifecycle workflow stages",
+                "Assign priority badges, tags, due dates, and descriptions",
+                "Filter and search tasks with persistent state synchronization"
+            ]
+            entities = ["TaskCard", "KanbanColumn", "PriorityTag", "ActivityLog", "Member"]
+            features = [
+                "Interactive drag-and-drop column board",
+                "Task modal editor with tag selection and due dates",
+                "Instant search bar with priority and assignee filters",
+                "Local persistence with JSON export/import"
+            ]
+        elif "chat" in text or "messenger" in text:
+            name_candidate = "PulseStream Real-Time Messaging App"
+            domain = "communication"
+            platform = "web"
+            core_wf = [
+                "Switch channels and direct conversation threads",
+                "Send and receive instant rich text messages",
+                "Attach files, emojis, and search conversation history",
+                "Simulate active typing indicators and bot responses"
+            ]
+            entities = ["Channel", "Message", "UserContact", "Attachment", "Reaction"]
+            features = [
+                "Multi-channel sidebar with unread notification badges",
+                "Live message feed with auto-scroll and timestamp formatting",
+                "Interactive AI assistant bot in conversation thread",
+                "Search filter over all past messages"
             ]
         elif "hospital" in text or "health" in text or "patient" in text:
             name_candidate = "AegisHealth Care & Patient Triage System"

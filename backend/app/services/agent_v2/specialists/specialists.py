@@ -82,9 +82,21 @@ class DynamicDomainSynthesizer:
         accent_color = palette.get("accent", "#10b981")
         surface_color = palette.get("surface", "#0f172a")
 
-        is_game = "game" in domain or "sports" in domain or "football" in p_name.lower() or "arcade" in domain
-
-        if is_game:
+        lower_name = p_name.lower()
+        # 1. Car & Highway Racing Games
+        if "car" in lower_name or "racing" in lower_name or "drive" in lower_name or "car" in domain:
+            return cls._synthesize_car_racing_game(
+                p_name, p_purpose, entities, features, user_actions, workflows,
+                primary_color, accent_color, surface_color
+            )
+        # 2. Football & Penalty Shootout Games
+        elif "football" in lower_name or "soccer" in lower_name or "penalty" in lower_name:
+            return cls._synthesize_dynamic_game(
+                p_name, p_purpose, entities, features, user_actions, workflows,
+                primary_color, accent_color, surface_color
+            )
+        # 3. Other Games
+        elif "game" in domain or "sports" in domain or "arcade" in domain:
             return cls._synthesize_dynamic_game(
                 p_name, p_purpose, entities, features, user_actions, workflows,
                 primary_color, accent_color, surface_color
@@ -94,6 +106,549 @@ class DynamicDomainSynthesizer:
                 p_name, p_purpose, domain, entities, features, user_actions, workflows,
                 primary_color, accent_color, surface_color
             )
+
+    @classmethod
+    def _synthesize_car_racing_game(
+        cls,
+        p_name: str,
+        p_purpose: str,
+        entities: List[str],
+        features: List[str],
+        user_actions: List[str],
+        workflows: List[str],
+        primary_color: str,
+        accent_color: str,
+        surface_color: str
+    ) -> Dict[str, str]:
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{p_name} — High-Speed Highway Racing</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col min-h-screen select-none font-sans overflow-x-hidden">
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl animate-pulse">🏎️</span>
+      <div>
+        <h1 class="text-lg font-black tracking-tight text-white flex items-center gap-2">
+          <span>{p_name}</span>
+          <span class="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">Highway Rush</span>
+        </h1>
+        <p class="text-[11px] text-slate-400 font-mono">DODGE TRAFFIC · COLLECT FUEL · REACH TOP SPEED</p>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-4 sm:gap-6 font-mono text-xs">
+      <div class="bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block text-[9px] uppercase font-bold">Speed</span>
+        <span id="speedDisplay" class="text-amber-400 font-black text-sm">0</span> <span class="text-[10px] text-slate-500">km/h</span>
+      </div>
+      <div class="bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block text-[9px] uppercase font-bold">Distance</span>
+        <span id="distDisplay" class="text-emerald-400 font-black text-sm">0</span> <span class="text-[10px] text-slate-500">m</span>
+      </div>
+      <div class="bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block text-[9px] uppercase font-bold">Nitro</span>
+        <div class="w-16 h-2 rounded-full bg-slate-800 mt-1 overflow-hidden">
+          <div id="nitroBar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-100" style="width: 100%;"></div>
+        </div>
+      </div>
+      <button id="restartBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-all">
+        Restart
+      </button>
+    </div>
+  </header>
+
+  <main class="flex-1 flex flex-col items-center justify-center p-4 max-w-4xl mx-auto w-full">
+    <div class="relative w-full max-w-[480px] bg-slate-900 rounded-2xl border border-slate-800 p-2 shadow-2xl overflow-hidden flex flex-col items-center">
+      <canvas id="raceCanvas" width="440" height="600" class="rounded-xl shadow-inner bg-slate-950 block"></canvas>
+
+      <div id="crashBanner" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center opacity-0 pointer-events-none transition-all duration-300 z-30 p-6 text-center">
+        <div class="w-16 h-16 rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center text-3xl mb-3 animate-bounce">
+          💥
+        </div>
+        <h2 class="text-4xl font-black text-rose-400 tracking-tight mb-1">CRASH!</h2>
+        <p class="text-slate-300 text-xs mb-4">You collided with oncoming highway traffic!</p>
+        
+        <div class="grid grid-cols-2 gap-3 w-full max-w-xs mb-6 font-mono text-xs">
+          <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-left">
+            <span class="text-[10px] text-slate-400 block uppercase">Final Distance</span>
+            <span id="finalDist" class="text-white font-bold text-base">0 m</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-left">
+            <span class="text-[10px] text-slate-400 block uppercase">Best Record</span>
+            <span id="bestRecord" class="text-amber-400 font-bold text-base">0 m</span>
+          </div>
+        </div>
+
+        <button id="playAgainBtn" class="px-6 py-2.5 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white font-black text-sm rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95">
+          PLAY AGAIN 🔄
+        </button>
+      </div>
+    </div>
+
+    <div class="w-full max-w-[480px] mt-4 flex items-center justify-between gap-2 px-2">
+      <div class="flex items-center gap-1.5">
+        <button id="leftBtn" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-xl font-bold text-sm border border-slate-700 shadow transition-all">
+          ⬅️ Left
+        </button>
+        <button id="rightBtn" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-xl font-bold text-sm border border-slate-700 shadow transition-all">
+          Right ➡️
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <button id="gasBtn" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow transition-all">
+          ⬆️ Gas
+        </button>
+        <button id="brakeBtn" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-xl font-bold text-sm border border-slate-700 shadow transition-all">
+          ⬇️
+        </button>
+        <button id="nitroBtn" class="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 text-white rounded-xl font-black text-sm shadow transition-all">
+          ⚡ Turbo
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-3 text-xs text-slate-400 font-mono text-center flex items-center justify-center gap-4">
+      <span>⌨️ <strong>Steer:</strong> A/D or ◄ / ►</span>
+      <span>⚡ <strong>Accelerate:</strong> W or ▲</span>
+      <span>🚀 <strong>Nitro Boost:</strong> Spacebar</span>
+    </div>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>"""
+
+        css = f"""/* {p_name} — Highway Racing Styles */
+:root {{
+  --primary: {primary_color};
+  --accent: {accent_color};
+}}
+
+* {{
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}}
+
+body {{
+  background-color: #020617;
+  color: #f8fafc;
+}}
+
+canvas {{
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}}
+
+button {{
+  user-select: none;
+  touch-action: manipulation;
+}}
+"""
+
+        js = f"""// {p_name} — High-Speed 2D Highway Racing Engine
+document.addEventListener('DOMContentLoaded', () => {{
+  const canvas = document.getElementById('raceCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  const speedDisplay = document.getElementById('speedDisplay');
+  const distDisplay = document.getElementById('distDisplay');
+  const nitroBar = document.getElementById('nitroBar');
+  const crashBanner = document.getElementById('crashBanner');
+  const finalDist = document.getElementById('finalDist');
+  const bestRecord = document.getElementById('bestRecord');
+  const playAgainBtn = document.getElementById('playAgainBtn');
+  const restartBtn = document.getElementById('restartBtn');
+
+  // Highway Geometry
+  const roadX = 40;
+  const roadWidth = 360;
+  const laneCount = 4;
+  const laneWidth = roadWidth / laneCount;
+  let roadOffset = 0;
+
+  // Player State
+  const player = {{
+    x: roadX + laneWidth * 1.5 - 19,
+    y: 480,
+    width: 38,
+    height: 70,
+    speed: 0,
+    maxSpeed: 160,
+    nitroSpeed: 230,
+    minSpeed: 30,
+    accel: 0.8,
+    decel: 0.6,
+    steerSpeed: 5.5,
+    nitro: 100,
+    isNitro: false,
+    color: '{primary_color or "#ef4444"}'
+  }};
+
+  let distance = 0;
+  let isGameOver = false;
+  let highScore = parseInt(localStorage.getItem('turbodrive_highscore') || '0', 10);
+  if (bestRecord) bestRecord.textContent = highScore + ' m';
+
+  // Input Controls
+  const keys = {{ left: false, right: false, up: false, down: false, space: false }};
+
+  window.addEventListener('keydown', (e) => {{
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = true;
+    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = true;
+    if (e.key === ' ' || e.key === 'Spacebar') {{ keys.space = true; e.preventDefault(); }}
+    if (isGameOver && (e.key === 'Enter' || e.key === ' ')) resetGame();
+  }});
+
+  window.addEventListener('keyup', (e) => {{
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = false;
+    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = false;
+    if (e.key === ' ' || e.key === 'Spacebar') keys.space = false;
+  }});
+
+  // On-screen buttons
+  const bindHold = (btn, key) => {{
+    if (!btn) return;
+    btn.addEventListener('mousedown', () => {{ keys[key] = true; }});
+    btn.addEventListener('mouseup', () => {{ keys[key] = false; }});
+    btn.addEventListener('mouseleave', () => {{ keys[key] = false; }});
+    btn.addEventListener('touchstart', (e) => {{ e.preventDefault(); keys[key] = true; }});
+    btn.addEventListener('touchend', (e) => {{ e.preventDefault(); keys[key] = false; }});
+  }};
+  bindHold(document.getElementById('leftBtn'), 'left');
+  bindHold(document.getElementById('rightBtn'), 'right');
+  bindHold(document.getElementById('gasBtn'), 'up');
+  bindHold(document.getElementById('brakeBtn'), 'down');
+  bindHold(document.getElementById('nitroBtn'), 'space');
+
+  if (playAgainBtn) playAgainBtn.addEventListener('click', resetGame);
+  if (restartBtn) restartBtn.addEventListener('click', resetGame);
+
+  // Traffic System
+  const trafficColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+  let traffic = [];
+  let fuelPickups = [];
+  let particles = [];
+  let spawnTimer = 0;
+
+  function spawnTraffic() {{
+    const lane = Math.floor(Math.random() * laneCount);
+    const tx = roadX + lane * laneWidth + (laneWidth - 36) / 2;
+    // Don't spawn on existing cars
+    if (traffic.some(c => Math.abs(c.y) < 150 && Math.abs(c.x - tx) < 40)) return;
+
+    traffic.push({{
+      x: tx,
+      y: -90,
+      width: 36,
+      height: 66,
+      speed: 3 + Math.random() * 3.5,
+      color: trafficColors[Math.floor(Math.random() * trafficColors.length)]
+    }});
+  }}
+
+  function spawnPickup() {{
+    const lane = Math.floor(Math.random() * laneCount);
+    fuelPickups.push({{
+      x: roadX + lane * laneWidth + laneWidth / 2,
+      y: -50,
+      radius: 12,
+      type: Math.random() > 0.4 ? 'fuel' : 'coin'
+    }});
+  }}
+
+  function createExplosion(x, y) {{
+    for (let i = 0; i < 35; i++) {{
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 6;
+      particles.push({{
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        color: Math.random() > 0.5 ? '#f59e0b' : '#ef4444'
+      }});
+    }}
+  }}
+
+  function resetGame() {{
+    player.x = roadX + laneWidth * 1.5 - 19;
+    player.speed = 40;
+    player.nitro = 100;
+    distance = 0;
+    traffic = [];
+    fuelPickups = [];
+    particles = [];
+    isGameOver = false;
+    crashBanner.style.opacity = '0';
+    crashBanner.classList.add('pointer-events-none');
+  }}
+
+  // Start with rolling speed
+  player.speed = 60;
+
+  function gameLoop() {{
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!isGameOver) {{
+      // 1. Acceleration & Speed
+      player.isNitro = keys.space && player.nitro > 0;
+      const topSpeed = player.isNitro ? player.nitroSpeed : player.maxSpeed;
+
+      if (keys.up) {{
+        player.speed = Math.min(player.speed + player.accel, topSpeed);
+      }} else if (keys.down) {{
+        player.speed = Math.max(player.speed - player.decel * 2, player.minSpeed);
+      }} else {{
+        player.speed = Math.max(player.speed - player.decel * 0.4, player.minSpeed);
+      }}
+
+      if (player.isNitro) {{
+        player.speed = Math.min(player.speed + player.accel * 2.5, player.nitroSpeed);
+        player.nitro = Math.max(0, player.nitro - 0.4);
+      }} else if (player.nitro < 100) {{
+        player.nitro = Math.min(100, player.nitro + 0.08);
+      }}
+
+      // 2. Steering
+      if (keys.left) player.x -= player.steerSpeed;
+      if (keys.right) player.x += player.steerSpeed;
+
+      // Keep within road bounds
+      if (player.x < roadX + 4) player.x = roadX + 4;
+      if (player.x + player.width > roadX + roadWidth - 4) player.x = roadX + roadWidth - 4 - player.width;
+
+      // 3. Distance & HUD
+      distance += Math.floor(player.speed * 0.04);
+      roadOffset += player.speed * 0.15;
+      if (speedDisplay) speedDisplay.textContent = Math.round(player.speed);
+      if (distDisplay) distDisplay.textContent = distance.toLocaleString();
+      if (nitroBar) nitroBar.style.width = player.nitro + '%';
+
+      // 4. Traffic Spawning
+      spawnTimer++;
+      if (spawnTimer % 45 === 0) spawnTraffic();
+      if (spawnTimer % 180 === 0) spawnPickup();
+    }}
+
+    // --- DRAW SCENERY ---
+    // Grass Sides
+    ctx.fillStyle = '#064e3b';
+    ctx.fillRect(0, 0, roadX, canvas.height);
+    ctx.fillRect(roadX + roadWidth, 0, canvas.width - (roadX + roadWidth), canvas.height);
+
+    // Guard Rails (Red/White curb stripes)
+    const curbHeight = 30;
+    const curbOffset = roadOffset % curbHeight;
+    for (let y = -curbHeight; y < canvas.height + curbHeight; y += curbHeight) {{
+      const isRed = Math.floor((y + roadOffset) / curbHeight) % 2 === 0;
+      ctx.fillStyle = isRed ? '#ef4444' : '#ffffff';
+      ctx.fillRect(roadX - 8, y + curbOffset, 8, curbHeight);
+      ctx.fillRect(roadX + roadWidth, y + curbOffset, 8, curbHeight);
+    }}
+
+    // Asphalt Road
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(roadX, 0, roadWidth, canvas.height);
+
+    // Dashed Lane Markings
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([20, 20]);
+    ctx.lineDashOffset = -roadOffset;
+
+    for (let l = 1; l < laneCount; l++) {{
+      const lx = roadX + l * laneWidth;
+      ctx.beginPath();
+      ctx.moveTo(lx, 0);
+      ctx.lineTo(lx, canvas.height);
+      ctx.stroke();
+    }}
+    ctx.setLineDash([]);
+
+    // --- DRAW FUEL / COIN PICKUPS ---
+    for (let i = fuelPickups.length - 1; i >= 0; i--) {{
+      const p = fuelPickups[i];
+      if (!isGameOver) p.y += (player.speed * 0.12);
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fillStyle = p.type === 'fuel' ? '#06b6d4' : '#fbbf24';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.type === 'fuel' ? '⚡' : '★', p.x, p.y + 4);
+
+      // Collect pickup
+      if (
+        player.x < p.x + p.radius &&
+        player.x + player.width > p.x - p.radius &&
+        player.y < p.y + p.radius &&
+        player.y + player.height > p.y - p.radius
+      ) {{
+        if (p.type === 'fuel') player.nitro = Math.min(100, player.nitro + 35);
+        distance += 250;
+        fuelPickups.splice(i, 1);
+        continue;
+      }}
+
+      if (p.y > canvas.height + 50) fuelPickups.splice(i, 1);
+    }}
+
+    // --- DRAW TRAFFIC VEHICLES ---
+    for (let i = traffic.length - 1; i >= 0; i--) {{
+      const car = traffic[i];
+      if (!isGameOver) car.y += (player.speed * 0.12 - car.speed);
+
+      // Car Body
+      ctx.fillStyle = car.color;
+      ctx.beginPath();
+      ctx.roundRect(car.x, car.y, car.width, car.height, 6);
+      ctx.fill();
+
+      // Windows
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(car.x + 4, car.y + 16, car.width - 8, 14);
+      ctx.fillRect(car.x + 4, car.y + 36, car.width - 8, 10);
+
+      // Headlights & Tail lights
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(car.x + 4, car.y + 2, 6, 3);
+      ctx.fillRect(car.x + car.width - 10, car.y + 2, 6, 3);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(car.x + 4, car.y + car.height - 4, 6, 3);
+      ctx.fillRect(car.x + car.width - 10, car.y + car.height - 4, 6, 3);
+
+      // Collision Detection with Player
+      if (
+        !isGameOver &&
+        player.x < car.x + car.width - 4 &&
+        player.x + player.width > car.x + 4 &&
+        player.y < car.y + car.height - 4 &&
+        player.y + player.height > car.y + 4
+      ) {{
+        isGameOver = true;
+        createExplosion(player.x + player.width / 2, player.y + player.height / 2);
+        if (distance > highScore) {{
+          highScore = distance;
+          localStorage.setItem('turbodrive_highscore', highScore.toString());
+        }}
+        if (finalDist) finalDist.textContent = distance.toLocaleString() + ' m';
+        if (bestRecord) bestRecord.textContent = highScore.toLocaleString() + ' m';
+        crashBanner.style.opacity = '1';
+        crashBanner.classList.remove('pointer-events-none');
+      }}
+
+      if (car.y > canvas.height + 100 || car.y < -300) traffic.splice(i, 1);
+    }}
+
+    // --- DRAW PLAYER CAR ---
+    if (!isGameOver) {{
+      // Nitro Exhaust Flames
+      if (player.isNitro) {{
+        ctx.fillStyle = '#06b6d4';
+        ctx.beginPath();
+        ctx.moveTo(player.x + 8, player.y + player.height);
+        ctx.lineTo(player.x + 14, player.y + player.height + 16 + Math.random() * 8);
+        ctx.lineTo(player.x + 20, player.y + player.height);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(player.x + player.width - 20, player.y + player.height);
+        ctx.lineTo(player.x + player.width - 14, player.y + player.height + 16 + Math.random() * 8);
+        ctx.lineTo(player.x + player.width - 8, player.y + player.height);
+        ctx.fill();
+      }}
+
+      // Player Car Body (Sleek Red Sports Car)
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.roundRect(player.x, player.y, player.width, player.height, 8);
+      ctx.fill();
+
+      // Black Hood Stripes & Windshield
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(player.x + 5, player.y + 18, player.width - 10, 16);
+      ctx.fillRect(player.x + 5, player.y + 42, player.width - 10, 10);
+
+      // Headlight Beams on Asphalt
+      const gradient = ctx.createLinearGradient(0, player.y, 0, player.y - 120);
+      gradient.addColorStop(0, 'rgba(255, 255, 200, 0.4)');
+      gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(player.x + 4, player.y);
+      ctx.lineTo(player.x - 20, player.y - 120);
+      ctx.lineTo(player.x + player.width + 20, player.y - 120);
+      ctx.lineTo(player.x + player.width - 4, player.y);
+      ctx.fill();
+
+      // Front Headlights
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(player.x + 3, player.y + 1, 8, 4);
+      ctx.fillRect(player.x + player.width - 11, player.y + 1, 8, 4);
+
+      // Tail Lights Glow
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(player.x + 4, player.y + player.height - 4, 8, 3);
+      ctx.fillRect(player.x + player.width - 12, player.y + player.height - 4, 8, 3);
+    }}
+
+    // --- DRAW PARTICLES ---
+    for (let i = particles.length - 1; i >= 0; i--) {{
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= 0.025;
+      if (p.life <= 0) {{
+        particles.splice(i, 1);
+        continue;
+      }}
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.life;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }}
+
+    requestAnimationFrame(gameLoop);
+  }}
+
+  requestAnimationFrame(gameLoop);
+}});
+"""
+
+        readme = f"""# {p_name} — High-Speed 2D Highway Racing
+
+An authentic, responsive 2D highway racing game built with HTML5 Canvas, modern CSS, and vanilla JavaScript.
+
+## Features
+- **Highway Physics**: Multi-lane traffic system with dynamic relative velocity and overtaking.
+- **Controls**: Arrow keys, WASD, and on-screen touch buttons for full desktop and mobile support.
+- **Turbo Boost**: Spacebar activates high-speed Nitro boost with dynamic exhaust flames.
+- **Crash Physics**: Hitbox collision detection with particle explosions and persistent high score tracking.
+"""
+        return {"index.html": html, "styles.css": css, "script.js": js, "README.md": readme}
 
     @classmethod
     def _synthesize_dynamic_game(
@@ -1039,17 +1594,9 @@ if __name__ == "__main__":
         accent_color: str,
         surface_color: str
     ) -> Dict[str, str]:
-        action_buttons_html = "".join(f"""      <button id="actionBtn_{idx}" class="action-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all" style="background: {primary_color}; color: #ffffff;">{act}</button>\n""" for idx, act in enumerate(user_actions))
-        feature_tabs_html = "".join(f"""      <button class="px-3 py-1 text-xs font-medium rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition">{f}</button>\n""" for f in features)
-
-        entity_items_html = ""
-        for idx, ent in enumerate(entities):
-            entity_items_html += f"""
-        <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60 shadow">
-          <div class="text-sm font-bold text-slate-100">{ent}</div>
-          <div class="text-xs text-slate-400 mt-1">Domain entity instance #{idx + 1}</div>
-          <button class="mt-3 px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700" onclick="alert('Processed {ent}')">Manage {ent}</button>
-        </div>"""
+        primary_entity = entities[0] if entities else "Item"
+        action_buttons_html = "".join(f"""      <button class="action-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow" style="background: {primary_color}; color: #ffffff;" onclick="triggerAction('{act}')">{act}</button>\n""" for act in user_actions)
+        feature_tabs_html = "".join(f"""      <button class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition filter-tab" data-cat="{f}">{f}</button>\n""" for f in features)
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1058,31 +1605,141 @@ if __name__ == "__main__":
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{p_name}</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
-  <header class="border-b border-slate-800 bg-slate-900/80 px-6 py-4 flex items-center justify-between">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none">
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-4 flex items-center justify-between sticky top-0 z-40">
     <div>
-      <h1 class="text-lg font-bold text-white">{p_name}</h1>
+      <h1 class="text-lg font-black text-white flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        {p_name}
+      </h1>
       <p class="text-xs text-slate-400">{p_purpose}</p>
     </div>
     <div class="flex items-center gap-2">
+      <input id="searchInput" type="text" placeholder="Search {primary_entity}s..." class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 w-44" />
+      <button id="addBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow">+ Add {primary_entity}</button>
 {action_buttons_html}
     </div>
   </header>
 
-  <nav class="border-b border-slate-800 bg-slate-900/40 px-6 py-2 flex items-center gap-2">
+  <nav class="border-b border-slate-800 bg-slate-900/40 px-6 py-2 flex items-center gap-2 overflow-x-auto">
+    <button class="px-3 py-1 text-xs font-semibold rounded-lg bg-indigo-600 text-white filter-tab" data-cat="all">All Items</button>
 {feature_tabs_html}
   </nav>
 
-  <main class="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-{entity_items_html}
+  <main class="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800">
+        <span class="text-xs text-slate-400 uppercase font-bold block mb-1">Total {primary_entity}s</span>
+        <span id="totalCount" class="text-3xl font-black text-white">0</span>
+      </div>
+      <div class="p-5 rounded-3xl bg-indigo-950/30 border border-indigo-900/60">
+        <span class="text-xs text-indigo-400 uppercase font-bold block mb-1">Active Pipeline</span>
+        <span id="activeCount" class="text-3xl font-black text-indigo-400">0</span>
+      </div>
+      <div class="p-5 rounded-3xl bg-emerald-950/30 border border-emerald-900/60">
+        <span class="text-xs text-emerald-400 uppercase font-bold block mb-1">Completed / Verified</span>
+        <span id="completedCount" class="text-3xl font-black text-emerald-400">0</span>
+      </div>
+    </div>
+
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white">{primary_entity} Registry</h3>
+        <span class="text-xs text-slate-500">Live reactive state synchronized</span>
+      </div>
+      <div id="itemsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
   </main>
   <script src="script.js"></script>
 </body>
 </html>"""
-        css = "body { margin: 0; background: #020617; color: #f8fafc; }"
-        js = f"document.addEventListener('DOMContentLoaded', () => {{ console.log('{p_name} initialized successfully.'); }});"
-        return {"index.html": html, "styles.css": css, "script.js": js, "README.md": f"# {p_name}\n\n{p_purpose}"}
+
+        css = f"""/* {p_name} Styles */
+:root {{
+  --primary: {primary_color};
+  --accent: {accent_color};
+  --surface: {surface_color};
+}}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; background: #020617; color: #f8fafc; }}
+button {{ user-select: none; cursor: pointer; }}
+"""
+
+        js = f"""// {p_name} Interactive Client Runtime
+document.addEventListener('DOMContentLoaded', () => {{
+  const noun = '{primary_entity}';
+  let items = JSON.parse(localStorage.getItem('app_entities') || 'null') || [
+    {{ id: '1', name: noun + ' Alpha', status: 'Active', category: 'Priority', date: 'Today' }},
+    {{ id: '2', name: noun + ' Beta', status: 'Completed', category: 'Standard', date: 'Yesterday' }}
+  ];
+
+  function render(filter = 'all') {{
+    const container = document.getElementById('itemsContainer');
+    const total = document.getElementById('totalCount');
+    const active = document.getElementById('activeCount');
+    const completed = document.getElementById('completedCount');
+    
+    total.textContent = items.length;
+    active.textContent = items.filter(x => x.status === 'Active').length;
+    completed.textContent = items.filter(x => x.status === 'Completed').length;
+
+    container.innerHTML = '';
+    const filtered = filter === 'all' ? items : items.filter(x => x.category.toLowerCase().includes(filter.toLowerCase()));
+    
+    filtered.forEach(it => {{
+      const card = document.createElement('div');
+      card.className = 'p-4 rounded-2xl bg-slate-950 border border-slate-800 shadow flex flex-col justify-between space-y-3';
+      card.innerHTML = `<div class="flex items-start justify-between">
+        <div>
+          <h4 class="font-bold text-white text-sm">\${{it.name}}</h4>
+          <span class="text-[10px] text-slate-400 block mt-0.5">\${{it.category}} · \${{it.date}}</span>
+        </div>
+        <button class="toggle-status px-2.5 py-1 rounded-full text-[10px] font-bold \${{it.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}}" data-id="\${{it.id}}">
+          \${{it.status}}
+        </button>
+      </div>
+      <div class="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
+        <span class="text-[11px] text-slate-500 font-mono">#\${{it.id.slice(-4)}}</span>
+        <button class="del-btn text-rose-400 hover:text-rose-300 text-xs font-semibold" data-id="\${{it.id}}">Delete</button>
+      </div>`;
+      container.appendChild(card);
+    }});
+
+    localStorage.setItem('app_entities', JSON.stringify(items));
+
+    document.querySelectorAll('.toggle-status').forEach(b => b.onclick = () => {{
+      const it = items.find(x => x.id === b.dataset.id);
+      if (it) {{ it.status = it.status === 'Active' ? 'Completed' : 'Active'; render(filter); }}
+    }});
+    document.querySelectorAll('.del-btn').forEach(b => b.onclick = () => {{
+      items = items.filter(x => x.id !== b.dataset.id); render(filter);
+    }});
+  }}
+
+  document.getElementById('addBtn').onclick = () => {{
+    const name = prompt('Enter ' + noun + ' name:');
+    if (!name) return;
+    items.unshift({{ id: Date.now().toString(), name, status: 'Active', category: 'Priority', date: 'Just now' }});
+    render();
+  }};
+
+  document.getElementById('searchInput').oninput = (e) => {{
+    const q = e.target.value.toLowerCase().trim();
+    document.querySelectorAll('#itemsContainer > div').forEach(card => {{
+      card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+    }});
+  }};
+
+  window.triggerAction = (act) => {{
+    alert('Executed action: ' + act);
+  }};
+
+  render();
+}});"""
+
+        return {"index.html": html, "styles.css": css, "script.js": js, "README.md": f"# {p_name}\\n\\n{p_purpose}"}
 
 
 class BaseSpecialist:

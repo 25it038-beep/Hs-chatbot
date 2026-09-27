@@ -5,25 +5,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { HAS_CLERK } from '@/lib/clerkConfig'
+import { HAS_CLERK, CLERK_PUBLISHABLE_KEY } from '@/lib/clerkConfig'
 import { setTokens } from '@/lib/api'
 
-export function AuthPage() {
-  const { login, register, loading } = useAuth()
+const hasClerk = HAS_CLERK && !!CLERK_PUBLISHABLE_KEY
+
+function ClerkRedirectGate() {
   const { isSignedIn: isUserSignedIn } = useUser()
   const { isSignedIn: isAuthSignedIn } = useClerkAuth()
   const isClerkSignedIn = !!(isUserSignedIn || isAuthSignedIn)
 
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [authMethod, setAuthMethod] = useState<'clerk' | 'local'>(HAS_CLERK ? 'clerk' : 'local')
-  const [email, setEmail] = useState('')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
-
   useEffect(() => {
-    if (HAS_CLERK && isClerkSignedIn) {
+    if (isClerkSignedIn) {
       if (window.location.hash.includes('sign-')) {
         window.location.hash = ''
         window.history.replaceState(null, '', window.location.pathname || '/')
@@ -31,6 +24,110 @@ export function AuthPage() {
       }
     }
   }, [isClerkSignedIn])
+
+  if (isClerkSignedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center relative z-10">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded-full border-2 border-border border-t-foreground animate-spin" />
+          <p className="text-sm text-muted-foreground">Redirecting to HSBot...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function ClerkAuthForm({
+  mode,
+  setMode,
+  onSwitchToLocal,
+}: {
+  mode: 'login' | 'register'
+  setMode: (m: 'login' | 'register') => void
+  onSwitchToLocal: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <div className="flex bg-muted/50 rounded-xl p-1 w-full max-w-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setMode('login')
+            window.location.hash = '#/sign-in'
+          }}
+          className={cn(
+            'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+            mode === 'login'
+              ? 'bg-background shadow-sm text-foreground'
+              : 'text-muted-foreground/60 hover:text-foreground'
+          )}
+        >
+          Sign In
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode('register')
+            window.location.hash = '#/sign-up'
+          }}
+          className={cn(
+            'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+            mode === 'register'
+              ? 'bg-background shadow-sm text-foreground'
+              : 'text-muted-foreground/60 hover:text-foreground'
+          )}
+        >
+          Sign Up
+        </button>
+      </div>
+      <div className="flex justify-center shadow-lg rounded-2xl overflow-hidden w-full">
+        {mode === 'login' ? (
+          <SignIn
+            routing="hash"
+            forceRedirectUrl="/"
+            fallbackRedirectUrl="/"
+            signUpUrl="/#/sign-up"
+            signUpForceRedirectUrl="/"
+            signUpFallbackRedirectUrl="/"
+          />
+        ) : (
+          <SignUp
+            routing="hash"
+            forceRedirectUrl="/"
+            fallbackRedirectUrl="/"
+            signInUrl="/#/sign-in"
+            signInForceRedirectUrl="/"
+            signInFallbackRedirectUrl="/"
+          />
+        )}
+      </div>
+
+      {/* Alternate Option: Local Authentication */}
+      <div className="w-full flex flex-col gap-2 mt-2">
+        <button
+          type="button"
+          onClick={onSwitchToLocal}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors text-center py-2 flex items-center justify-center gap-1.5 rounded-lg hover:bg-muted/40"
+        >
+          <KeyRound size={12} />
+          <span>Sign in with HSBot username & password</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function AuthPage() {
+  const { login, register, loading } = useAuth()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [authMethod, setAuthMethod] = useState<'clerk' | 'local'>(hasClerk ? 'clerk' : 'local')
+  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     const syncHash = () => {
@@ -59,97 +156,26 @@ export function AuthPage() {
     }
   }
 
-  if (HAS_CLERK && isClerkSignedIn) {
-    return (
-      <div className="min-h-screen flex items-center justify-center relative z-10">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full border-2 border-border border-t-foreground animate-spin" />
-          <p className="text-sm text-muted-foreground">Redirecting to HSBot...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative z-10 overflow-y-auto pt-safe pb-safe">
-      <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up my-auto">
-        <div className="text-center mb-6 sm:mb-8">
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden mx-auto mb-4 sm:mb-5 shadow-soft border border-border">
-            <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
+    <>
+      {hasClerk && <ClerkRedirectGate />}
+      <div className="min-h-screen flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative z-10 overflow-y-auto pt-safe pb-safe">
+        <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up my-auto">
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden mx-auto mb-4 sm:mb-5 shadow-soft border border-border">
+              <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Welcome to HSBot</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground/70 mt-1.5">Your AI-powered assistant</p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Welcome to HSBot</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground/70 mt-1.5">Your AI-powered assistant</p>
-        </div>
 
-        {HAS_CLERK && authMethod === 'clerk' ? (
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex bg-muted/50 rounded-xl p-1 w-full max-w-sm">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('login')
-                  window.location.hash = '#/sign-in'
-                }}
-                className={cn(
-                  'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
-                  mode === 'login'
-                    ? 'bg-background shadow-sm text-foreground'
-                    : 'text-muted-foreground/60 hover:text-foreground'
-                )}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('register')
-                  window.location.hash = '#/sign-up'
-                }}
-                className={cn(
-                  'flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200',
-                  mode === 'register'
-                    ? 'bg-background shadow-sm text-foreground'
-                    : 'text-muted-foreground/60 hover:text-foreground'
-                )}
-              >
-                Sign Up
-              </button>
-            </div>
-            <div className="flex justify-center shadow-lg rounded-2xl overflow-hidden w-full">
-              {mode === 'login' ? (
-                <SignIn
-                  routing="hash"
-                  forceRedirectUrl="/"
-                  fallbackRedirectUrl="/"
-                  signUpUrl="/#/sign-up"
-                  signUpForceRedirectUrl="/"
-                  signUpFallbackRedirectUrl="/"
-                />
-              ) : (
-                <SignUp
-                  routing="hash"
-                  forceRedirectUrl="/"
-                  fallbackRedirectUrl="/"
-                  signInUrl="/#/sign-in"
-                  signInForceRedirectUrl="/"
-                  signInFallbackRedirectUrl="/"
-                />
-              )}
-            </div>
-
-            {/* Alternate Option: Local Authentication */}
-            <div className="w-full flex flex-col gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => setAuthMethod('local')}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors text-center py-2 flex items-center justify-center gap-1.5 rounded-lg hover:bg-muted/40"
-              >
-                <KeyRound size={12} />
-                <span>Sign in with HSBot username & password</span>
-              </button>
-            </div>
-          </div>
-        ) : (
+          {hasClerk && authMethod === 'clerk' ? (
+            <ClerkAuthForm
+              mode={mode}
+              setMode={setMode}
+              onSwitchToLocal={() => setAuthMethod('local')}
+            />
+          ) : (
           <div className="bg-card border border-border rounded-xl p-6 shadow-soft">
             <div className="flex bg-muted/50 rounded-xl p-1 mb-6">
               <button
@@ -239,7 +265,7 @@ export function AuthPage() {
 
 
 
-              {HAS_CLERK && (
+              {hasClerk && (
                 <button
                   type="button"
                   onClick={() => setAuthMethod('clerk')}
@@ -257,5 +283,6 @@ export function AuthPage() {
         </p>
       </div>
     </div>
+    </>
   )
 }

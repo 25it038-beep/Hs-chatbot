@@ -58,9 +58,12 @@ import {
   Ban,
   CheckSquare,
   FileCheck,
-  Workflow
+  Workflow,
+  Users
 } from 'lucide-react'
 import { LifecyclePipelineView } from '@/components/agent/LifecyclePipelineView'
+import { CompanyDashboardView, ModelActivityItem } from '@/components/agent/CompanyDashboardView'
+import { UserPlanView } from '@/components/agent/UserPlanView'
 
 interface AuditEntry {
   time: string
@@ -161,10 +164,17 @@ export function AgentPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'graph' | 'requirements' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('pipeline')
+  const [activeTab, setActiveTab] = useState<'company' | 'plan' | 'pipeline' | 'graph' | 'requirements' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('company')
+  const [modelActivities, setModelActivities] = useState<ModelActivityItem[]>([])
+  const [currentActivity, setCurrentActivity] = useState<ModelActivityItem | null>(null)
+  const [provenance, setProvenance] = useState<any | null>(null)
+  const [uniquenessReport, setUniquenessReport] = useState<any | null>(null)
+  const [productPlan, setProductPlan] = useState<any | null>(null)
+  const [isPlanValid, setIsPlanValid] = useState<boolean>(true)
+  const [planValidationErrors, setPlanValidationErrors] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
   const [lastPrompt, setLastPrompt] = useState('')
-  const [editScope, setEditScope] = useState<'file' | 'project'>('file')
+  const [editScope, setEditScope] = useState<'file' | 'project'>('project')
   const [fileEditPrompt, setFileEditPrompt] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [agentState, setAgentState] = useState<string>('IDLE')
@@ -282,10 +292,26 @@ export function AgentPage() {
         try {
           const jsRes = await agentApi.readFile('script.js')
           if (jsRes && jsRes.success && jsRes.content) {
+            const scriptTag = `<script>
+// Resilient execution in iframe srcdoc
+(function() {
+  const origAdd = document.addEventListener.bind(document);
+  document.addEventListener = function(type, listener, options) {
+    if (type === 'DOMContentLoaded' && (document.readyState === 'interactive' || document.readyState === 'complete')) {
+      setTimeout(function() {
+        try { listener({ type: 'DOMContentLoaded', target: document }); } catch (e) { console.error('Script init error:', e); }
+      }, 0);
+    } else {
+      origAdd(type, listener, options);
+    }
+  };
+})();
+${jsRes.content}
+</script>`
             if (compiledHtml.includes('</body>')) {
-              compiledHtml = compiledHtml.replace('</body>', `<script>\n${jsRes.content}\n</script>\n</body>`)
+              compiledHtml = compiledHtml.replace('</body>', `${scriptTag}\n</body>`)
             } else {
-              compiledHtml = compiledHtml + `\n<script>\n${jsRes.content}\n</script>`
+              compiledHtml = compiledHtml + `\n${scriptTag}`
             }
           }
         } catch {
@@ -422,10 +448,31 @@ export function AgentPage() {
     const targetPrompt = (overridePrompt || prompt).trim()
     if (!targetPrompt || isRunning) return
 
-    const activeTargetFile = overrideTargetFile !== undefined
-      ? overrideTargetFile
-      : (editScope === 'file' ? selectedFilePath : undefined)
-    const activeScope = overrideScope || (activeTargetFile ? 'file' : 'project')
+    const lower = targetPrompt.toLowerCase()
+    const isAppCreationPrompt =
+      lower.startsWith('build') ||
+      lower.startsWith('create') ||
+      lower.startsWith('make') ||
+      lower.startsWith('generate') ||
+      lower.startsWith('develop') ||
+      lower.startsWith('design') ||
+      lower.startsWith('new ') ||
+      lower.includes(' app') ||
+      lower.includes(' game') ||
+      lower.includes(' website') ||
+      lower.includes(' tool') ||
+      lower.includes(' system') ||
+      lower.includes(' calculator') ||
+      lower.includes(' tracker') ||
+      lower.includes(' dashboard')
+
+    const activeScope: 'file' | 'project' = overrideScope
+      ? overrideScope
+      : (overrideTargetFile ? 'file' : (isAppCreationPrompt ? 'project' : (editScope === 'file' && selectedFilePath ? 'file' : 'project')))
+
+    const activeTargetFile = activeScope === 'file'
+      ? (overrideTargetFile !== undefined ? overrideTargetFile : (editScope === 'file' ? selectedFilePath : undefined))
+      : undefined
 
     // Section 0 - 48: Instant Prompt Understanding Analysis
     const initialUnderstanding = sanitizeUnderstanding(PromptUnderstandingEngine.analyze(targetPrompt, activeTargetFile, activeScope))
@@ -466,6 +513,13 @@ export function AgentPage() {
     setTestOutputSnippet(null)
     setPreviewReady(false)
     setFilesModifiedList([])
+    setModelActivities([])
+    setCurrentActivity(null)
+    setProvenance(null)
+    setUniquenessReport(null)
+    setProductPlan(null)
+    setIsPlanValid(true)
+    setPlanValidationErrors([])
 
     if (!overridePrompt) {
       setPrompt('')
@@ -474,7 +528,16 @@ export function AgentPage() {
     const cancelFn = agentApi.runAgent(
       targetPrompt,
       (event) => {
-        if (event.type === 'prompt_understood') {
+        if (event.type === 'model_activity') {
+          if (event.activity) {
+            setCurrentActivity(event.activity)
+            setModelActivities((prev) => [...prev, event.activity])
+          }
+        } else if (event.type === 'provenance_created') {
+          setProvenance(event.provenance)
+        } else if (event.type === 'uniqueness_audit') {
+          setUniquenessReport(event)
+        } else if (event.type === 'prompt_understood') {
           setUnderstanding(sanitizeUnderstanding(event.understanding))
         } else if (event.type === 'requirement_snapshot') {
           setSnapshot(event.snapshot)
@@ -493,6 +556,9 @@ export function AgentPage() {
           ])
         } else if (event.type === 'plan_created') {
           setTaskGraph(sanitizeTaskGraph(event.plan))
+          setProductPlan(event.plan)
+          if (event.is_valid !== undefined) setIsPlanValid(event.is_valid)
+          if (event.validation_errors) setPlanValidationErrors(event.validation_errors)
           if (activeScope === 'file') {
             setActiveTab('editor')
           }
@@ -1008,6 +1074,36 @@ export function AgentPage() {
           {/* Navigation Tab Bar */}
           <div className="h-10 border-b border-border bg-muted/20 px-2 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-1 overflow-x-auto">
+              {/* Company & Models Tab (Section 37, 38, 64) */}
+              <button
+                onClick={() => setActiveTab('company')}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  activeTab === 'company' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Users size={13} className="text-primary" />
+                <span>Company & Models</span>
+                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.2 rounded-full font-bold">
+                  42 Roles
+                </span>
+              </button>
+
+              {/* Implementation Plan & Approval Tab (Section 21, 22, 66) */}
+              <button
+                onClick={() => setActiveTab('plan')}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  activeTab === 'plan' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <FileText size={13} className="text-indigo-500" />
+                <span>Plan & Approval</span>
+                {snapshot && (
+                  <span className="text-[10px] bg-indigo-500/10 text-indigo-500 px-1.5 py-0.2 rounded-full font-bold">
+                    Ready
+                  </span>
+                )}
+              </button>
+
               {/* Lifecycle Pipeline Tab */}
               <button
                 onClick={() => setActiveTab('pipeline')}
@@ -1202,6 +1298,46 @@ export function AgentPage() {
 
           {/* Center Pane Content Area */}
           <div className="flex-1 min-h-0 overflow-y-auto relative">
+            {/* Company & Models View (Section 37, 38, 64) */}
+            {activeTab === 'company' && (
+              <CompanyDashboardView
+                modelActivities={modelActivities}
+                currentActivity={currentActivity}
+                agentState={agentState}
+                currentStage={agentState}
+                selectedModel={selectedModel}
+                onSelectModel={(m) => setSelectedModel(m)}
+                provenance={provenance}
+                uniquenessReport={uniquenessReport}
+              />
+            )}
+
+            {/* Implementation Plan & Approval View (Section 21, 22, 66) */}
+            {activeTab === 'plan' && (
+              <UserPlanView
+                prompt={lastPrompt || prompt}
+                spec={snapshot}
+                dna={snapshot?.dna || null}
+                techStack={techStack}
+                plan={productPlan || taskGraph}
+                understanding={understanding}
+                isPlanValid={isPlanValid}
+                validationErrors={planValidationErrors}
+                onApprovePlan={() => {
+                  setAgentMessage('Plan approved. Autonomous company executing tasks...')
+                  setActiveTab('company')
+                }}
+                onModifyPlan={(inst) => {
+                  handleStartAgent(`Modify plan: ${inst}`, undefined, 'project')
+                }}
+                onRollback={() => {
+                  loadWorkspace()
+                }}
+                isRunning={isRunning}
+                agentState={agentState}
+              />
+            )}
+
             {/* 0. Lifecycle Pipeline View (16 Stages) */}
             {activeTab === 'pipeline' && (
               <LifecyclePipelineView

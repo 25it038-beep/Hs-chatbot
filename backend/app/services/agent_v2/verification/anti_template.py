@@ -116,3 +116,9 @@ class TemplateContaminationDetector:
             matched_patterns=matched_patterns,
             details="Code is authentic to domain specifications" if not is_contaminated else f"Contamination detected: {', '.join(matched_patterns)}"
         )
+
+    @classmethod
+    def check_contamination(cls, files: Dict[str, str], domain: str, user_request: str) -> Tuple[bool, List[str]]:
+        spec_dict = {"domain": domain, "product_name": user_request}
+        report = cls.detect_post_generation(files, spec_dict)
+        return report.is_contaminated, report.matched_patterns

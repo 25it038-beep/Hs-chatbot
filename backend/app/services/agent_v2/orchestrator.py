@@ -32,12 +32,9 @@ from app.services.agent_v2.specialists.specialists import (
     SecurityEngineer,
     IndependentFinalVerifier
 )
-from app.services.agent_v2.qa.qa_engine import (
-    NoveltyTestEngine,
-    AgentCritic,
-    TemplateContaminationDetector,
-    ApplicationUniquenessValidator,
-)
+from app.services.agent_v2.qa.qa_engine import NoveltyTestEngine, AgentCritic
+from app.services.agent_v2.verification.anti_template import TemplateContaminationDetector
+from app.services.agent_v2.verification.uniqueness import ApplicationUniquenessValidator
 from app.services.agent_v2.models.nvidia_router import agent_nvidia_router, AgentNvidiaCapability
 from app.services.agent_v2.verification.provenance import generation_provenance_tracker
 from app.services.agent.terminal import TerminalAgent

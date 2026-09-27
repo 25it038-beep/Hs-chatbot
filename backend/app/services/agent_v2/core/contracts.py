@@ -133,11 +133,20 @@ class AgentModelActivity:
     role: str
     task: str
     status: str
+    duration_s: float = 0.0
     duration: float = 0.0
     tool_calls: List[str] = field(default_factory=list)
     files_changed: List[str] = field(default_factory=list)
     result: str = ""
     verification_status: str = "PENDING"
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
+
+    def __post_init__(self):
+        if self.duration and not self.duration_s:
+            self.duration_s = self.duration
+        elif self.duration_s and not self.duration:
+            self.duration = self.duration_s
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -220,28 +229,6 @@ class ProductDNA:
     integrations: List[str]
     testing_strategy: str
     deployment_strategy: str
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class AgentModelActivity:
-    """
-    Tracks model activity events for real-time visibility and timeline auditing (§16, §17).
-    """
-    timestamp: float
-    model: str
-    role: str
-    task: str
-    status: str
-    duration_s: float = 0.0
-    tool_calls: List[str] = field(default_factory=list)
-    files_changed: List[str] = field(default_factory=list)
-    result: str = ""
-    verification_status: str = "PENDING"
-    fallback_used: bool = False
-    fallback_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -102,3 +102,21 @@ class ApplicationUniquenessValidator:
             compared_project_id=matched_proj,
             reasons=reasons if not is_unique else ["Passed uniqueness verification against historical projects."]
         )
+
+    @classmethod
+    def record_and_validate(
+        cls,
+        project_id: str,
+        user_request: str,
+        domain: str,
+        files: Dict[str, str]
+    ) -> Tuple[bool, float, str]:
+        report = cls.validate_uniqueness(
+            project_id=project_id,
+            files=files,
+            domain=domain,
+            entities=[],
+            workflows=[]
+        )
+        msg = report.reasons[0] if report.reasons else "Application exhibits authentic domain uniqueness."
+        return report.is_unique, report.similarity_score, msg

@@ -2,6 +2,7 @@ import JSZip from 'jszip'
 import { getAuthHeader, getBaseUrl, ensureFreshToken } from '@/lib/api'
 import { PromptUnderstandingEngine, UnderstandingModel, AdaptiveQuestion, RequirementItem } from './promptUnderstanding'
 import { synthesizeProjectForPrompt } from './projectSynthesizer'
+import { extractProjectFilesFromModelOutput } from './agentV2Api'
 
 export { PromptUnderstandingEngine }
 export type { UnderstandingModel, AdaptiveQuestion, RequirementItem }
@@ -77,7 +78,7 @@ Enter your software or product idea in the prompt bar to activate the 16-stage V
 
 function getVirtualFiles(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('hsbot_agent_v2_files')
     if (raw) {
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
@@ -94,7 +95,9 @@ function getVirtualFiles(): Record<string, string> {
 
 function saveVirtualFiles(files: Record<string, string>) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(files))
+    const serialized = JSON.stringify(files)
+    localStorage.setItem(STORAGE_KEY, serialized)
+    localStorage.setItem('hsbot_agent_v2_files', serialized)
   } catch (e) {
     console.warn('Failed to save virtual workspace files to localStorage:', e)
   }
@@ -485,42 +488,27 @@ Instructions:
 2. Preserve all other existing functionality, imports, styles, and event listeners in this file.
 3. Return ONLY the complete updated file content. Do NOT include any markdown code fences, backticks, or explanatory text.`
 
-    const res = await fetch(`${getBaseUrl()}/chats/messages`, {
+    const timeoutController = new AbortController()
+    const timer = setTimeout(() => timeoutController.abort(), 12000)
+
+    const res = await fetch(`${getBaseUrl()}/nvidia/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({
         message: editPrompt,
+        system_prompt: 'You are an expert code editor. Return ONLY the complete updated file content without markdown fences.',
         model: model || 'codestral',
-        provider: 'nvidia',
-        temperature: 0.2
-      })
+        stream: false,
+        temperature: 0.15,
+        max_tokens: 4096
+      }),
+      signal: timeoutController.signal
     })
+    clearTimeout(timer)
 
     if (!res.ok) return null
-
-    const reader = res.body?.getReader()
-    if (!reader) return null
-
-    let accumulated = ''
-    const decoder = new TextDecoder()
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const text = decoder.decode(value, { stream: true })
-      const lines = text.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.chunk) accumulated += data.chunk
-            if (data.content) accumulated += data.content
-          } catch {}
-        }
-      }
-    }
-
-    let code = accumulated.trim()
+    const data = await res.json()
+    let code = (data?.content || data?.message || '').trim()
     if (code.length > 15) {
       if (code.startsWith('```')) {
         const firstBreak = code.indexOf('\n')
@@ -554,70 +542,33 @@ Requirements:
 1. Provide a working application in vanilla HTML, modern responsive CSS (with Tailwind CSS loaded via CDN), and vanilla JavaScript.
 2. The UI must be fully functional, responsive, and visually stunning with dark theme styling.
 3. Include real interactivity, working state, event listeners, and local storage where appropriate.
-4. Output MUST be a strictly valid JSON object mapping file paths to file contents.
-Example format:
-{
-  "index.html": "<!DOCTYPE html>...",
-  "styles.css": "/* ... */",
-  "script.js": "// ...",
-  "package.json": "{...}",
-  "README.md": "# ...",
-  "src/App.test.tsx": "// test suite"
-}
+4. Output MUST be a strictly valid JSON object mapping file paths ("index.html", "styles.css", "script.js", "package.json", "README.md", "src/App.test.tsx") to file contents.
 Do NOT output any markdown fences, backticks, or explanatory conversation. Output ONLY the raw JSON object.`
 
-    const res = await fetch(`${getBaseUrl()}/chats/messages`, {
+    const timeoutController = new AbortController()
+    const timer = setTimeout(() => timeoutController.abort(), 14000)
+
+    const res = await fetch(`${getBaseUrl()}/nvidia/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({
-        message: sysPrompt,
+        message: `Synthesize the complete multi-file application JSON for: ${prompt}`,
+        system_prompt: sysPrompt,
         model: model || 'codestral',
-        provider: 'nvidia',
-        temperature: 0.2
-      })
+        stream: false,
+        temperature: 0.15,
+        max_tokens: 4096
+      }),
+      signal: timeoutController.signal
     })
+    clearTimeout(timer)
 
     if (!res.ok) return null
-
-    const reader = res.body?.getReader()
-    if (!reader) return null
-
-    let accumulated = ''
-    const decoder = new TextDecoder()
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const text = decoder.decode(value, { stream: true })
-      const lines = text.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.chunk) accumulated += data.chunk
-            if (data.content) accumulated += data.content
-          } catch {}
-        }
-      }
-    }
-
-    let raw = accumulated.trim()
-    if (raw.startsWith('```')) {
-      const firstBreak = raw.indexOf('\n')
-      const lastTicks = raw.lastIndexOf('```')
-      if (firstBreak !== -1 && lastTicks > firstBreak) {
-        raw = raw.slice(firstBreak + 1, lastTicks).trim()
-      }
-    }
-
-    const firstBrace = raw.indexOf('{')
-    const lastBrace = raw.lastIndexOf('}')
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-      const jsonCandidate = raw.slice(firstBrace, lastBrace + 1)
-      const parsed = JSON.parse(jsonCandidate)
-      if (parsed && typeof parsed === 'object' && parsed['index.html']) {
-        return parsed
-      }
+    const data = await res.json()
+    const raw = (data?.content || data?.message || '').trim()
+    const parsed = extractProjectFilesFromModelOutput(raw, prompt)
+    if (parsed && parsed['index.html']) {
+      return parsed
     }
   } catch (e) {
     console.warn('LLM project synthesis could not be completed, using local domain synthesis engine:', e)
@@ -1577,6 +1528,7 @@ export const agentApi = {
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
+        let filesWrittenCount = 0
 
         while (true) {
           const { done, value } = await reader.read()
@@ -1592,8 +1544,13 @@ export const agentApi = {
               try {
                 const parsed = JSON.parse(trimmed.slice(6))
 
+                if (parsed.type === 'error') {
+                  throw new Error(parsed.message || 'Remote agent stage error')
+                }
+
                 // Immediately sync synthesized files to virtual workspace so Preview, Tree, and Editor update
                 if (parsed.type === 'file_written' && parsed.path) {
+                  filesWrittenCount++
                   const current = getVirtualFiles()
                   if (parsed.content) {
                     current[parsed.path] = parsed.content
@@ -1602,13 +1559,20 @@ export const agentApi = {
                 }
 
                 onEvent(parsed)
-              } catch (e) {
+              } catch (e: any) {
+                if (e?.message && e.message.includes('Remote agent stage error')) {
+                  throw e
+                }
                 console.error('Error parsing agent SSE event:', e)
               }
             }
           }
         }
-        onComplete()
+        if (filesWrittenCount > 0) {
+          onComplete()
+        } else {
+          runLocalAutonomousEngine()
+        }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.log('[HSBot Agent] Network issue reaching remote runner. Engaging Autonomous Domain Engine...')

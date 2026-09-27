@@ -57,6 +57,29 @@ def _extract_files_from_json(raw_text: str) -> Optional[Dict[str, str]]:
         except Exception:
             pass
 
+    # 4. Extract from multi-block markdown fences (```html, ```css, ```js/javascript)
+    fence_matches = re.findall(r"```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```", cleaned)
+    extracted: Dict[str, str] = {}
+    for lang, body in fence_matches:
+        lang_l = lang.lower().strip()
+        code_body = body.strip()
+        if not code_body:
+            continue
+        if lang_l == "html" or "<!DOCTYPE html" in code_body or "<html" in code_body:
+            extracted["index.html"] = code_body
+        elif lang_l == "css":
+            extracted["styles.css"] = code_body
+        elif lang_l in ("js", "javascript", "ts"):
+            extracted["script.js"] = code_body
+        elif lang_l in ("md", "markdown"):
+            extracted["README.md"] = code_body
+
+    if "index.html" in extracted:
+        extracted.setdefault("styles.css", "body { margin: 0; font-family: system-ui, sans-serif; }")
+        extracted.setdefault("script.js", "document.addEventListener('DOMContentLoaded', () => {});")
+        extracted.setdefault("README.md", "# Autonomous Studio Application\n")
+        return extracted
+
     return None
 
 

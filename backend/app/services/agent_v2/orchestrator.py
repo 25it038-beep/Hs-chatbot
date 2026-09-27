@@ -154,6 +154,7 @@ class AgentOrchestratorV2:
         )
 
         # 5a. Solution Architect
+        yield {"type": "task_update", "task_id": "TASK-1", "status": "running"}
         architect = SolutionArchitect()
         contract = await architect.execute(contract)
         yield {
@@ -175,8 +176,10 @@ class AgentOrchestratorV2:
                 verification_status="PASS"
             ).to_dict()
         }
+        yield {"type": "task_update", "task_id": "TASK-1", "status": "completed"}
 
         # 5b. UI/UX Designer
+        yield {"type": "task_update", "task_id": "TASK-2", "status": "running"}
         designer = UIUXDesigner()
         contract = await designer.execute(contract)
         yield {
@@ -198,8 +201,10 @@ class AgentOrchestratorV2:
                 verification_status="PASS"
             ).to_dict()
         }
+        yield {"type": "task_update", "task_id": "TASK-2", "status": "completed"}
 
         # 5c. Frontend Engineer & Code Generator
+        yield {"type": "task_update", "task_id": "TASK-3", "status": "running"}
         frontend = FrontendEngineer()
         contract = await frontend.execute(contract)
         generated_files = contract.previous_results.get("generated_files", {})
@@ -231,9 +236,12 @@ class AgentOrchestratorV2:
                 verification_status="PASS"
             ).to_dict()
         }
+        yield {"type": "task_update", "task_id": "TASK-3", "status": "completed"}
 
         # 5d. Test Engineer (§35)
         self.stage = OrchestratorStage.TESTING
+        yield {"type": "stage_update", "stage": self.stage.value, "message": "Test Engineer executing invariant test suites..."}
+        yield {"type": "task_update", "task_id": "TASK-4", "status": "running"}
         test_eng = TestEngineer()
         contract = await test_eng.execute(contract)
         test_files = contract.previous_results.get("generated_files", {})
@@ -275,9 +283,12 @@ class AgentOrchestratorV2:
             "exit_code": cmd_res.get("exit_code"),
             "output": cmd_res.get("stdout") or "All assertions passed"
         }
+        yield {"type": "task_update", "task_id": "TASK-4", "status": "completed"}
 
         # Stage 6: QA, VISUAL INSPECTION & NOVELTY TEST (§38, §47)
         self.stage = OrchestratorStage.QA
+        yield {"type": "stage_update", "stage": self.stage.value, "message": "Visual QA & Security Engineers auditing application..."}
+        yield {"type": "task_update", "task_id": "TASK-5", "status": "running"}
         visual_report = VisualQAInspector.inspect(generated_files, spec.product_name, spec.domain)
         yield {"type": "visual_qa", "report": visual_report.to_dict()}
         yield {
@@ -362,6 +373,7 @@ class AgentOrchestratorV2:
             "type": "security_audit",
             "audit": contract.previous_results.get("security_audit")
         }
+        yield {"type": "task_update", "task_id": "TASK-5", "status": "completed"}
 
         # Live Preview Ready (§54)
         yield {
@@ -372,6 +384,8 @@ class AgentOrchestratorV2:
 
         # Stage 7: INDEPENDENT FINAL VERIFICATION (§41, §42, §43)
         self.stage = OrchestratorStage.VERIFICATION
+        yield {"type": "stage_update", "stage": self.stage.value, "message": "Independent Final Verifier certifying requirement matrix..."}
+        yield {"type": "task_update", "task_id": "TASK-6", "status": "running"}
         verifier = IndependentFinalVerifier()
         contract = await verifier.execute(contract)
         matrix = contract.previous_results.get("verification_matrix", [])
@@ -382,6 +396,7 @@ class AgentOrchestratorV2:
 
         # Stage 8: DELIVERY & ZIP ARTIFACT (§55)
         self.stage = OrchestratorStage.DELIVERY
+        yield {"type": "stage_update", "stage": self.stage.value, "message": "Packaging production release archive..."}
         zip_res = artifact_engine.create_zip_project(
             workspace_dir=self.workspace.root,
             zip_filename=f"{spec.domain}-release.zip",
@@ -391,6 +406,8 @@ class AgentOrchestratorV2:
         if zip_res.get("success"):
             self.artifacts_created.append(zip_res["artifact"])
             yield {"type": "artifact_ready", "artifact": zip_res["artifact"]}
+
+        yield {"type": "task_update", "task_id": "TASK-6", "status": "verified"}
 
         self.state = AgentState.COMPLETED
         final_summary = self._format_summary(spec, dna, tech_stack, matrix, visual_report)

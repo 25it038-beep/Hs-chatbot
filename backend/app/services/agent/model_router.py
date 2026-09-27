@@ -73,7 +73,58 @@ class AgentModelRegistry:
         self._init_default_nvidia_models()
 
     def _init_default_nvidia_models(self):
-        # 1. Codestral: Specialized coding, testing, and debugging champion
+        # 1. Nemotron-3 Ultra 550B: Executive, Product Director, Solution Architect, Final Verifier
+        self.register(AgentModelProfile(
+            model_id="nvidia/nemotron-3-ultra-550b-a55b",
+            display_name="NVIDIA Nemotron-3 Ultra 550B",
+            capabilities=[
+                AgentModelCapability.REASONING,
+                AgentModelCapability.ARCHITECTURE,
+                AgentModelCapability.REQUIREMENT_ANALYSIS,
+                AgentModelCapability.REVIEW,
+                AgentModelCapability.VERIFICATION,
+                AgentModelCapability.CODING,
+            ],
+            priority=100,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 2. Moonshot Kimi K3: Principal UI/UX Designer, Frontend & Backend Engineer
+        self.register(AgentModelProfile(
+            model_id="moonshotai/kimi-k3",
+            display_name="Moonshot Kimi K3 256K Multimodal",
+            capabilities=[
+                AgentModelCapability.CODING,
+                AgentModelCapability.UI,
+                AgentModelCapability.VISION,
+                AgentModelCapability.ARCHITECTURE,
+                AgentModelCapability.REASONING,
+            ],
+            priority=98,
+            supports_vision=True,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 3. Nemotron-3 Super 120B: Research, Domain Analyst, Data Architect, Test & Debug Engineer
+        self.register(AgentModelProfile(
+            model_id="nvidia/nemotron-3-super-120b-a12b",
+            display_name="NVIDIA Nemotron-3 Super 120B",
+            capabilities=[
+                AgentModelCapability.UNDERSTANDING,
+                AgentModelCapability.ARCHITECTURE,
+                AgentModelCapability.CODING,
+                AgentModelCapability.TESTING,
+                AgentModelCapability.DEBUGGING,
+                AgentModelCapability.REASONING,
+            ],
+            priority=96,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 4. Codestral: Specialized coding, testing, and debugging champion
         self.register(AgentModelProfile(
             model_id="codestral",
             display_name="Mistral Codestral 22B",
@@ -83,12 +134,12 @@ class AgentModelRegistry:
                 AgentModelCapability.TESTING,
                 AgentModelCapability.REVIEW,
             ],
-            priority=100,
+            priority=95,
             default_temperature=0.15,
             max_tokens=8192
         ))
 
-        # 2. Llama 3.1 70B: Elite reasoning, architecture design, and verification
+        # 5. Llama 3.1 70B: Elite reasoning, architecture design, and verification
         self.register(AgentModelProfile(
             model_id="llama-3.1-70b",
             display_name="Meta Llama 3.1 70B Instruct",
@@ -105,7 +156,7 @@ class AgentModelRegistry:
             max_tokens=8192
         ))
 
-        # 3. Llama 3.2 11B Vision: Fast understanding, UI design, and visual inspection
+        # 6. Llama 3.2 11B Vision: Fast understanding, UI design, and visual inspection
         self.register(AgentModelProfile(
             model_id="llama-3.2-11b",
             display_name="Meta Llama 3.2 11B Vision Instruct",
@@ -117,13 +168,57 @@ class AgentModelRegistry:
                 AgentModelCapability.CODING,
                 AgentModelCapability.REASONING,
             ],
+            priority=86,
+            supports_vision=True,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 7. Nemotron-3.5 Lightning 30B: Fast Repair & Integration Engineer
+        self.register(AgentModelProfile(
+            model_id="nvidia/nemotron-3.5-lightning-30b-a3b",
+            display_name="NVIDIA Nemotron-3.5 Lightning 30B",
+            capabilities=[
+                AgentModelCapability.CODING,
+                AgentModelCapability.DEBUGGING,
+                AgentModelCapability.TESTING,
+            ],
+            priority=84,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 8. Meta Muse Glimmer 30B: Visual QA Engineer & Design Reviewer
+        self.register(AgentModelProfile(
+            model_id="meta/muse-glimmer-30b",
+            display_name="Meta Muse Glimmer 30B Vision",
+            capabilities=[
+                AgentModelCapability.VISION,
+                AgentModelCapability.UI,
+                AgentModelCapability.REVIEW,
+            ],
+            priority=82,
+            supports_vision=True,
+            default_temperature=0.2,
+            max_tokens=8192
+        ))
+
+        # 9. Nemotron-3 Nano Omni 30B: Browser & GUI QA Agent
+        self.register(AgentModelProfile(
+            model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            display_name="NVIDIA Nemotron-3 Nano Omni 30B",
+            capabilities=[
+                AgentModelCapability.VISION,
+                AgentModelCapability.TESTING,
+                AgentModelCapability.REASONING,
+            ],
             priority=80,
             supports_vision=True,
             default_temperature=0.2,
             max_tokens=8192
         ))
 
-        # 4. GLM 5.2: Multi-turn reasoning & coding backup
+        # 10. GLM 5.2: Multi-turn reasoning & coding backup
         self.register(AgentModelProfile(
             model_id="glm-5.2",
             display_name="Zhipu GLM 5.2",
@@ -132,12 +227,12 @@ class AgentModelRegistry:
                 AgentModelCapability.CODING,
                 AgentModelCapability.ARCHITECTURE,
             ],
-            priority=70,
+            priority=75,
             default_temperature=0.2,
             max_tokens=8192
         ))
 
-        # 5. Mistral Large: General fallback
+        # 11. Mistral Large: General fallback
         self.register(AgentModelProfile(
             model_id="mistral-large",
             display_name="Mistral Large 2",
@@ -146,7 +241,7 @@ class AgentModelRegistry:
                 AgentModelCapability.CODING,
                 AgentModelCapability.REVIEW,
             ],
-            priority=60,
+            priority=70,
             default_temperature=0.2,
             max_tokens=8192
         ))

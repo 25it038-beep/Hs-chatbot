@@ -74,7 +74,7 @@ export function AgentV2Shell({ onToggleClassic }: AgentV2ShellProps) {
   const [lastPrompt, setLastPrompt] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [currentStage, setCurrentStage] = useState('READY')
-  const [activeModel, setActiveModel] = useState('codestral')
+  const [activeModel, setActiveModel] = useState('nvidia/nemotron-3-ultra-550b-a55b')
   const [activeRole, setActiveRole] = useState<string | undefined>(undefined)
   const [activeTaskDesc, setActiveTaskDesc] = useState<string | undefined>(undefined)
 
@@ -168,13 +168,58 @@ export function AgentV2Shell({ onToggleClassic }: AgentV2ShellProps) {
     setSpecification(planRes.specification)
     setTasks(planRes.plan.tasks)
 
+    const markTasksUpTo = (runningTaskId: string | null, completedIds: string[]) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (completedIds.includes(t.task_id)) {
+            return { ...t, status: t.status === 'verified' ? 'verified' : 'completed' }
+          }
+          if (runningTaskId && t.task_id === runningTaskId) {
+            return { ...t, status: 'running' }
+          }
+          return t
+        })
+      )
+    }
+
     // Launch streaming execution
     const cancelFn = agentV2Api.runCompany(
       target,
       (ev) => {
         if (ev.type === 'stage_update') {
-          setCurrentStage(ev.stage)
+          const st = String(ev.stage || '').toUpperCase()
+          setCurrentStage(st)
           if (ev.message) setActiveTaskDesc(ev.message)
+
+          if (st === 'ARCHITECTURE' || st === 'PLANNING') {
+            markTasksUpTo('TASK-1', [])
+          } else if (st === 'DESIGN') {
+            markTasksUpTo('TASK-2', ['TASK-1'])
+          } else if (st === 'IMPLEMENTATION') {
+            markTasksUpTo('TASK-3', ['TASK-1', 'TASK-2'])
+          } else if (st === 'TESTING') {
+            markTasksUpTo('TASK-4', ['TASK-1', 'TASK-2', 'TASK-3'])
+          } else if (st === 'QA') {
+            markTasksUpTo('TASK-5', ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4'])
+          } else if (st === 'VERIFICATION') {
+            markTasksUpTo('TASK-6', ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5'])
+          } else if (st === 'DELIVERY') {
+            setTasks((prev) => prev.map((t) => ({ ...t, status: 'verified' })))
+          }
+        } else if (ev.type === 'task_update') {
+          const tId = ev.task_id || ev.task?.task_id || ev.task?.id
+          const tStatus = ev.status || ev.task?.status
+          if (tId && tStatus) {
+            setTasks((prev) =>
+              prev.map((t) => (t.task_id === tId ? { ...t, status: tStatus } : t))
+            )
+          }
+        } else if (ev.type === 'requirement_analysis' && Array.isArray(ev.classified_requirements)) {
+          setRequirements(ev.classified_requirements)
+        } else if (ev.type === 'requirement_snapshot' && ev.snapshot) {
+          setSpecification(ev.snapshot)
+        } else if (ev.type === 'ui_designed') {
+          markTasksUpTo('TASK-3', ['TASK-1', 'TASK-2'])
         } else if (ev.type === 'model_activity') {
           if (ev.activity) {
             setActivities((prev) => [ev.activity, ...prev])
@@ -195,8 +240,26 @@ export function AgentV2Shell({ onToggleClassic }: AgentV2ShellProps) {
           if (ev.output) setTestOutputSnippet(ev.output)
           setTestPassCount(4)
         } else if (ev.type === 'requirement_matrix') {
-          setVerificationMatrix(ev.matrix || [])
+          const normalizedMatrix = (ev.matrix || []).map((m: any) => ({
+            ...m,
+            status: m.status === 'PASS' ? 'VERIFIED' : m.status || 'VERIFIED'
+          }))
+          setVerificationMatrix(normalizedMatrix)
           setIsVerified(true)
+        } else if (ev.type === 'artifact_ready' && ev.artifact) {
+          const art = ev.artifact
+          const normalizedArt: ArtifactData = {
+            artifact_id: art.artifact_id || `art-${Date.now()}`,
+            filename: art.filename || 'autonomous-release.zip',
+            size_bytes: art.size_bytes || art.file_size || 16384,
+            download_url: art.download_url,
+            created_at:
+              typeof art.created_at === 'number'
+                ? new Date(art.created_at * 1000).toISOString()
+                : art.created_at || new Date().toISOString(),
+            version: art.version || 1
+          }
+          setArtifacts((prev) => [normalizedArt, ...prev.filter((a) => a.artifact_id !== normalizedArt.artifact_id)])
         } else if (ev.type === 'quiz_available') {
           if (ev.questions && ev.questions[0]) {
             setActiveQuestion(ev.questions[0])
@@ -214,6 +277,7 @@ export function AgentV2Shell({ onToggleClassic }: AgentV2ShellProps) {
         setActiveRole(undefined)
         setActiveTaskDesc('Product delivery verified & ready.')
         setIsVerified(true)
+        setTasks((prev) => prev.map((t) => ({ ...t, status: 'verified' })))
         setActiveTab('workspace')
       },
       {

@@ -1,6 +1,10 @@
 {
-  "name": "HSBot AI Assistant",
-  "description": "Multi-provider AI chat assistant with autonomous software engineering agent, RAG, and universal artifact engine",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "HSBot AI Assistant & Autonomous Software Studio",
+  "description": "Multi-provider AI chat assistant with a coordinated multi-model autonomous software engineering studio, RAG, live browser automation, and universal artifact engine.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

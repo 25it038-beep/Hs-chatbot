@@ -22,6 +22,8 @@ class RunAgentRequest(BaseModel):
     chat_id: Optional[str] = None
     autonomy_mode: Optional[str] = "AUTO"
     model: Optional[str] = "llama-3.2-11b"
+    engine_version: Optional[str] = "v2"
+    answers: Optional[Dict[str, str]] = None
 
 class PlanRequest(BaseModel):
     prompt: str
@@ -147,6 +149,36 @@ async def run_agent(
     """
     Executes the autonomous agent engineering loop and streams progress events as SSE chunks.
     """
+    if req.engine_version == "v2":
+        from app.services.agent_v2.orchestrator import AgentOrchestratorV2
+        orch_v2 = AgentOrchestratorV2(workspace_id=req.workspace_id)
+
+        async def event_generator_v2():
+            try:
+                async for chunk in orch_v2.run_lifecycle(
+                    user_request=req.prompt,
+                    chat_id=req.chat_id,
+                    user_id=user.id,
+                    answers=req.answers
+                ):
+                    data = json.dumps(chunk)
+                    yield f"data: {data}\n\n"
+            except SecretLeakDetectedError as leak_err:
+                err_data = json.dumps({
+                    "type": "error",
+                    "message": str(leak_err),
+                    "blocked": True
+                })
+                yield f"data: {err_data}\n\n"
+            except Exception as e:
+                err_data = json.dumps({
+                    "type": "error",
+                    "message": str(e)
+                })
+                yield f"data: {err_data}\n\n"
+
+        return StreamingResponse(event_generator_v2(), media_type="text/event-stream")
+
     orchestrator = AgentOrchestrator(
         workspace_id=req.workspace_id,
         user_id=user.id,

@@ -57,8 +57,10 @@ import {
   ListChecks,
   Ban,
   CheckSquare,
-  FileCheck
+  FileCheck,
+  Workflow
 } from 'lucide-react'
+import { LifecyclePipelineView } from '@/components/agent/LifecyclePipelineView'
 
 interface AuditEntry {
   time: string
@@ -159,7 +161,7 @@ export function AgentPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const [activeTab, setActiveTab] = useState<'graph' | 'requirements' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('graph')
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'graph' | 'requirements' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('pipeline')
   const [prompt, setPrompt] = useState('')
   const [lastPrompt, setLastPrompt] = useState('')
   const [editScope, setEditScope] = useState<'file' | 'project'>('file')
@@ -174,6 +176,21 @@ export function AgentPage() {
   const [understanding, setUnderstanding] = useState<UnderstandingModel | null>(null)
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({})
   const [confirmedUnderstanding, setConfirmedUnderstanding] = useState(false)
+
+  // 16-Stage Lifecycle Pipeline States
+  const [snapshot, setSnapshot] = useState<any | null>(null)
+  const [techStack, setTechStack] = useState<any | null>(null)
+  const [architecturePlan, setArchitecturePlan] = useState<any | null>(null)
+  const [uiDesign, setUiDesign] = useState<any | null>(null)
+  const [visualQAReport, setVisualQAReport] = useState<any | null>(null)
+  const [problemDiagnostics, setProblemDiagnostics] = useState<string | null>(null)
+  const [requirementMatrix, setRequirementMatrix] = useState<any[] | null>(null)
+  const [appStatus, setAppStatus] = useState<string | null>(null)
+  const [testCmd, setTestCmd] = useState<string | null>(null)
+  const [testExitCode, setTestExitCode] = useState<number | null>(null)
+  const [testOutputSnippet, setTestOutputSnippet] = useState<string | null>(null)
+  const [previewReady, setPreviewReady] = useState<boolean>(false)
+  const [filesModifiedList, setFilesModifiedList] = useState<string[]>([])
 
   const [taskGraph, setTaskGraph] = useState<TaskGraphData | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskNodeData | null>(null)
@@ -435,6 +452,21 @@ export function AgentPage() {
       ...prev
     ])
 
+    setLastPrompt(targetPrompt)
+    setSnapshot(null)
+    setTechStack(null)
+    setArchitecturePlan(null)
+    setUiDesign(null)
+    setVisualQAReport(null)
+    setProblemDiagnostics(null)
+    setRequirementMatrix(null)
+    setAppStatus(null)
+    setTestCmd(null)
+    setTestExitCode(null)
+    setTestOutputSnippet(null)
+    setPreviewReady(false)
+    setFilesModifiedList([])
+
     if (!overridePrompt) {
       setPrompt('')
     }
@@ -444,6 +476,14 @@ export function AgentPage() {
       (event) => {
         if (event.type === 'prompt_understood') {
           setUnderstanding(sanitizeUnderstanding(event.understanding))
+        } else if (event.type === 'requirement_snapshot') {
+          setSnapshot(event.snapshot)
+        } else if (event.type === 'tech_decision') {
+          setTechStack(event.tech_stack)
+        } else if (event.type === 'architecture_planned') {
+          setArchitecturePlan(event)
+        } else if (event.type === 'ui_designed') {
+          setUiDesign(event)
         } else if (event.type === 'agent_state') {
           setAgentState(event.state)
           setAgentMessage(event.message)
@@ -455,8 +495,6 @@ export function AgentPage() {
           setTaskGraph(sanitizeTaskGraph(event.plan))
           if (activeScope === 'file') {
             setActiveTab('editor')
-          } else {
-            setActiveTab('graph')
           }
         } else if (event.type === 'task_update') {
           setTaskGraph((prev) => {
@@ -471,6 +509,7 @@ export function AgentPage() {
             })
           })
         } else if (event.type === 'file_written') {
+          setFilesModifiedList((prev) => prev.includes(event.path) ? prev : [...prev, event.path])
           setAuditLogs((prev) => [
             { time: new Date().toLocaleTimeString(), type: 'FILE_WRITE', message: `Modified ${event.path} (${event.size} bytes)` },
             ...prev
@@ -479,12 +518,31 @@ export function AgentPage() {
           if (selectedFilePath === event.path || activeTargetFile === event.path) {
             handleSelectFile(event.path)
           }
+        } else if (event.type === 'files_managed') {
+          if (Array.isArray(event.files)) {
+            setFilesModifiedList(event.files)
+          }
+        } else if (event.type === 'app_started') {
+          setAppStatus('ready')
+          if (event.test_command) setTestCmd(event.test_command)
         } else if (event.type === 'command_result') {
+          setTestCmd(event.command)
+          setTestExitCode(event.exit_code)
+          setTestOutputSnippet(event.output)
           setTerminalOutput((prev) => prev + `\n$ ${event.command}\n${event.output || ''}\n[exit code: ${event.exit_code}]\n`)
           setAuditLogs((prev) => [
             { time: new Date().toLocaleTimeString(), type: 'COMMAND', message: `$ ${event.command} (exit: ${event.exit_code})` },
             ...prev
           ])
+        } else if (event.type === 'visual_qa') {
+          setVisualQAReport(event.report)
+        } else if (event.type === 'problem_fixed') {
+          setProblemDiagnostics(event.diagnostics)
+        } else if (event.type === 'requirement_matrix') {
+          setRequirementMatrix(event.matrix)
+        } else if (event.type === 'live_preview_ready') {
+          setPreviewReady(true)
+          refreshLivePreview()
         } else if (event.type === 'artifact_ready') {
           setArtifacts((prev) => [event.artifact, ...prev.filter((a) => a.artifact_id !== event.artifact.artifact_id)])
           setAuditLogs((prev) => [
@@ -950,6 +1008,20 @@ export function AgentPage() {
           {/* Navigation Tab Bar */}
           <div className="h-10 border-b border-border bg-muted/20 px-2 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-1 overflow-x-auto">
+              {/* Lifecycle Pipeline Tab */}
+              <button
+                onClick={() => setActiveTab('pipeline')}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  activeTab === 'pipeline' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Workflow size={13} className="text-primary" />
+                <span>Lifecycle Pipeline</span>
+                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.2 rounded-full font-bold">
+                  16 Stages
+                </span>
+              </button>
+
               {/* Task Graph Tab */}
               <button
                 onClick={() => setActiveTab('graph')}
@@ -1130,6 +1202,37 @@ export function AgentPage() {
 
           {/* Center Pane Content Area */}
           <div className="flex-1 min-h-0 overflow-y-auto relative">
+            {/* 0. Lifecycle Pipeline View (16 Stages) */}
+            {activeTab === 'pipeline' && (
+              <LifecyclePipelineView
+                prompt={lastPrompt || prompt}
+                understanding={understanding}
+                snapshot={snapshot}
+                techStack={techStack}
+                taskGraph={taskGraph}
+                architecturePlan={architecturePlan}
+                uiDesign={uiDesign}
+                filesCount={filesModifiedList.length > 0 ? filesModifiedList.length : (workspaceTree?.children?.length || 0)}
+                files={filesModifiedList.length > 0 ? filesModifiedList : (workspaceTree?.children ? workspaceTree.children.map(c => c.path) : [])}
+                appStatus={appStatus}
+                testCommand={testCmd}
+                testExitCode={testExitCode}
+                testOutput={testOutputSnippet}
+                visualQAReport={visualQAReport}
+                problemDiagnostics={problemDiagnostics}
+                requirementMatrix={requirementMatrix}
+                previewReady={previewReady || !!previewHtml}
+                artifacts={artifacts}
+                agentState={agentState}
+                onNavigateTab={(tab) => {
+                  setActiveTab(tab)
+                  if (tab === 'preview') refreshLivePreview()
+                }}
+                onSelectFile={(path) => handleSelectFile(path)}
+                onDownloadZip={() => handleDownloadWorkspaceZip()}
+              />
+            )}
+
             {/* 1. Task Graph View */}
             {activeTab === 'graph' && (
               <div className="p-4 space-y-4">

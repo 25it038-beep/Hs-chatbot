@@ -1724,16 +1724,16 @@ document.addEventListener('DOMContentLoaded', () => {{
       card.className = 'p-4 rounded-2xl bg-slate-950 border border-slate-800 shadow flex flex-col justify-between space-y-3';
       card.innerHTML = `<div class="flex items-start justify-between">
         <div>
-          <h4 class="font-bold text-white text-sm">\${{it.name}}</h4>
-          <span class="text-[10px] text-slate-400 block mt-0.5">\${{it.category}} · \${{it.date}}</span>
+          <h4 class="font-bold text-white text-sm">${{it.name}}</h4>
+          <span class="text-[10px] text-slate-400 block mt-0.5">${{it.category}} · ${{it.date}}</span>
         </div>
-        <button class="toggle-status px-2.5 py-1 rounded-full text-[10px] font-bold \${{it.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}}" data-id="\${{it.id}}">
-          \${{it.status}}
+        <button class="toggle-status px-2.5 py-1 rounded-full text-[10px] font-bold ${{it.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}}" data-id="${{it.id}}">
+          ${{it.status}}
         </button>
       </div>
       <div class="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
-        <span class="text-[11px] text-slate-500 font-mono">#\${{it.id.slice(-4)}}</span>
-        <button class="del-btn text-rose-400 hover:text-rose-300 text-xs font-semibold" data-id="\${{it.id}}">Delete</button>
+        <span class="text-[11px] text-slate-500 font-mono">#${{it.id.slice(-4)}}</span>
+        <button class="del-btn text-rose-400 hover:text-rose-300 text-xs font-semibold" data-id="${{it.id}}">Delete</button>
       </div>`;
       container.appendChild(card);
     }});

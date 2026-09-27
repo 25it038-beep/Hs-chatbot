@@ -1,6 +1,6 @@
 import hashlib
 import logging
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from app.services.agent_v2.core.contracts import ApplicationUniquenessReport
 
 logger = logging.getLogger("hsbot.agent_v2.uniqueness")

@@ -64,6 +64,8 @@ import {
 import { LifecyclePipelineView } from '@/components/agent/LifecyclePipelineView'
 import { CompanyDashboardView, ModelActivityItem } from '@/components/agent/CompanyDashboardView'
 import { UserPlanView } from '@/components/agent/UserPlanView'
+import { ModelActivityPanel } from '@/components/agent/ModelActivityPanel'
+import { agentV2Api } from '@/lib/agentV2Api'
 
 interface AuditEntry {
   time: string
@@ -164,7 +166,7 @@ export function AgentPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const [activeTab, setActiveTab] = useState<'company' | 'plan' | 'pipeline' | 'graph' | 'requirements' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('company')
+  const [activeTab, setActiveTab] = useState<'company' | 'plan' | 'pipeline' | 'graph' | 'requirements' | 'models' | 'editor' | 'preview' | 'diff' | 'artifacts' | 'terminal'>('company')
   const [modelActivities, setModelActivities] = useState<ModelActivityItem[]>([])
   const [currentActivity, setCurrentActivity] = useState<ModelActivityItem | null>(null)
   const [provenance, setProvenance] = useState<any | null>(null)
@@ -525,127 +527,195 @@ ${jsRes.content}
       setPrompt('')
     }
 
-    const cancelFn = agentApi.runAgent(
-      targetPrompt,
-      (event) => {
-        if (event.type === 'model_activity') {
-          if (event.activity) {
-            setCurrentActivity(event.activity)
-            setModelActivities((prev) => [...prev, event.activity])
-          }
-        } else if (event.type === 'provenance_created') {
-          setProvenance(event.provenance)
-        } else if (event.type === 'uniqueness_audit') {
-          setUniquenessReport(event)
-        } else if (event.type === 'prompt_understood') {
-          setUnderstanding(sanitizeUnderstanding(event.understanding))
-        } else if (event.type === 'requirement_snapshot') {
-          setSnapshot(event.snapshot)
-        } else if (event.type === 'tech_decision') {
-          setTechStack(event.tech_stack)
-        } else if (event.type === 'architecture_planned') {
-          setArchitecturePlan(event)
-        } else if (event.type === 'ui_designed') {
-          setUiDesign(event)
-        } else if (event.type === 'agent_state') {
-          setAgentState(event.state)
-          setAgentMessage(event.message)
-          setAuditLogs((prev) => [
-            { time: new Date().toLocaleTimeString(), type: 'STATE', message: event.message, status: event.state },
-            ...prev
-          ])
-        } else if (event.type === 'plan_created') {
+    const onEventHandler = (event: any) => {
+      if (event.type === 'model_activity') {
+        if (event.activity) {
+          setCurrentActivity(event.activity)
+          setModelActivities((prev) => [...prev, event.activity])
+        }
+      } else if (event.type === 'model_assigned') {
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'MODEL_ASSIGN', message: `${event.role || 'Specialist'}: ${event.task_name || ''} -> ${event.primary_model || ''}` },
+          ...prev
+        ])
+      } else if (event.type === 'stage_update') {
+        setAgentState(event.stage || 'RUNNING')
+        setAgentMessage(event.message || '')
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'STAGE', message: `[${event.stage}] ${event.message}` },
+          ...prev
+        ])
+      } else if (event.type === 'plan_approval_ready') {
+        if (event.plan) {
           setTaskGraph(sanitizeTaskGraph(event.plan))
           setProductPlan(event.plan)
-          if (event.is_valid !== undefined) setIsPlanValid(event.is_valid)
-          if (event.validation_errors) setPlanValidationErrors(event.validation_errors)
-          if (activeScope === 'file') {
-            setActiveTab('editor')
-          }
-        } else if (event.type === 'task_update') {
-          setTaskGraph((prev) => {
-            if (!prev) return null
-            const prevTasks = prev.tasks || []
-            const updated = prevTasks.map((t) => (t.id === event.task.id ? event.task : t))
-            return sanitizeTaskGraph({
-              ...prev,
-              tasks: updated,
-              completed_count: updated.filter((x) => x.status === 'completed').length,
-              is_completed: updated.every((x) => x.status === 'completed' || x.status === 'skipped')
-            })
+        }
+        if (event.dna) {
+          setSnapshot((prev: any) => ({ ...(prev || {}), dna: event.dna }))
+        }
+        if (event.tech_stack) {
+          setTechStack(event.tech_stack)
+        }
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'PLAN_READY', message: 'Implementation plan validated and ready for execution' },
+          ...prev
+        ])
+      } else if (event.type === 'anti_template_pre_check') {
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'ANTI_TEMPLATE_PRE', message: event.is_contaminated ? 'Template contamination flagged in plan' : 'Anti-template pre-check certified' },
+          ...prev
+        ])
+      } else if (event.type === 'template_audit') {
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'ANTI_TEMPLATE', message: event.is_contaminated ? 'Template contamination detected' : 'Post-generation Anti-Template Audit passed (Zero Template)' },
+          ...prev
+        ])
+      } else if (event.type === 'provenance_summary' || event.type === 'provenance_created') {
+        setProvenance(event.summary || event.provenance || event)
+      } else if (event.type === 'uniqueness_audit') {
+        setUniquenessReport(event)
+      } else if (event.type === 'prompt_understood') {
+        setUnderstanding(sanitizeUnderstanding(event.understanding))
+      } else if (event.type === 'requirement_snapshot') {
+        setSnapshot(event.snapshot)
+      } else if (event.type === 'tech_decision') {
+        setTechStack(event.tech_stack)
+      } else if (event.type === 'architecture_planned') {
+        setArchitecturePlan(event)
+      } else if (event.type === 'ui_designed') {
+        setUiDesign(event)
+      } else if (event.type === 'agent_state') {
+        setAgentState(event.state)
+        setAgentMessage(event.message)
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'STATE', message: event.message, status: event.state },
+          ...prev
+        ])
+      } else if (event.type === 'plan_created') {
+        setTaskGraph(sanitizeTaskGraph(event.plan))
+        setProductPlan(event.plan)
+        if (event.is_valid !== undefined) setIsPlanValid(event.is_valid)
+        if (event.validation_errors) setPlanValidationErrors(event.validation_errors)
+        if (activeScope === 'file') {
+          setActiveTab('editor')
+        }
+      } else if (event.type === 'task_update') {
+        const taskId = event.task?.id || event.task_id
+        const taskStatus = event.task?.status || event.status
+        setTaskGraph((prev) => {
+          if (!prev) return null
+          const prevTasks = prev.tasks || []
+          const updated = prevTasks.map((t) => (t.id === taskId ? { ...t, status: taskStatus } : t))
+          return sanitizeTaskGraph({
+            ...prev,
+            tasks: updated,
+            completed_count: updated.filter((x) => x.status === 'completed').length,
+            is_completed: updated.every((x) => x.status === 'completed' || x.status === 'skipped')
           })
-        } else if (event.type === 'file_written') {
-          setFilesModifiedList((prev) => prev.includes(event.path) ? prev : [...prev, event.path])
-          setAuditLogs((prev) => [
-            { time: new Date().toLocaleTimeString(), type: 'FILE_WRITE', message: `Modified ${event.path} (${event.size} bytes)` },
-            ...prev
-          ])
-          loadWorkspace()
-          if (selectedFilePath === event.path || activeTargetFile === event.path) {
-            handleSelectFile(event.path)
-          }
-        } else if (event.type === 'files_managed') {
-          if (Array.isArray(event.files)) {
-            setFilesModifiedList(event.files)
-          }
-        } else if (event.type === 'app_started') {
-          setAppStatus('ready')
-          if (event.test_command) setTestCmd(event.test_command)
-        } else if (event.type === 'command_result') {
-          setTestCmd(event.command)
-          setTestExitCode(event.exit_code)
-          setTestOutputSnippet(event.output)
-          setTerminalOutput((prev) => prev + `\n$ ${event.command}\n${event.output || ''}\n[exit code: ${event.exit_code}]\n`)
-          setAuditLogs((prev) => [
-            { time: new Date().toLocaleTimeString(), type: 'COMMAND', message: `$ ${event.command} (exit: ${event.exit_code})` },
-            ...prev
-          ])
-        } else if (event.type === 'visual_qa') {
-          setVisualQAReport(event.report)
-        } else if (event.type === 'problem_fixed') {
-          setProblemDiagnostics(event.diagnostics)
-        } else if (event.type === 'requirement_matrix') {
-          setRequirementMatrix(event.matrix)
-        } else if (event.type === 'live_preview_ready') {
-          setPreviewReady(true)
-          refreshLivePreview()
-        } else if (event.type === 'artifact_ready') {
-          setArtifacts((prev) => [event.artifact, ...prev.filter((a) => a.artifact_id !== event.artifact.artifact_id)])
-          setAuditLogs((prev) => [
-            { time: new Date().toLocaleTimeString(), type: 'ARTIFACT', message: `Artifact delivered: ${event.artifact.filename}` },
-            ...prev
-          ])
-        } else if (event.type === 'final_summary') {
-          setFinalSummary(event.content)
-        }
-      },
-      (err) => {
-        setIsRunning(false)
-        setAgentState('FAILED')
-        setAgentMessage(err.message || 'Execution error')
-      },
-      () => {
-        setIsRunning(false)
-        setAgentState('COMPLETED')
-        setAgentMessage(activeTargetFile ? `Successfully updated ${activeTargetFile}.` : 'Agent engineering tasks completed successfully.')
+        })
+      } else if (event.type === 'file_written') {
+        setFilesModifiedList((prev) => prev.includes(event.path) ? prev : [...prev, event.path])
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'FILE_WRITE', message: `Modified ${event.path} (${event.size} bytes)` },
+          ...prev
+        ])
         loadWorkspace()
-        if (activeTargetFile) {
-          handleSelectFile(activeTargetFile)
-        } else {
-          agentApi.readFile('index.html').then((res) => {
-            if (res && res.success && res.content) {
-              refreshLivePreview()
-              setActiveTab('preview')
-            }
-          }).catch(() => {})
+        if (selectedFilePath === event.path || activeTargetFile === event.path) {
+          handleSelectFile(event.path)
         }
-      },
-      'default',
-      autonomyMode,
-      selectedModel,
-      activeTargetFile,
-      activeScope
-    )
+      } else if (event.type === 'files_managed') {
+        if (Array.isArray(event.files)) {
+          setFilesModifiedList(event.files)
+        }
+      } else if (event.type === 'app_started') {
+        setAppStatus('ready')
+        if (event.test_command) setTestCmd(event.test_command)
+      } else if (event.type === 'command_result') {
+        setTestCmd(event.command)
+        setTestExitCode(event.exit_code)
+        setTestOutputSnippet(event.output)
+        setTerminalOutput((prev) => prev + `\n$ ${event.command}\n${event.output || ''}\n[exit code: ${event.exit_code}]\n`)
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'COMMAND', message: `$ ${event.command} (exit: ${event.exit_code})` },
+          ...prev
+        ])
+      } else if (event.type === 'visual_qa') {
+        setVisualQAReport(event.report)
+      } else if (event.type === 'problem_fixed') {
+        setProblemDiagnostics(event.diagnostics)
+      } else if (event.type === 'requirement_matrix') {
+        setRequirementMatrix(event.matrix)
+      } else if (event.type === 'live_preview_ready') {
+        setPreviewReady(true)
+        refreshLivePreview()
+      } else if (event.type === 'artifact_ready') {
+        setArtifacts((prev) => [event.artifact, ...prev.filter((a) => a.artifact_id !== event.artifact.artifact_id)])
+        setAuditLogs((prev) => [
+          { time: new Date().toLocaleTimeString(), type: 'ARTIFACT', message: `Artifact delivered: ${event.artifact.filename}` },
+          ...prev
+        ])
+      } else if (event.type === 'final_summary') {
+        setFinalSummary(event.content)
+      }
+    }
+
+    const cancelFn = activeScope === 'project'
+      ? agentV2Api.runCompany(
+          targetPrompt,
+          onEventHandler,
+          (err) => {
+            setIsRunning(false)
+            setAgentState('FAILED')
+            setAgentMessage(err.message || 'Execution error')
+          },
+          () => {
+            setIsRunning(false)
+            setAgentState('COMPLETED')
+            setAgentMessage('Agent engineering tasks completed successfully.')
+            loadWorkspace()
+            agentApi.readFile('index.html').then((res) => {
+              if (res && res.success && res.content) {
+                refreshLivePreview()
+                setActiveTab('preview')
+              }
+            }).catch(() => {})
+          },
+          {
+            model: selectedModel,
+            answers: quizAnswers,
+            approvedPlan: productPlan
+          }
+        )
+      : agentApi.runAgent(
+          targetPrompt,
+          onEventHandler,
+          (err) => {
+            setIsRunning(false)
+            setAgentState('FAILED')
+            setAgentMessage(err.message || 'Execution error')
+          },
+          () => {
+            setIsRunning(false)
+            setAgentState('COMPLETED')
+            setAgentMessage(activeTargetFile ? `Successfully updated ${activeTargetFile}.` : 'Agent engineering tasks completed successfully.')
+            loadWorkspace()
+            if (activeTargetFile) {
+              handleSelectFile(activeTargetFile)
+            } else {
+              agentApi.readFile('index.html').then((res) => {
+                if (res && res.success && res.content) {
+                  refreshLivePreview()
+                  setActiveTab('preview')
+                }
+              }).catch(() => {})
+            }
+          },
+          'default',
+          autonomyMode,
+          selectedModel,
+          activeTargetFile,
+          activeScope
+        )
 
     abortControllerRef.current = cancelFn
   }
@@ -1088,6 +1158,20 @@ ${jsRes.content}
                 </span>
               </button>
 
+              {/* Models & Telemetry Tab (§16, §26, §61) */}
+              <button
+                onClick={() => setActiveTab('models')}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  activeTab === 'models' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Cpu size={13} className="text-emerald-500" />
+                <span>Models & Telemetry</span>
+                <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.2 rounded-full font-bold">
+                  {modelActivities.length}
+                </span>
+              </button>
+
               {/* Implementation Plan & Approval Tab (Section 21, 22, 66) */}
               <button
                 onClick={() => setActiveTab('plan')}
@@ -1308,6 +1392,16 @@ ${jsRes.content}
                 selectedModel={selectedModel}
                 onSelectModel={(m) => setSelectedModel(m)}
                 provenance={provenance}
+                uniquenessReport={uniquenessReport}
+              />
+            )}
+
+            {/* Models & Telemetry View (§16, §26, §61) */}
+            {activeTab === 'models' && (
+              <ModelActivityPanel
+                currentActivity={currentActivity}
+                activities={modelActivities}
+                provenanceRecords={Array.isArray(provenance) ? provenance : (provenance?.summary || [])}
                 uniquenessReport={uniquenessReport}
               />
             )}

@@ -5,7 +5,6 @@
  */
 
 import { getBaseUrl, getAuthHeader, ensureFreshToken } from './api'
-import { synthesizeProjectForPrompt } from './projectSynthesizer'
 
 export interface ModelProfile {
   model_id: string
@@ -1054,16 +1053,15 @@ CRITICAL RULES:
       }
     }
 
-    // Ensure 100% reliability: if remote LLM timed out or returned non-JSON, synthesize via Dynamic Domain Engine
+    // Enforce Rule 4: Hard No-Template Rule. If AI model fails, report failure - never template fallback.
     if (!generatedFiles || !generatedFiles['index.html']) {
-      const synthesized = synthesizeProjectForPrompt(prompt)
-      generatedFiles = {
-        ...synthesized,
-        'tests/test_app.js':
-          synthesized['tests/test_app.js'] ||
-          synthesized['src/App.test.tsx'] ||
-          `// Automated Domain Invariant Suite\nconst assert = (c, m) => { if (!c) throw new Error(m); };\nassert(true, 'Application DOM & state initialized');\nconsole.log('4/4 domain assertions passed.');\n`
-      }
+      const errMsg = `Autonomous AI synthesis failed across candidate models (${modelChain.join(', ')}). Under Agent V2 specification (§4), template fallbacks are strictly prohibited.`
+      onEvent({
+        type: 'stage_update',
+        stage: 'ERROR',
+        message: errMsg
+      })
+      throw new Error(errMsg)
     }
 
     if (isCancelled()) return

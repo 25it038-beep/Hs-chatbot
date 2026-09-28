@@ -351,6 +351,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       let firstChunkReceived = false
       let timeoutId: any = undefined
       let abortController: AbortController | undefined
+      let fullContent = ''
 
       try {
         const controller = new AbortController()
@@ -395,7 +396,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         }
 
         const decoder = new TextDecoder()
-        let fullContent = ''
+        fullContent = ''
         let buffer = ''
         let currentAttachments: Attachment[] = []
         let currentSources: WebSourceItem[] = []

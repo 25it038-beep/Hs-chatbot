@@ -25,6 +25,7 @@ export interface ParsedFileMetadata {
   charCount?: number
   estimatedTokens?: number
   suggestedPrompts: string[]
+  status?: 'UPLOADING' | 'PROCESSING' | 'ANALYZING' | 'READY' | 'PARTIALLY_SUPPORTED' | 'FAILED'
 }
 
 const EXTENSION_CATEGORIES: Record<string, { category: ParsedFileMetadata['category']; language?: string }> = {
@@ -212,6 +213,7 @@ export async function inspectFileLocally(file: File): Promise<ParsedFileMetadata
     category,
     language,
     suggestedPrompts: [],
+    status: (category === 'unknown') ? 'PARTIALLY_SUPPORTED' : 'READY',
   }
 
   meta.suggestedPrompts = generateSuggestedPrompts(meta)

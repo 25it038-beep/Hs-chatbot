@@ -1,7 +1,6 @@
 import JSZip from 'jszip'
 import { getAuthHeader, getBaseUrl, ensureFreshToken } from '@/lib/api'
 import { PromptUnderstandingEngine, UnderstandingModel, AdaptiveQuestion, RequirementItem } from './promptUnderstanding'
-import { synthesizeProjectForPrompt } from './projectSynthesizer'
 import { extractProjectFilesFromModelOutput } from './agentV2Api'
 
 export { PromptUnderstandingEngine }
@@ -1207,9 +1206,16 @@ export const agentApi = {
         updateTask('TASK-3', 'running')
 
         const candidateFiles = await attemptLLMProjectSynthesis(prompt, model)
-        const newFiles: Record<string, string> = (candidateFiles && Object.keys(candidateFiles).length > 0 && candidateFiles['index.html'])
-          ? candidateFiles
-          : synthesizeProjectForPrompt(prompt)
+        if (!candidateFiles || !candidateFiles['index.html']) {
+          const errMsg = `Direct LLM synthesis failed to return valid files for prompt: "${prompt}". Template fallbacks are forbidden under Agent V2 specifications.`
+          onEvent({
+            type: 'agent_state',
+            state: 'FAILED',
+            message: errMsg
+          })
+          throw new Error(errMsg)
+        }
+        const newFiles: Record<string, string> = candidateFiles
         const updatedFiles = getVirtualFiles()
 
         for (const [path, content] of Object.entries(newFiles)) {

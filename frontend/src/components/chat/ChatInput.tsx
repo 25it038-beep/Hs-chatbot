@@ -2,8 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Send, Paperclip, Square, Mic, MicOff, Volume2, VolumeX, Loader2, X, Pencil,
-  Camera, Radio, Check, Sparkles, FileText, Code, Table, Image as ImageIcon,
-  Eye, Plus, UploadCloud, Layers
+  Camera, Radio, Check, Sparkles, Eye, Plus, UploadCloud, AlertCircle, RotateCcw, ClipboardPaste
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SlashCommandPalette } from './SlashCommandPalette'
@@ -12,15 +11,24 @@ import { fuzzySearch } from '@/lib/fuzzySearch'
 import { executeCommand } from '@/lib/commandExecutionHandler'
 import { useAmbient } from '@/stores/ambient'
 import { useVoiceStore } from '@/lib/speech'
-import { inspectFileLocally, ParsedFileMetadata, getFileCategoryBadgeStyle } from '@/lib/fileEngine'
+import {
+  inspectFileLocally,
+  extractClipboardPayload,
+  ParsedFileMetadata,
+  AttachmentSource,
+  getFileCategoryBadgeStyle,
+} from '@/lib/fileEngine'
+import { api } from '@/lib/api'
 import { FileEngineModal } from './FileEngineModal'
 import { formatBytes } from '@/lib/downloader'
 import type { SlashCommand, CommandExecutionContext } from '@/types/command'
+import type { FileInfo } from '@/types'
 
 interface ChatInputProps {
   onSend: (message: string) => void
   onSendWithFile?: (file: File, prompt: string) => Promise<void>
   onSendWithFiles?: (files: File[], prompt: string) => Promise<void>
+  onSendWithAttachments?: (attachments: ParsedFileMetadata[], prompt: string) => Promise<void>
   onStop: () => void
   onOpenSettings?: () => void
   streaming: boolean
@@ -36,6 +44,7 @@ export function ChatInput({
   onSend,
   onSendWithFile,
   onSendWithFiles,
+  onSendWithAttachments,
   onStop,
   onOpenSettings,
   streaming,
@@ -53,6 +62,7 @@ export function ChatInput({
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [sending, setSending] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  const [composerNotice, setComposerNotice] = useState<{ type: 'info' | 'warning' | 'error'; text: string } | null>(null)
   const { setUserTyping } = useAmbient()
 
   // Slash Command Palette State
@@ -62,9 +72,27 @@ export function ChatInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadControllersRef = useRef<Record<string, AbortController>>({})
+  const pendingFilesRef = useRef<ParsedFileMetadata[]>([])
+
+  useEffect(() => {
+    pendingFilesRef.current = pendingFiles
+  }, [pendingFiles])
 
   const isHero = variant === 'hero'
   const isEditing = Boolean(editing)
+
+  const showTransientNotice = useCallback((text: string, type: 'info' | 'warning' | 'error' = 'info') => {
+    setComposerNotice({ type, text })
+  }, [])
+
+  useEffect(() => {
+    if (!composerNotice) return
+    const timer = setTimeout(() => {
+      setComposerNotice(null)
+    }, 6000)
+    return () => clearTimeout(timer)
+  }, [composerNotice])
 
   // Load edited message content into composer
   useEffect(() => {
@@ -118,27 +146,275 @@ export function ChatInput({
     }
   }, [input])
 
-  const handleAddFiles = async (files: FileList | File[]) => {
-    const fileArray = Array.from(files)
-    if (fileArray.length === 0) return
-    try {
-      const inspected = await Promise.all(fileArray.map(f => inspectFileLocally(f)))
-      setPendingFiles(prev => [...prev, ...inspected])
-    } catch (err) {
-      console.warn('[FileEngine] Error inspecting files:', err)
-    }
-  }
+  const uploadAndProcessAttachment = useCallback(async (meta: ParsedFileMetadata) => {
+    if (meta.status === 'UNSUPPORTED' || meta.status === 'FAILED') return
 
-  const handleRemoveFile = (id: string) => {
-    setPendingFiles(prev => prev.filter(f => f.id !== id))
-  }
+    const controller = new AbortController()
+    uploadControllersRef.current[meta.localId] = controller
+    const t0 = performance.now()
+
+    setPendingFiles(prev =>
+      prev.map(item =>
+        item.localId === meta.localId
+          ? {
+              ...item,
+              uploadStatus: 'UPLOADING',
+              processingStatus: 'PROCESSING',
+              status: 'UPLOADING',
+              errorMessage: undefined,
+            }
+          : item
+      )
+    )
+
+    try {
+      const uploadRes = (await api.uploadFile(meta.file, {
+        source: meta.source,
+        analyze: false,
+        signal: controller.signal,
+      })) as FileInfo
+
+      const durationMs = Math.round(performance.now() - t0)
+
+      if (!uploadRes || !uploadRes.id) {
+        throw new Error("Couldn't process file")
+      }
+
+      // Verify backend processing state if needed
+      let isReady = uploadRes.status === 'ready' || uploadRes.content_ready !== false
+      if (!isReady) {
+        const statusInfo = await api.getFileStatus(uploadRes.id)
+        isReady = statusInfo.status === 'ready' && statusInfo.content_ready
+      }
+
+      if (!isReady) {
+        throw new Error("Couldn't process file content")
+      }
+
+      setPendingFiles(prev =>
+        prev.map(item =>
+          item.localId === meta.localId
+            ? {
+                ...item,
+                fileId: uploadRes.id,
+                uploadedFileInfo: uploadRes,
+                uploadStatus: 'UPLOADED',
+                processingStatus: 'READY',
+                status: 'READY',
+                uploadDurationMs: durationMs,
+                processingDurationMs: durationMs,
+                errorMessage: undefined,
+              }
+            : item
+        )
+      )
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) {
+        return
+      }
+      const rawMsg = err instanceof Error ? err.message : "Couldn't process file"
+      const isUnsupported = rawMsg.toLowerCase().includes('unsupported')
+      setPendingFiles(prev =>
+        prev.map(item =>
+          item.localId === meta.localId
+            ? {
+                ...item,
+                uploadStatus: 'FAILED',
+                processingStatus: isUnsupported ? 'UNSUPPORTED' : 'FAILED',
+                status: isUnsupported ? 'UNSUPPORTED' : 'FAILED',
+                errorMessage: rawMsg,
+              }
+            : item
+        )
+      )
+    } finally {
+      if (uploadControllersRef.current[meta.localId] === controller) {
+        delete uploadControllersRef.current[meta.localId]
+      }
+    }
+  }, [])
+
+  const handleAddFiles = useCallback(
+    async (files: FileList | File[], source: AttachmentSource = 'picker') => {
+      const fileArray = Array.from(files)
+      if (fileArray.length === 0) return
+
+      try {
+        const inspected = await Promise.all(fileArray.map(f => inspectFileLocally(f, source)))
+        const existingHashes = new Set(
+          pendingFilesRef.current.map(f => f.contentHash || `${f.name}:${f.size}:${f.type}`)
+        )
+        const batchHashes = new Set<string>()
+        const uniqueToAdd: ParsedFileMetadata[] = []
+        const skippedDuplicates: string[] = []
+
+        for (const item of inspected) {
+          const key = item.contentHash || `${item.name}:${item.size}:${item.type}`
+          if (existingHashes.has(key) || batchHashes.has(key)) {
+            skippedDuplicates.push(item.name)
+            if (item.imagePreviewUrl) {
+              try {
+                URL.revokeObjectURL(item.imagePreviewUrl)
+              } catch {}
+            }
+            continue
+          }
+          batchHashes.add(key)
+          uniqueToAdd.push(item)
+        }
+
+        if (skippedDuplicates.length > 0) {
+          showTransientNotice(
+            skippedDuplicates.length === 1
+              ? `Duplicate file skipped: ${skippedDuplicates[0]} is already attached.`
+              : `Skipped ${skippedDuplicates.length} duplicate files already attached.`,
+            'info'
+          )
+        }
+
+        if (uniqueToAdd.length === 0) return
+
+        setPendingFiles(prev => [...prev, ...uniqueToAdd])
+
+        // Immediately trigger background upload & extraction for valid files
+        for (const item of uniqueToAdd) {
+          if (item.status === 'UPLOADING') {
+            void uploadAndProcessAttachment(item)
+          }
+        }
+      } catch (err) {
+        console.warn('[FileEngine] Error inspecting files:', err)
+        showTransientNotice("Couldn't inspect attached file.", 'error')
+      }
+    },
+    [showTransientNotice, uploadAndProcessAttachment]
+  )
+
+  const handleRemoveFile = useCallback((localId: string) => {
+    const controller = uploadControllersRef.current[localId]
+    if (controller) {
+      controller.abort()
+      delete uploadControllersRef.current[localId]
+    }
+    const target = pendingFilesRef.current.find(f => f.localId === localId || f.id === localId)
+    if (target?.imagePreviewUrl) {
+      try {
+        URL.revokeObjectURL(target.imagePreviewUrl)
+      } catch {}
+    }
+    if (target?.fileId) {
+      api.deleteUploadedFile(target.fileId).catch(() => {})
+    }
+    setPendingFiles(prev => prev.filter(f => f.localId !== localId && f.id !== localId))
+  }, [])
+
+  const handleClearAllFiles = useCallback(() => {
+    for (const item of pendingFilesRef.current) {
+      const controller = uploadControllersRef.current[item.localId]
+      if (controller) {
+        controller.abort()
+        delete uploadControllersRef.current[item.localId]
+      }
+      if (item.imagePreviewUrl) {
+        try {
+          URL.revokeObjectURL(item.imagePreviewUrl)
+        } catch {}
+      }
+      if (item.fileId) {
+        api.deleteUploadedFile(item.fileId).catch(() => {})
+      }
+    }
+    setPendingFiles([])
+  }, [])
+
+  const handleRetryFile = useCallback(
+    (localId: string) => {
+      const target = pendingFilesRef.current.find(f => f.localId === localId || f.id === localId)
+      if (!target) return
+      void uploadAndProcessAttachment({
+        ...target,
+        status: 'UPLOADING',
+        uploadStatus: 'UPLOADING',
+        processingStatus: 'PENDING',
+        errorMessage: undefined,
+      })
+    },
+    [uploadAndProcessAttachment]
+  )
 
   const handleOpenInspector = (fileMeta: ParsedFileMetadata) => {
     setInspectingFile(fileMeta)
     setFileModalOpen(true)
   }
 
-  const handleSubmit = () => {
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
+      if (isEditing || streaming || sending || disabled) return
+      const { files, text, unexposedFileAttempt } = extractClipboardPayload(e.clipboardData)
+
+      // Case 4 — Unexposed File Attempt (e.g. OS file path reference blocked by browser sandbox)
+      if (unexposedFileAttempt) {
+        e.preventDefault()
+        showTransientNotice(
+          "Browser couldn't access that copied file directly. Drag and drop it here or use the Attach button.",
+          'warning'
+        )
+        return
+      }
+
+      // Case 1 — Text Only: let native textarea paste run unimpeded
+      if (files.length === 0) {
+        return
+      }
+
+      // Case 2 (Files Only) & Case 3 (Mixed Text + Files)
+      e.preventDefault()
+
+      if (text) {
+        const el = textareaRef.current
+        if (el && typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number') {
+          const start = el.selectionStart
+          const end = el.selectionEnd
+          const nextValue = input.slice(0, start) + text + input.slice(end)
+          setInput(nextValue)
+          setUserTyping(nextValue.trim().length > 0)
+          requestAnimationFrame(() => {
+            if (textareaRef.current) {
+              const cursor = start + text.length
+              textareaRef.current.selectionStart = cursor
+              textareaRef.current.selectionEnd = cursor
+            }
+          })
+        } else {
+          setInput(prev => (prev ? `${prev}${text}` : text))
+          setUserTyping(true)
+        }
+      }
+
+      void handleAddFiles(files, 'clipboard')
+    },
+    [disabled, handleAddFiles, input, isEditing, sending, setUserTyping, showTransientNotice, streaming]
+  )
+
+  const hasUploadingOrProcessing = useMemo(
+    () =>
+      pendingFiles.some(
+        f => f.status === 'UPLOADING' || f.status === 'PROCESSING' || f.status === 'ANALYZING'
+      ),
+    [pendingFiles]
+  )
+
+  const hasFailedOrUnsupported = useMemo(
+    () => pendingFiles.some(f => f.status === 'FAILED' || f.status === 'UNSUPPORTED'),
+    [pendingFiles]
+  )
+
+  const readyAttachments = useMemo(
+    () => pendingFiles.filter(f => f.status === 'READY' && Boolean(f.fileId)),
+    [pendingFiles]
+  )
+
+  const handleSubmit = async () => {
     const trimmed = input.trim()
     if (editing) {
       if (!trimmed || sending) return
@@ -152,24 +428,51 @@ export function ChatInput({
     if (!trimmed && pendingFiles.length === 0) return
 
     if (pendingFiles.length > 0) {
-      const rawFiles = pendingFiles.map(f => f.file)
+      // File State Race Protection on Send: never send while uploads/processing are still running
+      if (hasUploadingOrProcessing) {
+        showTransientNotice('Waiting for file processing to finish before sending...', 'info')
+        return
+      }
+
+      if (hasFailedOrUnsupported) {
+        showTransientNotice('Remove or retry failed/unsupported files before sending.', 'warning')
+        return
+      }
+
+      if (readyAttachments.length === 0) {
+        showTransientNotice("Attached file isn't ready yet.", 'warning')
+        return
+      }
+
+      const attachmentsToSend = [...readyAttachments]
+      const rawFiles = attachmentsToSend.map(f => f.file)
+      const previousInput = input
+
       setSending(true)
-      const sendPromise = onSendWithFiles
-        ? onSendWithFiles(rawFiles, trimmed)
-        : onSendWithFile
-          ? onSendWithFile(rawFiles[0], trimmed)
-          : Promise.resolve()
-
-      sendPromise
-        .finally(() => {
-          setSending(false)
-          setPendingFiles([])
-        })
-        .catch(() => {})
-
       setInput('')
       setUserTyping(false)
       setShowPalette(false)
+      setPendingFiles([])
+
+      try {
+        if (onSendWithAttachments) {
+          await onSendWithAttachments(attachmentsToSend, trimmed)
+        } else if (onSendWithFiles) {
+          await onSendWithFiles(rawFiles, trimmed)
+        } else if (onSendWithFile && rawFiles[0]) {
+          await onSendWithFile(rawFiles[0], trimmed)
+        }
+      } catch (err) {
+        // Restore input and attachments if send initiation failed
+        setInput(previousInput)
+        setPendingFiles(attachmentsToSend)
+        showTransientNotice(
+          err instanceof Error ? err.message : 'Failed to send message with attachments.',
+          'error'
+        )
+      } finally {
+        setSending(false)
+      }
       return
     }
 
@@ -246,7 +549,7 @@ export function ChatInput({
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      handleAddFiles(e.target.files)
+      void handleAddFiles(e.target.files, 'picker')
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -269,7 +572,7 @@ export function ChatInput({
       canvas.toBlob(async (blob) => {
         if (!blob) return
         const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' })
-        await handleAddFiles([file])
+        await handleAddFiles([file], 'screenshot')
       }, 'image/png')
     } catch (err) {
       console.warn('Screenshot canceled or failed', err)
@@ -315,7 +618,11 @@ export function ChatInput({
     }
   }
 
-  const canSubmit = Boolean(input.trim() || pendingFiles.length > 0)
+  const canSubmit = Boolean(
+    !hasUploadingOrProcessing &&
+      !hasFailedOrUnsupported &&
+      (input.trim() || readyAttachments.length > 0)
+  )
 
   // Drag and drop handlers
   const handleDragOver = (e: React.DragEvent) => {
@@ -335,7 +642,7 @@ export function ChatInput({
     e.stopPropagation()
     setIsDraggingOver(false)
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleAddFiles(e.dataTransfer.files)
+      void handleAddFiles(e.dataTransfer.files, 'drag_drop')
     }
   }
 
@@ -372,8 +679,37 @@ export function ChatInput({
           <div className="absolute inset-0 z-30 rounded-2xl border-2 border-dashed border-primary bg-primary/10 backdrop-blur-xs flex items-center justify-center pointer-events-none animate-fade-in">
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <UploadCloud size={18} className="animate-bounce" />
-              <span>Drop files here to load into File Engine</span>
+              <span>Drop files here to attach to your message</span>
             </div>
+          </div>
+        )}
+
+        {/* Transient Composer Notice (Clipboard / File validation) */}
+        {composerNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={cn(
+              'mb-2 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs animate-fade-in',
+              composerNotice.type === 'error'
+                ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                : composerNotice.type === 'warning'
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'border-primary/25 bg-primary/10 text-foreground'
+            )}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle size={13} className="flex-shrink-0" />
+              <span className="truncate">{composerNotice.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setComposerNotice(null)}
+              className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss notice"
+            >
+              <X size={12} />
+            </button>
           </div>
         )}
 
@@ -399,7 +735,15 @@ export function ChatInput({
             <div className="flex items-center justify-between gap-2 px-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <Sparkles size={13} className="text-brand" />
-                <span>File Engine ({pendingFiles.length} {pendingFiles.length === 1 ? 'file' : 'files'} loaded)</span>
+                <span>
+                  Attached ({readyAttachments.length}/{pendingFiles.length} ready)
+                </span>
+                {hasUploadingOrProcessing && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+                    <Loader2 size={11} className="animate-spin text-primary" />
+                    Processing...
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -412,7 +756,7 @@ export function ChatInput({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPendingFiles([])}
+                  onClick={handleClearAllFiles}
                   className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
                 >
                   Clear
@@ -424,25 +768,84 @@ export function ChatInput({
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
               {pendingFiles.map((fileMeta) => {
                 const badge = getFileCategoryBadgeStyle(fileMeta.category)
+                const isUploading = fileMeta.status === 'UPLOADING' || fileMeta.status === 'PROCESSING'
+                const isReady = fileMeta.status === 'READY'
+                const isFailed = fileMeta.status === 'FAILED' || fileMeta.status === 'UNSUPPORTED'
+
                 return (
                   <div
-                    key={fileMeta.id}
-                    className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-card border border-border text-xs flex-shrink-0 shadow-2xs hover:border-foreground/20 transition-all"
+                    key={fileMeta.localId}
+                    className={cn(
+                      'flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-card border text-xs flex-shrink-0 shadow-2xs transition-all',
+                      isFailed
+                        ? 'border-destructive/40 bg-destructive/5'
+                        : isUploading
+                          ? 'border-primary/30'
+                          : 'border-border hover:border-foreground/20'
+                    )}
                   >
-                    <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-md ${badge.badgeClass}`}>
-                      {fileMeta.extension.toUpperCase() || 'FILE'}
-                    </span>
-                    <span className="font-medium text-foreground truncate max-w-[130px] sm:max-w-[180px]">
-                      {fileMeta.name}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {formatBytes(fileMeta.size)}
-                    </span>
-                    {fileMeta.estimatedTokens && (
-                      <span className="text-[10px] text-muted-foreground/80 font-mono hidden sm:inline">
-                        ~{fileMeta.estimatedTokens} tok
+                    {fileMeta.imagePreviewUrl ? (
+                      <img
+                        src={fileMeta.imagePreviewUrl}
+                        alt={fileMeta.name}
+                        className="w-7 h-7 rounded object-cover border border-border flex-shrink-0"
+                      />
+                    ) : (
+                      <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-md ${badge.badgeClass}`}>
+                        {fileMeta.extension.toUpperCase() || 'FILE'}
                       </span>
                     )}
+
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-foreground truncate max-w-[130px] sm:max-w-[180px]">
+                          {fileMeta.name}
+                        </span>
+                        {fileMeta.source === 'clipboard' && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded bg-primary/10 text-primary font-medium">
+                            <ClipboardPaste size={9} />
+                            Pasted
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono">
+                        <span>{formatBytes(fileMeta.size)}</span>
+                        {isUploading && (
+                          <span className="inline-flex items-center gap-1 text-primary font-sans">
+                            <Loader2 size={9} className="animate-spin" />
+                            Uploading...
+                          </span>
+                        )}
+                        {isReady && (
+                          <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-sans">
+                            <Check size={9} />
+                            Ready
+                          </span>
+                        )}
+                        {isFailed && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-destructive font-sans truncate max-w-[140px]"
+                            title={fileMeta.errorMessage || "Couldn't process file"}
+                          >
+                            <AlertCircle size={9} />
+                            {fileMeta.errorMessage || "Couldn't process file"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {fileMeta.status === 'FAILED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleRetryFile(fileMeta.localId)}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                        title="Retry upload"
+                        aria-label="Retry file upload"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => handleOpenInspector(fileMeta)}
@@ -454,7 +857,7 @@ export function ChatInput({
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleRemoveFile(fileMeta.id)}
+                      onClick={() => handleRemoveFile(fileMeta.localId)}
                       className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       title="Remove file"
                       aria-label="Remove file"
@@ -565,11 +968,11 @@ export function ChatInput({
             onClick={() => fileInputRef.current?.click()}
             disabled={sending || streaming || isEditing}
             className="flex-shrink-0 p-2 text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-all rounded-lg disabled:opacity-40 disabled:pointer-events-none touch-target sm:touch-auto flex items-center justify-center group"
-            title={isEditing ? 'Attach is disabled while editing' : 'Attach files (PDF, Code, Data, Images, Text • Drag & Drop)'}
+            title={isEditing ? 'Attach is disabled while editing' : 'Attach files (PDF, Code, Data, Images, Text • Drag & Drop or Ctrl+V)'}
             aria-label="Attach files to File Engine"
           >
-            {sending ? (
-              <Loader2 size={17} className="animate-spin" />
+            {sending || hasUploadingOrProcessing ? (
+              <Loader2 size={17} className="animate-spin text-primary" />
             ) : (
               <div className="relative">
                 <Paperclip size={17} className="group-hover:scale-105 transition-transform" />
@@ -599,6 +1002,7 @@ export function ChatInput({
               setInput(value)
               setUserTyping(value.trim().length > 0)
             }}
+            onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -606,8 +1010,8 @@ export function ChatInput({
               isEditing
                 ? 'Edit your message...'
                 : pendingFiles.length > 0
-                  ? `Ask HSBot about ${pendingFiles.length === 1 ? pendingFiles[0].name : `${pendingFiles.length} files`}...`
-                  : 'Type / for commands, drag files, or message HSBot...'
+                  ? `Ask HSBot about ${pendingFiles.length === 1 ? pendingFiles[0].name : `${pendingFiles.length} files`} (or press Enter to analyze)...`
+                  : 'Type / for commands, paste or drag files (Ctrl+V), or message HSBot...'
             }
             rows={1}
             disabled={disabled}
@@ -704,10 +1108,20 @@ export function ChatInput({
                   !canSubmit && 'opacity-40 pointer-events-none',
                 )}
                 disabled={!canSubmit || disabled || sending}
-                title={isEditing ? 'Send edited message' : 'Send message'}
+                title={
+                  hasUploadingOrProcessing
+                    ? 'Waiting for file upload & processing to finish...'
+                    : isEditing
+                      ? 'Send edited message'
+                      : 'Send message'
+                }
                 aria-label={isEditing ? 'Send edited message' : 'Send message'}
               >
-                <Send size={14} />
+                {sending || hasUploadingOrProcessing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Send size={14} />
+                )}
               </Button>
             )}
           </div>

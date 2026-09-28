@@ -1,13 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Download, Check, Loader2, FileText, FileSpreadsheet, Presentation,
   Eye, X, ChevronLeft, ChevronRight, Sparkles, Layers, Palette,
-  CheckCircle2, ShieldCheck, AlertTriangle
+  CheckCircle2, ShieldCheck, AlertTriangle, Image as ImageIcon, Code, ClipboardPaste
 } from 'lucide-react'
 import type { Attachment, DocumentPreviewResponse, SlidePreview, SectionPreview } from '@/types'
 import { api } from '@/lib/api'
 import { useChat } from '@/stores/chat'
 import { downloadDocumentWithFallback } from '@/lib/documentGenerator'
+import { triggerBrowserDownload } from '@/lib/downloader'
 
 interface FileAttachmentCardProps {
   attachment: Attachment
@@ -51,13 +52,31 @@ function getFormatDetails(filename: string, mimeType: string) {
       tag: 'pptx',
     }
   }
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv' || ext === 'tsv' || mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) {
     return {
-      label: 'Excel Workbook',
+      label: ext === 'csv' || ext === 'tsv' ? `${ext.toUpperCase()} Data` : 'Excel Workbook',
       color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
       icon: FileSpreadsheet,
       iconColor: 'text-emerald-500',
-      tag: 'xlsx',
+      tag: ext || 'xlsx',
+    }
+  }
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext) || mimeType.startsWith('image/')) {
+    return {
+      label: `${(ext || 'IMG').toUpperCase()} Image`,
+      color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+      icon: ImageIcon,
+      iconColor: 'text-purple-500',
+      tag: ext || 'img',
+    }
+  }
+  if (['py', 'js', 'ts', 'tsx', 'jsx', 'json', 'yaml', 'yml', 'sql', 'sh', 'html', 'css', 'go', 'rs', 'java', 'cpp', 'c'].includes(ext)) {
+    return {
+      label: `${ext.toUpperCase()} Code`,
+      color: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+      icon: Code,
+      iconColor: 'text-cyan-500',
+      tag: ext,
     }
   }
   return {
@@ -73,6 +92,11 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(
+    attachment.previewUrl && (attachment.previewUrl.startsWith('blob:') || attachment.previewUrl.startsWith('data:'))
+      ? attachment.previewUrl
+      : null
+  )
 
   // Preview Modal States
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -80,9 +104,51 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const [previewData, setPreviewData] = useState<DocumentPreviewResponse | null>(null)
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
 
-  const { sendMessage } = useChat()
-  const fmt = getFormatDetails(attachment.name, attachment.type)
+  const { sendMessage, setActiveArtifact, setArtifactSidePanelOpen } = useChat()
+  const fmt = getFormatDetails(attachment.name, attachment.mimeType || attachment.type || '')
   const Icon = fmt.icon
+
+  const isUserAttachment = Boolean(
+    attachment.source ||
+      attachment.fileId ||
+      attachment.url?.includes('/api/files/') ||
+      attachment.downloadUrl?.includes('/api/files/')
+  ) && !attachment.url?.includes('/api/documents/')
+
+  const isImageAttachment =
+    attachment.type === 'image' ||
+    Boolean(attachment.mimeType && attachment.mimeType.startsWith('image/')) ||
+    /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(attachment.name)
+
+  useEffect(() => {
+    if (!isImageAttachment) return
+    if (attachment.previewUrl && (attachment.previewUrl.startsWith('blob:') || attachment.previewUrl.startsWith('data:'))) {
+      setResolvedImageUrl(attachment.previewUrl)
+      return
+    }
+    const targetFileId = attachment.fileId || attachment.id
+    if (!targetFileId || !isUserAttachment) return
+
+    let revokedUrl: string | null = null
+    let cancelled = false
+    api
+      .downloadUploadedFileBlob(targetFileId)
+      .then((blob) => {
+        if (cancelled) return
+        revokedUrl = URL.createObjectURL(blob)
+        setResolvedImageUrl(revokedUrl)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+      if (revokedUrl) {
+        try {
+          URL.revokeObjectURL(revokedUrl)
+        } catch {}
+      }
+    }
+  }, [attachment.fileId, attachment.id, attachment.previewUrl, isImageAttachment, isUserAttachment])
 
   const handleDownload = async (e?: React.MouseEvent) => {
     if (e) e.preventDefault()
@@ -90,7 +156,13 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
     setDownloading(true)
     setError(null)
     try {
-      await downloadDocumentWithFallback(attachment, previewData)
+      if (isUserAttachment) {
+        const targetFileId = attachment.fileId || attachment.id
+        const blob = await api.downloadUploadedFileBlob(targetFileId)
+        triggerBrowserDownload(blob, attachment.name)
+      } else {
+        await downloadDocumentWithFallback(attachment, previewData)
+      }
       setDownloaded(true)
       setTimeout(() => setDownloaded(false), 3000)
     } catch (err: any) {
@@ -101,10 +173,13 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
     }
   }
 
-  const { setActiveArtifact, setArtifactSidePanelOpen } = useChat()
-
   const handleOpenPreview = async () => {
-    // Open Claude-Style Artifact Side Panel
+    if (isUserAttachment) {
+      setPreviewOpen(true)
+      return
+    }
+
+    // Open Claude-Style Artifact Side Panel for generated documents
     if (setActiveArtifact && setArtifactSidePanelOpen) {
       setActiveArtifact(attachment)
       setArtifactSidePanelOpen(true)
@@ -134,6 +209,147 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const activeSlide: SlidePreview | undefined = slides[activeSlideIndex]
   const isDarkPalette = previewData?.preview?.is_dark || false
   const palette = previewData?.preview?.palette
+
+  if (isUserAttachment) {
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl border border-border bg-card/90 shadow-xs max-w-md transition-all hover:border-primary/40">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            {isImageAttachment && resolvedImageUrl ? (
+              <button
+                type="button"
+                onClick={handleOpenPreview}
+                className="relative w-10 h-10 rounded-lg overflow-hidden border border-border shrink-0 group/thumb"
+                title="View image preview"
+              >
+                <img
+                  src={resolvedImageUrl}
+                  alt={attachment.name}
+                  className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform"
+                />
+              </button>
+            ) : (
+              <div className={`p-2 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
+                <Icon size={18} className={fmt.iconColor} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs sm:text-[13px] font-medium text-foreground truncate block select-all">
+                  {attachment.name}
+                </span>
+                {attachment.source === 'clipboard' && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
+                    <ClipboardPaste size={9} />
+                    Pasted
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5 flex-wrap">
+                <span className="font-semibold uppercase text-[9px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
+                  {fmt.label}
+                </span>
+                {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
+                {error && <span className="text-destructive">• {error}</span>}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {(isImageAttachment || attachment.textPreview) && (
+              <button
+                type="button"
+                onClick={handleOpenPreview}
+                className="p-1.5 rounded-lg text-xs font-medium border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                title="Preview attachment"
+                aria-label="Preview attachment"
+              >
+                <Eye size={13} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="p-1.5 rounded-lg text-xs font-medium border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+              title={`Download ${attachment.name}`}
+              aria-label={`Download ${attachment.name}`}
+            >
+              {downloading ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : downloaded ? (
+                <Check size={13} className="text-emerald-500" />
+              ) : (
+                <Download size={13} />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {previewOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+            onClick={() => setPreviewOpen(false)}
+          >
+            <div
+              className="bg-card border border-border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`p-1.5 rounded-md border ${fmt.color}`}>
+                    <Icon size={16} className={fmt.iconColor} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-foreground truncate">{attachment.name}</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      {fmt.label} {attachment.size > 0 ? `• ${formatBytes(attachment.size)}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownload()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all"
+                  >
+                    <Download size={13} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOpen(false)}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {isImageAttachment && resolvedImageUrl ? (
+                  <div className="flex items-center justify-center bg-muted/20 rounded-xl p-3 border border-border">
+                    <img
+                      src={resolvedImageUrl}
+                      alt={attachment.name}
+                      className="max-h-[65vh] w-auto object-contain rounded-lg"
+                    />
+                  </div>
+                ) : attachment.textPreview ? (
+                  <pre className="p-3 rounded-xl border border-border bg-muted/20 text-xs font-mono whitespace-pre-wrap overflow-x-auto max-h-[60vh] text-foreground leading-relaxed">
+                    {attachment.textPreview}
+                  </pre>
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-8">
+                    Attached file ready for AI analysis. Use the Download button above to save a copy.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <>

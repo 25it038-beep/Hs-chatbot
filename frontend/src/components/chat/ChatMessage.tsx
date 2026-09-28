@@ -85,10 +85,27 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
     <MessageEntrance index={index}>
       <div className={cn('group py-4 sm:py-5 min-w-0', isUser ? 'flex justify-end' : '')}>
         {isUser ? (
-          <div className="max-w-[85%] sm:max-w-[75%]">
-            <div className="inline-block rounded-xl bg-accent px-3.5 py-2.5 text-[13px] sm:text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">
-              {message.content}
-            </div>
+          <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end">
+            {(() => {
+              const userAtts: Attachment[] =
+                message.attachments ||
+                (message.metadata?.attachments as Attachment[]) ||
+                ((message as any).extra_data?.attachments as Attachment[]) ||
+                []
+              if (!userAtts || userAtts.length === 0) return null
+              return (
+                <div className="flex flex-wrap justify-end gap-2 mb-1.5 w-full">
+                  {userAtts.map((att) => (
+                    <FileAttachmentCard key={att.id || att.fileId || att.name} attachment={att} />
+                  ))}
+                </div>
+              )
+            })()}
+            {message.content && (
+              <div className="inline-block rounded-xl bg-accent px-3.5 py-2.5 text-[13px] sm:text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">
+                {message.content}
+              </div>
+            )}
             {onEdit && onUnsend && (
               <div className="flex items-center gap-0.5 mt-1.5 justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
                 <button

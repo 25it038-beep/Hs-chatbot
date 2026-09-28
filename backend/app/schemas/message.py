@@ -13,8 +13,11 @@ class MessageCreate(BaseModel):
 
 class Attachment(BaseModel):
     id: str
+    fileId: Optional[str] = None
     name: str
+    filename: Optional[str] = None
     type: str
+    mimeType: Optional[str] = None
     size: int
     download_url: str
 
@@ -55,6 +58,7 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = None
     stream: bool = True
     files: Optional[list[str]] = None
+    attachments: Optional[list[dict]] = None
     tools: Optional[list[dict]] = None
     location: Optional[str] = None  # e.g., "lat,lon" or city name
     timezone: Optional[str] = None  # IANA timezone from client

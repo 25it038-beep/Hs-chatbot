@@ -121,14 +121,17 @@ export interface Attachment {
   filename?: string
   type: string
   mimeType?: string
+  extension?: string
+  category?: string
   size: number
+  url?: string
+  downloadUrl?: string
   download_url: string
+  previewUrl?: string
+  textPreview?: string
+  source?: string
   status?: string
-  detectedFormat?: string
-  error?: string
-  warnings?: string[]
-  structureSummary?: Record<string, any>
-  preview?: DocumentPreviewData | Record<string, any>
+  preview?: DocumentPreviewData
   verification?: DocumentVerificationData
 }
 
@@ -254,27 +257,29 @@ export interface ProviderInfo {
 
 export interface FileInfo {
   id: string
-  fileId?: string
   filename: string
   size: number
   content_type: string
-  mimeType?: string
-  detected_format?: string
-  status?: string
-  processing_stage?: string
-  error?: string
-  warnings?: string[]
-  content_hash?: string
-  parser?: string
-  capabilities?: Record<string, boolean>
-  structure_summary?: Record<string, any>
-  preview?: Record<string, any>
+  extension?: string
+  category?: string
   text_preview: string
   chunk_count: number
-  estimated_tokens?: number
-  conversation_id?: string
   analysis?: string
+  status?: string
+  content_ready?: boolean
+  source?: string
   created_at?: string
+}
+
+export interface FileStatusInfo {
+  id: string
+  filename: string
+  size: number
+  content_type: string
+  status: string
+  content_ready: boolean
+  chunk_count: number
+  text_preview: string
 }
 
 export interface ImageGenResponse {

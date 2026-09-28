@@ -18,6 +18,7 @@ import { LiveVoice as LivePanel } from '@/live'
 import { useVoiceStore } from '@/lib/speech'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 import { formatBytes } from '@/lib/downloader'
+import { ParsedFileMetadata, toAttachmentModel } from '@/lib/fileEngine'
 
 const SUGGESTIONS = [
   {
@@ -205,9 +206,63 @@ export function ChatContainer() {
     setEditingMessage(null)
   }
 
+  const handleSendWithAttachments = async (attachmentsMeta: ParsedFileMetadata[], prompt: string) => {
+    const trimmedPrompt = prompt.trim()
+    if (attachmentsMeta.length === 0) {
+      if (trimmedPrompt) await handleSend(trimmedPrompt)
+      return
+    }
+
+    let targetChat = currentChat
+    if (!targetChat) {
+      targetChat = await createChat()
+    }
+    const chatId = targetChat?.id
+
+    const readyMeta: ParsedFileMetadata[] = []
+    for (const meta of attachmentsMeta) {
+      if (meta.fileId && meta.uploadedFileInfo) {
+        readyMeta.push(meta)
+      } else {
+        const uploadRes = (await api.uploadFile(meta.file, {
+          source: meta.source,
+          analyze: false,
+        })) as FileInfo
+        readyMeta.push({
+          ...meta,
+          fileId: uploadRes.id,
+          uploadedFileInfo: uploadRes,
+          status: 'READY',
+          uploadStatus: 'UPLOADED',
+          processingStatus: 'READY',
+        })
+      }
+    }
+
+    const fileIds = readyMeta.map(m => m.fileId!).filter(Boolean)
+    const structuredAttachments = readyMeta.map(m => toAttachmentModel(m))
+    const names = readyMeta.map(m => m.name).join(', ')
+
+    // Default analysis prompt when user sends file(s) without typing a text prompt
+    const effectivePrompt =
+      trimmedPrompt ||
+      (readyMeta.length === 1
+        ? `Please analyze the attached file (${readyMeta[0].name}) and provide a clear, accurate summary with key details.`
+        : `Please analyze the attached files (${names}) and provide a structured summary and key insights across them.`)
+
+    const displayContent = trimmedPrompt || `Analyze attached ${readyMeta.length === 1 ? readyMeta[0].name : `${readyMeta.length} files`}`
+
+    await sendMessage(effectivePrompt, chatId, {
+      files: fileIds,
+      attachments: structuredAttachments,
+      displayContent,
+    })
+  }
+
   const handleSendWithFiles = async (files: File[], prompt: string) => {
+    const trimmedPrompt = prompt.trim()
     if (files.length === 0) {
-      if (prompt.trim()) await handleSend(prompt)
+      if (trimmedPrompt) await handleSend(trimmedPrompt)
       return
     }
 
@@ -219,56 +274,41 @@ export function ChatContainer() {
 
     const uploadedInfos: FileInfo[] = []
     for (const f of files) {
-      try {
-        const uploadRes = await api.uploadFile(f) as FileInfo
-        if (uploadRes) {
-          uploadedInfos.push(uploadRes)
-        }
-      } catch {
-        uploadedInfos.push({
-          id: `local-${Date.now()}-${Math.random()}`,
-          filename: f.name,
-          size: f.size,
-          content_type: f.type,
-          text_preview: '',
-          chunk_count: 1,
-          created_at: new Date().toISOString(),
-        })
+      const uploadRes = (await api.uploadFile(f, { source: 'picker', analyze: false })) as FileInfo
+      if (uploadRes) {
+        uploadedInfos.push(uploadRes)
       }
     }
 
-    if (uploadedInfos.length > 0) {
-      setAttachedFiles(prev => [...prev, ...uploadedInfos])
-    }
-
-    // Single image prompt
-    if (files.length === 1 && files[0].type.startsWith('image/')) {
-      await sendMessage(`[Image: ${files[0].name}]${prompt ? ` ${prompt}` : ''}`, chatId)
-      return
-    }
-
-    // Single document prompt
-    if (files.length === 1) {
-      if (!prompt) {
-        await addAssistantMessage(
-          `I've received and indexed **${files[0].name}** (${formatBytes(files[0].size)}). What would you like me to do? You can ask for a full summary, key takeaways, specific code explanations, or data insights.`,
-        )
-        return
-      }
-      await sendMessage(`[File: ${files[0].name}] ${prompt}`, chatId)
-      return
-    }
-
-    // Multi-file batch prompt
+    const fileIds = uploadedInfos.map(u => u.id).filter(Boolean)
+    const structuredAttachments = uploadedInfos.map(u => ({
+      id: u.id,
+      fileId: u.id,
+      name: u.filename,
+      type: (u.category === 'image' ? 'image' : u.category === 'code' ? 'code' : u.category === 'spreadsheet' ? 'spreadsheet' : 'document') as any,
+      mimeType: u.content_type,
+      extension: u.extension || '',
+      size: u.size,
+      url: `/api/files/${u.id}/content`,
+      downloadUrl: `/api/files/${u.id}/content`,
+      download_url: `/api/files/${u.id}/content`,
+      source: 'picker' as const,
+      status: 'READY' as const,
+    }))
     const names = files.map(f => f.name).join(', ')
-    if (!prompt) {
-      await addAssistantMessage(
-        `Loaded **${files.length} files** into the HSBot File Engine:\n${files.map(f => `• **${f.name}** (${formatBytes(f.size)})`).join('\n')}\n\nWhat would you like to analyze, compare, or extract across these files?`,
-      )
-      return
-    }
+    const effectivePrompt =
+      trimmedPrompt ||
+      (files.length === 1
+        ? `Please analyze the attached file (${files[0].name}) and provide a clear, accurate summary with key details.`
+        : `Please analyze the attached files (${names}) and provide a structured summary and key insights across them.`)
 
-    await sendMessage(`[Files: ${names}] ${prompt}`, chatId)
+    const displayContent = trimmedPrompt || `Analyze attached ${files.length === 1 ? files[0].name : `${files.length} files`}`
+
+    await sendMessage(effectivePrompt, chatId, {
+      files: fileIds,
+      attachments: structuredAttachments,
+      displayContent,
+    })
   }
 
   const handleSendWithFile = async (file: File, prompt: string) => {
@@ -296,6 +336,7 @@ export function ChatContainer() {
               onSend={handleSend}
               onSendWithFile={handleSendWithFile}
               onSendWithFiles={handleSendWithFiles}
+              onSendWithAttachments={handleSendWithAttachments}
               onStop={cancelStream}
               streaming={streaming}
               variant="hero"
@@ -473,6 +514,7 @@ export function ChatContainer() {
         onSend={handleSend}
         onSendWithFile={handleSendWithFile}
         onSendWithFiles={handleSendWithFiles}
+        onSendWithAttachments={handleSendWithAttachments}
         onStop={cancelStream}
         streaming={streaming}
         editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}

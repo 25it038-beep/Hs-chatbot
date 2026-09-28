@@ -146,3 +146,13 @@ function triggerDownload(url: string, filename: string) {
   link.click()
   document.body.removeChild(link)
 }
+
+export function triggerBrowserDownload(blob: Blob, filename: string) {
+  const objectUrl = window.URL.createObjectURL(blob)
+  triggerDownload(objectUrl, filename)
+  setTimeout(() => {
+    try {
+      window.URL.revokeObjectURL(objectUrl)
+    } catch {}
+  }, 60000)
+}

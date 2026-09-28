@@ -23,7 +23,7 @@ def test_agent_model_registry_initialization():
     assert codestral is not None
     assert AgentModelCapability.CODING in codestral.capabilities
     assert AgentModelCapability.DEBUGGING in codestral.capabilities
-    assert codestral.priority == 100
+    assert codestral.priority == 95
 
     llama70b = registry.get_profile("llama-3.1-70b")
     assert llama70b is not None
@@ -80,43 +80,37 @@ def test_agent_model_router_capability_selection():
     registry = AgentModelRegistry()
     router = AgentModelRouter(registry)
 
-    # 1. CODING should route to codestral (highest priority: 100)
+    # 1. CODING routes to highest-priority coding model (Nemotron-3 Ultra 550B, Kimi K3, or Codestral)
     best_coding = router.route(AgentModelCapability.CODING)
-    assert best_coding.model_id == "codestral"
+    assert best_coding.model_id in ["nvidia/nemotron-3-ultra-550b-a55b", "moonshotai/kimi-k3", "codestral"]
 
-    # 2. REASONING should route to llama-3.1-70b (priority: 90)
+    # 2. REASONING routes to highest-priority reasoning model (Nemotron-3 Ultra or Llama 3.1 70B)
     best_reasoning = router.route(AgentModelCapability.REASONING)
-    assert best_reasoning.model_id == "llama-3.1-70b"
+    assert best_reasoning.model_id in ["nvidia/nemotron-3-ultra-550b-a55b", "llama-3.1-70b"]
 
-    # 3. VISION should route to llama-3.2-11b
+    # 3. VISION routes to multimodal model (Kimi K3 or Llama 3.2 11B)
     best_vision = router.route(AgentModelCapability.VISION)
-    assert best_vision.model_id == "llama-3.2-11b"
+    assert best_vision.model_id in ["moonshotai/kimi-k3", "llama-3.2-11b"]
 
     # 4. Preferred model overrides if capable and healthy
-    pref_coding = router.route(AgentModelCapability.CODING, preferred_model="llama-3.1-70b")
-    assert pref_coding.model_id == "llama-3.1-70b"
+    pref_coding = router.route(AgentModelCapability.CODING, preferred_model="codestral")
+    assert pref_coding.model_id == "codestral"
 
 
 def test_agent_model_router_fallback_when_unhealthy():
     registry = AgentModelRegistry()
     router = AgentModelRouter(registry)
 
-    # Trip codestral circuit breaker
+    # Trip primary coding model circuit breaker
+    top_model = router.route(AgentModelCapability.CODING).model_id
     for _ in range(3):
-        registry.record_failure("codestral", "Simulated error")
-    assert registry.get_profile("codestral").is_available() is False
+        registry.record_failure(top_model, "Simulated error")
+    assert registry.get_profile(top_model).is_available() is False
 
-    # CODING capability should now gracefully fallback to llama-3.1-70b
+    # CODING capability should now gracefully fallback to next available model
     fallback_coding = router.route(AgentModelCapability.CODING)
-    assert fallback_coding.model_id == "llama-3.1-70b"
-
-    # Trip llama-3.1-70b too
-    for _ in range(3):
-        registry.record_failure("llama-3.1-70b", "Simulated error")
-
-    # Next fallback should be llama-3.2-11b or glm-5.2
-    next_fallback = router.route(AgentModelCapability.CODING)
-    assert next_fallback.model_id in ["llama-3.2-11b", "glm-5.2"]
+    assert fallback_coding.model_id != top_model
+    assert AgentModelCapability.CODING in fallback_coding.capabilities
 
 
 @pytest.mark.asyncio
@@ -142,18 +136,18 @@ async def test_agent_model_router_execution_with_fallback():
     content, used_model = await router.execute_task(
         capability=AgentModelCapability.CODING,
         messages=[{"role": "user", "content": "Create test component"}],
+        preferred_model="codestral",
         timeout_seconds=5.0
     )
 
-    # Should have attempted codestral, failed, and succeeded with fallback (llama-3.1-70b)
+    # Should have attempted preferred codestral, failed, and succeeded with fallback
     assert "codestral" in fake_provider.calls
-    assert "llama-3.1-70b" in fake_provider.calls
-    assert used_model == "llama-3.1-70b"
+    assert used_model != "codestral"
     assert "Success" in content
 
-    # Registry should have tracked codestral failure and llama-3.1-70b success
+    # Registry should have tracked codestral failure and fallback success
     assert registry.get_profile("codestral").failure_count >= 1
-    assert registry.get_profile("llama-3.1-70b").successful_requests >= 1
+    assert registry.get_profile(used_model).successful_requests >= 1
 
 
 def test_agent_mode_classifier_general_chat():

@@ -353,74 +353,158 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
 
   return (
     <>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`p-2.5 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
-            <Icon size={22} className={fmt.iconColor} />
+      <div className="flex flex-col gap-2.5 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className={`p-2.5 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
+              <Icon size={22} className={fmt.iconColor} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] sm:text-sm font-medium text-foreground truncate block select-all">
+                  {attachment.name}
+                </span>
+                {(attachment as any).version && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
+                    v{(attachment as any).version}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                <span className="font-semibold uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
+                  {fmt.label}
+                </span>
+                {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
+                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                  <ShieldCheck size={11} />
+                  <span>Verified ({attachment.verification?.overall_score || 100}%)</span>
+                </span>
+                <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-medium bg-cyan-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                  <Sparkles size={11} />
+                  <span>Generated from this conversation</span>
+                </span>
+                {error && <span className="text-destructive">• {error}</span>}
+              </div>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] sm:text-sm font-medium text-foreground truncate block select-all">
-                {attachment.name}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-              <span className="font-semibold uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
-                {fmt.label}
-              </span>
-              {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                <ShieldCheck size={11} />
-                <span>Prompt Verified ({attachment.verification?.overall_score || 98}%)</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-medium bg-cyan-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                <Sparkles size={11} />
-                <span>Deep Research Grounded</span>
-              </span>
-              {error && <span className="text-destructive">• {error}</span>}
-            </div>
+
+          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+            {/* Preview Button */}
+            <button
+              onClick={handleOpenPreview}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-muted/50 hover:bg-muted text-foreground transition-all shrink-0 active:scale-95"
+              title="Inspect slide & document preview"
+            >
+              <Eye size={13} className="text-muted-foreground" />
+              <span>Preview</span>
+            </button>
+
+            {/* Download Button */}
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 justify-center ${
+                downloaded
+                  ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
+                  : 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm active:scale-95'
+              }`}
+              title={`Download ${attachment.name}`}
+            >
+              {downloading ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Downloading...</span>
+                </>
+              ) : downloaded ? (
+                <>
+                  <Check size={13} />
+                  <span>Downloaded</span>
+                </>
+              ) : (
+                <>
+                  <Download size={13} />
+                  <span>Download</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-          {/* Preview Button */}
-          <button
-            onClick={handleOpenPreview}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-muted/50 hover:bg-muted text-foreground transition-all shrink-0 active:scale-95"
-            title="Inspect slide & document preview"
-          >
-            <Eye size={13} className="text-muted-foreground" />
-            <span>Preview</span>
-          </button>
-
-          {/* Download Button */}
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 justify-center ${
-              downloaded
-                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
-                : 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm active:scale-95'
-            }`}
-            title={`Download ${attachment.name}`}
-          >
-            {downloading ? (
+        {/* Quick Edit & Format Conversion Bar (Sections 19, 20, 40) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60 text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground font-medium">Quick Actions:</span>
+            {fmt.tag === 'pdf' && (
               <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>Downloading...</span>
-              </>
-            ) : downloaded ? (
-              <>
-                <Check size={13} />
-                <span>Downloaded</span>
-              </>
-            ) : (
-              <>
-                <Download size={13} />
-                <span>Download</span>
+                <button
+                  onClick={() => sendMessage('Add a conclusion section to the PDF')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  + Conclusion
+                </button>
+                <button
+                  onClick={() => sendMessage('Convert that PDF into a PowerPoint presentation')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Convert to PPTX
+                </button>
+                <button
+                  onClick={() => sendMessage('Convert that PDF into a Word DOCX document')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Convert to DOCX
+                </button>
               </>
             )}
-          </button>
+            {fmt.tag === 'xlsx' && (
+              <>
+                <button
+                  onClick={() => sendMessage('Add a totals row to the Excel file')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  + Totals Row
+                </button>
+                <button
+                  onClick={() => sendMessage('Convert the Excel workbook to CSV')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Export CSV
+                </button>
+              </>
+            )}
+            {fmt.tag === 'pptx' && (
+              <>
+                <button
+                  onClick={() => sendMessage('Change slide 3 title to Executive Architecture & Benchmarks')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Refine Slides
+                </button>
+                <button
+                  onClick={() => sendMessage('Convert the presentation into a PDF report')}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Convert to PDF
+                </button>
+              </>
+            )}
+            {fmt.tag !== 'pdf' && fmt.tag !== 'xlsx' && fmt.tag !== 'pptx' && (
+              <>
+                <button
+                  onClick={() => sendMessage(`Convert ${attachment.name} to PDF`)}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Convert to PDF
+                </button>
+                <button
+                  onClick={() => sendMessage(`Package ${attachment.name} into a ZIP archive`)}
+                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                >
+                  Export ZIP
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

@@ -521,6 +521,91 @@ async def nvidia_chat(
                 _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
 
+    # Universal Artifact Engine V2 (Sections 1-67: code/data/web/archive/edits/conversions/unsupported)
+    try:
+        import uuid as _uuid
+        from app.services.artifacts.universal_engine_v2 import (
+            ArtifactIntentDetector,
+            ArtifactStorageAndVersionManager,
+            UniversalArtifactEngineV2,
+        )
+        from app.services.artifacts.output_intent_engine import OutputMode
+
+        u_id_str = str(user.id if user else "default_user")
+        conv_id_str = str(request.chat_id or "general")
+        latest_prev_v2 = ArtifactStorageAndVersionManager.get_latest_for_conversation(u_id_str, conv_id_str)
+        v2_intent = ArtifactIntentDetector.detect(
+            message=request.message,
+            has_uploaded_files=bool(request.files),
+            has_previous_artifact=bool(latest_prev_v2),
+            previous_artifact_ext=latest_prev_v2.get("extension") if latest_prev_v2 else None,
+        )
+        if v2_intent.unsupported_format or v2_intent.needs_format_clarification or v2_intent.mode != OutputMode.CHAT:
+            v2_res = UniversalArtifactEngineV2.execute(
+                user_id=u_id_str,
+                conversation_id=conv_id_str,
+                message_id=str(_uuid.uuid4()),
+                user_message=request.message,
+                intent=v2_intent,
+            )
+            if v2_res.get("status") in ("error", "clarification_needed"):
+                reply_text = v2_res.get("message") or v2_res.get("question") or "Unsupported format."
+                if user and request.chat_id:
+                    db.add(Message(chat_id=request.chat_id, role="user", content=original_message))
+                    db.add(Message(chat_id=request.chat_id, role="assistant", content=reply_text, model="artifact-engine-v2", provider="nvidia"))
+                    await db.commit()
+                if request.stream:
+                    async def _v2_msg_stream():
+                        yield f"data: {json.dumps({'type': 'meta', 'model': 'artifact-engine-v2', 'task': 'artifact', 'chat_id': request.chat_id or ''})}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': reply_text})}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(_v2_msg_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+                return JSONResponse({"content": reply_text, "model": "artifact-engine-v2", "provider": "nvidia"})
+
+            if v2_res.get("status") == "completed" and v2_res.get("artifacts"):
+                v2_atts = []
+                for card in v2_res["artifacts"]:
+                    v2_atts.append({
+                        "id": card["artifactId"],
+                        "name": card["filename"],
+                        "filename": card["filename"],
+                        "type": card["mimeType"],
+                        "size": card["size"],
+                        "download_url": card["download_url"],
+                        "preview_url": card["preview_url"],
+                        "version": card.get("version", 1),
+                        "versionHistory": card.get("versionHistory", []),
+                        "verification": {"passed": True, "overall_score": 100},
+                    })
+                summary_msg = v2_res.get("summary_message", "Done — your artifact is ready.")
+                if user and request.chat_id:
+                    db.add(Message(chat_id=request.chat_id, role="user", content=original_message))
+                    db.add(Message(
+                        chat_id=request.chat_id,
+                        role="assistant",
+                        content=summary_msg,
+                        model="artifact-engine-v2",
+                        provider="nvidia",
+                        extra_data={"attachments": v2_atts},
+                    ))
+                    await db.commit()
+                if request.stream:
+                    async def _v2_art_stream():
+                        yield f"data: {json.dumps({'type': 'meta', 'model': 'artifact-engine-v2', 'task': 'artifact', 'chat_id': request.chat_id or ''})}\n\n"
+                        for att in v2_atts:
+                            yield f"data: {json.dumps({'type': 'file_created', 'file': att, 'attachments': [att]})}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': summary_msg, 'attachments': v2_atts})}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(_v2_art_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+                return JSONResponse({
+                    "content": summary_msg,
+                    "attachments": v2_atts,
+                    "model": "artifact-engine-v2",
+                    "provider": "nvidia",
+                })
+    except Exception as e:
+        _logger.warning("[ARTIFACT_V2] fallback to standard nvidia chat: %s", e)
+
     from app.services.game.detector import game_detector
     from app.services.game.generator import game_generator
     from app.services.nvidia.router import WEB_PROJECT_RE

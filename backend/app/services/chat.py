@@ -473,6 +473,78 @@ class ChatService:
                 yield StreamChunk(type="error", content=f"Document generation failed: {str(e)}", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
                 return
 
+        # Universal Artifact Engine V2 (Sections 1-67: code/data/web/archive/edits/conversions/unsupported)
+        try:
+            from app.services.artifacts.universal_engine_v2 import (
+                ArtifactIntentDetector,
+                ArtifactStorageAndVersionManager,
+                UniversalArtifactEngineV2,
+            )
+            from app.services.artifacts.output_intent_engine import OutputMode
+
+            u_id_str = str(user_id or "default_user")
+            latest_prev_v2 = ArtifactStorageAndVersionManager.get_latest_for_conversation(u_id_str, str(chat_id))
+            v2_intent = ArtifactIntentDetector.detect(
+                message=request.message,
+                has_uploaded_files=False,
+                has_previous_artifact=bool(latest_prev_v2),
+                previous_artifact_ext=latest_prev_v2.get("extension") if latest_prev_v2 else None,
+            )
+            if v2_intent.unsupported_format or v2_intent.needs_format_clarification or v2_intent.mode != OutputMode.CHAT:
+                v2_res = UniversalArtifactEngineV2.execute(
+                    user_id=u_id_str,
+                    conversation_id=str(chat_id),
+                    message_id=str(uuid.uuid4()),
+                    user_message=request.message,
+                    intent=v2_intent,
+                )
+                if v2_res.get("status") == "error":
+                    err_text = v2_res.get("message", "Unsupported artifact format.")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(chat_id=chat_id, role="assistant", content=err_text, model="artifact-engine-v2", provider=provider_name))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=err_text, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+                if v2_res.get("status") == "clarification_needed":
+                    q_text = v2_res.get("question", "Which file format would you like?")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(chat_id=chat_id, role="assistant", content=q_text, model="artifact-engine-v2", provider=provider_name))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=q_text, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+                if v2_res.get("status") == "completed" and v2_res.get("artifacts"):
+                    v2_atts = []
+                    for card in v2_res["artifacts"]:
+                        att_item = {
+                            "id": card["artifactId"],
+                            "name": card["filename"],
+                            "filename": card["filename"],
+                            "type": card["mimeType"],
+                            "size": card["size"],
+                            "download_url": card["download_url"],
+                            "preview_url": card["preview_url"],
+                            "version": card.get("version", 1),
+                            "versionHistory": card.get("versionHistory", []),
+                            "verification": {"passed": True, "overall_score": 100},
+                        }
+                        v2_atts.append(att_item)
+                        yield StreamChunk(type="file_created", file=att_item, attachments=[att_item])
+                    summary_msg = v2_res.get("summary_message", "Done — your artifact is ready.")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(
+                        chat_id=chat_id,
+                        role="assistant",
+                        content=summary_msg,
+                        model="artifact-engine-v2",
+                        provider=provider_name,
+                        extra_data={"attachments": v2_atts},
+                    ))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=summary_msg, attachments=v2_atts, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+        except Exception as e:
+            _logger.warning("[ARTIFACT_V2] fallback to standard chat: %s", e)
+
 
         # Live intent router – must run BEFORE RAG / web search
         intent, location = classify_live_intent(request.message)

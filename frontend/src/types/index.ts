@@ -116,11 +116,19 @@ export interface DocumentPreviewResponse {
 
 export interface Attachment {
   id: string
+  fileId?: string
   name: string
+  filename?: string
   type: string
+  mimeType?: string
   size: number
   download_url: string
-  preview?: DocumentPreviewData
+  status?: string
+  detectedFormat?: string
+  error?: string
+  warnings?: string[]
+  structureSummary?: Record<string, any>
+  preview?: DocumentPreviewData | Record<string, any>
   verification?: DocumentVerificationData
 }
 
@@ -246,11 +254,25 @@ export interface ProviderInfo {
 
 export interface FileInfo {
   id: string
+  fileId?: string
   filename: string
   size: number
   content_type: string
+  mimeType?: string
+  detected_format?: string
+  status?: string
+  processing_stage?: string
+  error?: string
+  warnings?: string[]
+  content_hash?: string
+  parser?: string
+  capabilities?: Record<string, boolean>
+  structure_summary?: Record<string, any>
+  preview?: Record<string, any>
   text_preview: string
   chunk_count: number
+  estimated_tokens?: number
+  conversation_id?: string
   analysis?: string
   created_at?: string
 }

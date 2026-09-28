@@ -514,23 +514,72 @@ class ChatService:
         else:
             skip_retrieval = False
 
+        file_ctx: dict = {
+            "has_files": False,
+            "context_block": "",
+            "cleaned_prompt": request.message,
+            "files_used": [],
+            "provenance": [],
+            "attachments_meta": [],
+            "all_failed_or_unsupported": False,
+            "failure_summary": None,
+        }
         if not skip_retrieval and user_id:
-            rag = RAGService(self.db, user_id)
-            rag_context = await rag.search_similar(request.message)
-            if rag_context:
-                system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+            from app.services.file_intelligence import GeneralChatFileContextEngineV2
+            file_ctx = await GeneralChatFileContextEngineV2.build_file_context_for_chat(
+                db=self.db,
+                user_id=user_id,
+                message=request.message,
+                explicit_file_ids=request.files,
+                conversation_id=str(chat_id),
+                model=model or chat.model,
+                system_prompt=system_prompt,
+            )
+            if file_ctx["has_files"] and file_ctx["all_failed_or_unsupported"]:
+                fail_msg = file_ctx["failure_summary"] or "The attached file could not be parsed."
+                u_msg = Message(
+                    chat_id=chat_id,
+                    role="user",
+                    content=original_message,
+                    extra_data={"attachments": file_ctx["attachments_meta"]} if file_ctx["attachments_meta"] else None,
+                )
+                a_msg = Message(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=fail_msg,
+                    model=model or chat.model,
+                    provider="hsbot-file-engine",
+                    extra_data={"file_error": True, "attachments": file_ctx["attachments_meta"]},
+                )
+                self.db.add(u_msg)
+                self.db.add(a_msg)
+                if chat.title == "New Chat":
+                    chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+                await self.db.commit()
+                yield StreamChunk(type="content", content=fail_msg, model=model or chat.model, provider="nvidia")
+                yield StreamChunk(type="done", content="", model=model or chat.model, provider="nvidia", done=True)
+                return
+
+            if file_ctx["has_files"] and file_ctx["context_block"]:
+                system_prompt = f"{system_prompt}\n\n{file_ctx['context_block']}"
+                intent_result.needs_quiz = False
             else:
-                import re as _re
-                file_match = _re.search(r'\[(?:File|Image):\s*(.+?)\]', request.message)
-                cached = None
-                if file_match:
-                    cached = RAGService.get_cached_file_content(user_id, file_match.group(1))
-                if cached:
-                    system_prompt = f"{system_prompt}\n\nThe user uploaded a file. Here is its content:\n\n{cached}"
+                rag = RAGService(self.db, user_id)
+                rag_context = await rag.search_similar(request.message, file_ids=request.files)
+                if rag_context:
+                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
                 else:
-                    all_texts = RAGService.get_all_cached_texts(user_id)
-                    if all_texts:
-                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
+                    import re as _re
+                    file_match = _re.search(r'\[(?:File|Image):\s*(.+?)\]', request.message)
+                    cached = None
+                    if file_match:
+                        cached = RAGService.get_cached_file_content(user_id, file_match.group(1))
+                    if cached:
+                        system_prompt = f"{system_prompt}\n\nThe user uploaded a file. Here is its content:\n\n{cached}"
+                    else:
+                        all_texts = RAGService.get_all_cached_texts(user_id)
+                        if all_texts:
+                            system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         messages_result = await self.db.execute(
             select(Message)
@@ -974,7 +1023,13 @@ class ChatService:
 
                 if full_content:
                     latency = (time.time() - start) * 1000
-                    user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+                    user_extra = None
+                    if request.files and file_ctx.get("attachments_meta"):
+                        req_fids = set(request.files)
+                        user_atts = [a for a in file_ctx["attachments_meta"] if a.get("fileId") in req_fids]
+                        if user_atts:
+                            user_extra = {"attachments": user_atts}
+                    user_msg = Message(chat_id=chat_id, role="user", content=original_message, extra_data=user_extra)
                     
                     # Check if response generated web site files to bundle as an artifact ZIP
                     extra_data = None
@@ -1079,6 +1134,8 @@ class ChatService:
                     extra_data["verification"] = v_res.to_dict()
                     if v_res.satisfaction_check:
                         extra_data["satisfaction_check"] = True
+                    if file_ctx.get("provenance"):
+                        extra_data["file_provenance"] = file_ctx["provenance"]
 
                     assistant_msg = Message(
                         chat_id=chat_id,
@@ -1155,7 +1212,13 @@ class ChatService:
                             done=True,
                         )
                         return
-            user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+            user_extra = None
+            if request.files and file_ctx.get("attachments_meta"):
+                req_fids = set(request.files)
+                user_atts = [a for a in file_ctx["attachments_meta"] if a.get("fileId") in req_fids]
+                if user_atts:
+                    user_extra = {"attachments": user_atts}
+            user_msg = Message(chat_id=chat_id, role="user", content=original_message, extra_data=user_extra)
             extra_data = None
             if response.content:
                 try:
@@ -1246,6 +1309,8 @@ class ChatService:
             extra_data["verification"] = v_res.to_dict()
             if v_res.satisfaction_check:
                 extra_data["satisfaction_check"] = True
+            if file_ctx.get("provenance"):
+                extra_data["file_provenance"] = file_ctx["provenance"]
 
             assistant_msg = Message(
                 chat_id=chat_id,

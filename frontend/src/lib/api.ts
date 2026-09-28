@@ -213,6 +213,7 @@ export const api = {
     system_prompt?: string
     temperature?: number
     max_tokens?: number
+    files?: string[]
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
@@ -275,10 +276,13 @@ export const api = {
   listProviders: () => request<ProviderInfo[]>('/models/providers'),
 
   // Files
-  uploadFile: async (file: File) => {
+  uploadFile: async (file: File, conversationId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
     formData.append('file', file)
+    if (conversationId) {
+      formData.append('conversation_id', conversationId)
+    }
     let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
@@ -286,13 +290,24 @@ export const api = {
         res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
       }
     }
+    if (!res.ok) {
+      let detail = `Upload failed (${res.status})`
+      try {
+        const err = await res.json()
+        detail = err.detail || err.message || detail
+      } catch {}
+      throw new Error(detail)
+    }
     return res.json() as Promise<FileInfo>
   },
 
-  uploadMultiple: async (files: File[]) => {
+  uploadMultiple: async (files: File[], conversationId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
+    if (conversationId) {
+      formData.append('conversation_id', conversationId)
+    }
     let res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
@@ -300,8 +315,37 @@ export const api = {
         res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
       }
     }
-    return res.json() as Promise<{ files: FileInfo[] }>
+    if (!res.ok) {
+      let detail = `Upload failed (${res.status})`
+      try {
+        const err = await res.json()
+        detail = err.detail || err.message || detail
+      } catch {}
+      throw new Error(detail)
+    }
+    return res.json() as Promise<{ files: FileInfo[]; count?: number; errors?: any[] }>
   },
+
+  getFileMetadata: (fileId: string) => request<any>(`/files/${fileId}`),
+
+  getFileContent: (fileId: string, params?: Record<string, string | number>) => {
+    const qs = params
+      ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<any>(`/files/${fileId}/content${qs}`)
+  },
+
+  searchFileContent: (fileId: string, query: string, topK = 12) =>
+    request<any>(`/files/${fileId}/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    }),
+
+  reprocessFile: (fileId: string) =>
+    request<FileInfo>(`/files/${fileId}/reprocess`, { method: 'POST' }),
+
+  deleteUploadedFile: (fileId: string) =>
+    request<{ status: string; fileId: string }>(`/files/${fileId}`, { method: 'DELETE' }),
 
   health: () => request<{ status: string }>('/health'),
 
@@ -320,6 +364,7 @@ export const api = {
     json_mode?: boolean
     reasoning?: boolean
     auto_route?: boolean
+    files?: string[]
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {

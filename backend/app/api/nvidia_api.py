@@ -720,6 +720,47 @@ async def nvidia_chat(
         system_prompt = request.system_prompt or chat.system_prompt or _hs_persona
 
         import re as _re
+        from app.services.file_intelligence import GeneralChatFileContextEngineV2
+
+        file_ctx = await GeneralChatFileContextEngineV2.build_file_context_for_chat(
+            db=db,
+            user_id=user.id,
+            message=request.message,
+            explicit_file_ids=request.files,
+            conversation_id=str(request.chat_id),
+            model=model,
+            system_prompt=system_prompt,
+        )
+
+        if file_ctx["has_files"] and file_ctx["all_failed_or_unsupported"]:
+            fail_msg = file_ctx["failure_summary"] or "The attached file could not be parsed."
+            u_msg = Message(
+                chat_id=request.chat_id,
+                role="user",
+                content=original_message,
+                extra_data={"attachments": file_ctx["attachments_meta"]} if file_ctx["attachments_meta"] else None,
+            )
+            a_msg = Message(
+                chat_id=request.chat_id,
+                role="assistant",
+                content=fail_msg,
+                model=model,
+                provider="nvidia",
+                extra_data={"file_error": True, "attachments": file_ctx["attachments_meta"]},
+            )
+            db.add(u_msg)
+            db.add(a_msg)
+            if chat.title == "New Chat":
+                chat.title = request.message[:50] + ("..." if len(request.message) > 50 else "")
+            await db.commit()
+            if request.stream:
+                async def generate_file_err():
+                    yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': 'file', 'chat_id': request.chat_id})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content', 'content': fail_msg})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'latency_ms': 0, 'input_tokens': 0, 'output_tokens': 0})}\n\n"
+                    yield "data: [DONE]\n\n"
+                return StreamingResponse(generate_file_err(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+            return {"content": fail_msg, "model": model, "provider": "nvidia"}
 
         # ── File-only message (no prompt) ──
         tag_match = _re.fullmatch(r'\[(Image|File):\s*(.+?)\]', request.message.strip())
@@ -731,13 +772,14 @@ async def nvidia_chat(
                     return await _vision_response(request, user, db, file_path)
             return await _ask_for_prompt_response(request, db, fname)
 
-        if user:
+        if file_ctx["has_files"] and file_ctx["context_block"]:
+            system_prompt = f"{system_prompt}\n\n{file_ctx['context_block']}"
+        elif user:
             rag = RAGService(db, user.id)
-            rag_context = await rag.search_similar(request.message)
+            rag_context = await rag.search_similar(request.message, file_ids=request.files)
             if rag_context:
                 system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
             else:
-                import re as _re
                 file_match = _re.search(r'\[(?:File|Image):\s*(.+?)\]', request.message)
                 cached = None
                 if file_match:
@@ -758,6 +800,8 @@ async def nvidia_chat(
         # ── General Intent Classification & Adaptive Clarification Quiz ──
         from app.services.intent import GeneralIntentClassifier, AnswerVerifier
         intent_result = GeneralIntentClassifier.classify(request.message, context=recent_history)
+        if file_ctx["has_files"]:
+            intent_result.needs_quiz = False
         _logger.info(
             "[INTENT][NVIDIA] message=%r -> primary=%s confidence=%s needs_quiz=%s",
             request.message[:60],
@@ -984,8 +1028,16 @@ async def nvidia_chat(
                         extra_d["verification"] = v_res.to_dict()
                         if v_res.satisfaction_check:
                             extra_d["satisfaction_check"] = True
+                        if file_ctx.get("provenance"):
+                            extra_d["file_provenance"] = file_ctx["provenance"]
 
-                        user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+                        user_extra = None
+                        if request.files and file_ctx.get("attachments_meta"):
+                            req_fids = set(request.files)
+                            user_atts = [a for a in file_ctx["attachments_meta"] if a.get("fileId") in req_fids]
+                            if user_atts:
+                                user_extra = {"attachments": user_atts}
+                        user_msg = Message(chat_id=request.chat_id, role="user", content=original_message, extra_data=user_extra)
                         assistant_msg = Message(
                             chat_id=request.chat_id,
                             role="assistant",
@@ -1094,8 +1146,16 @@ async def nvidia_chat(
                     extra_d["featured_video"] = yt_featured_video
             if v_res.satisfaction_check:
                 extra_d["satisfaction_check"] = True
+            if file_ctx.get("provenance"):
+                extra_d["file_provenance"] = file_ctx["provenance"]
 
-            user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+            user_extra = None
+            if request.files and file_ctx.get("attachments_meta"):
+                req_fids = set(request.files)
+                user_atts = [a for a in file_ctx["attachments_meta"] if a.get("fileId") in req_fids]
+                if user_atts:
+                    user_extra = {"attachments": user_atts}
+            user_msg = Message(chat_id=request.chat_id, role="user", content=original_message, extra_data=user_extra)
             assistant_msg = Message(
                 chat_id=request.chat_id,
                 role="assistant",
@@ -1115,6 +1175,29 @@ async def nvidia_chat(
             return response
 
     # ── Stateless path (anonymous or no chat_id) ──
+    if user:
+        from app.services.file_intelligence import GeneralChatFileContextEngineV2
+        stateless_file_ctx = await GeneralChatFileContextEngineV2.build_file_context_for_chat(
+            db=db,
+            user_id=user.id,
+            message=request.message,
+            explicit_file_ids=request.files,
+            conversation_id=None,
+            model=model,
+            system_prompt=system_prompt,
+        )
+        if stateless_file_ctx["has_files"] and stateless_file_ctx["all_failed_or_unsupported"]:
+            fail_msg = stateless_file_ctx["failure_summary"] or "The attached file could not be parsed."
+            if request.stream:
+                async def generate_stateless_err():
+                    yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': 'file'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content', 'content': fail_msg})}\n\n"
+                    yield "data: [DONE]\n\n"
+                return StreamingResponse(generate_stateless_err(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+            return {"content": fail_msg, "model": model, "provider": "nvidia"}
+        if stateless_file_ctx["has_files"] and stateless_file_ctx["context_block"]:
+            system_prompt = f"{system_prompt}\n\n{stateless_file_ctx['context_block']}"
+
     messages = [{"role": "user", "content": request.message}]
     force_images = bool(decision.get("requires_images")) and task != "web_images"
 

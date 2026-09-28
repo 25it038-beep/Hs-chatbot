@@ -731,29 +731,48 @@ async def nvidia_chat(
                     return await _vision_response(request, user, db, file_path)
             return await _ask_for_prompt_response(request, db, fname)
 
-        if user:
-            rag = RAGService(db, user.id)
-            rag_context = await rag.search_similar(request.message)
-            if rag_context:
-                system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
-            else:
-                import re as _re
-                file_match = _re.search(r'\[(?:File|Image):\s*(.+?)\]', request.message)
-                cached = None
-                if file_match:
-                    cached = RAGService.get_cached_file_content(user.id, file_match.group(1))
-                if cached:
-                    system_prompt = f"{system_prompt}\n\nThe user uploaded a file. Here is its content:\n\n{cached}"
-                else:
-                    all_texts = RAGService.get_all_cached_texts(user.id)
-                    if all_texts:
-                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
-
         result = await db.execute(
             select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
         )
         all_messages = result.scalars().all()
         recent_history = [{"role": m.role, "content": m.content, "extra_data": m.extra_data} for m in all_messages[-6:]]
+
+        context_engine_used = False
+        if user:
+            cached_files = RAGService.get_cached_files(user.id)
+            if cached_files:
+                try:
+                    from app.services.chat_context import general_chat_context_engine
+                    prepared_msgs, ctx_meta = await general_chat_context_engine.prepare_context(
+                        model_id=model or "llama-3.2-11b",
+                        user_message=request.message,
+                        conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
+                        attached_files=cached_files,
+                        system_prompt=system_prompt,
+                    )
+                    if prepared_msgs:
+                        system_prompt = prepared_msgs[0]["content"]
+                        api_messages = prepared_msgs[1:-1]
+                        request.message = prepared_msgs[-1]["content"]
+                        context_engine_used = True
+                        _logger.info(
+                            "[NVIDIA][CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
+                            ctx_meta.get("chunks_included", 0),
+                            len(ctx_meta.get("citations", [])),
+                            user.id
+                        )
+                except Exception as e:
+                    _logger.warning("GeneralChatContextEngineV2 failed in nvidia_api, falling back: %s", e)
+
+            if not context_engine_used:
+                rag = RAGService(db, user.id)
+                rag_context = await rag.search_similar(request.message)
+                if rag_context:
+                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+                else:
+                    all_texts = RAGService.get_all_cached_texts(user.id)
+                    if all_texts:
+                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         # ── General Intent Classification & Adaptive Clarification Quiz ──
         from app.services.intent import GeneralIntentClassifier, AnswerVerifier
@@ -786,12 +805,13 @@ async def nvidia_chat(
         elif is_web_project_req:
             system_prompt = f"{system_prompt}\n\n{_PROJECT_DELIVERY_REQUIREMENT}"
 
-        api_messages = svc._prepare_messages(
-            all_messages,
-            provider="nvidia",
-            max_output_tokens=request.max_tokens or chat.max_tokens or 4096,
-            system_prompt=system_prompt,
-        )
+        if not context_engine_used:
+            api_messages = svc._prepare_messages(
+                all_messages,
+                provider="nvidia",
+                max_output_tokens=request.max_tokens or chat.max_tokens or 4096,
+                system_prompt=system_prompt,
+            )
         api_messages.append({"role": "user", "content": request.message})
 
         if request.stream:

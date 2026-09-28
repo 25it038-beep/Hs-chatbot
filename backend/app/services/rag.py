@@ -56,6 +56,10 @@ class RAGService:
             parts.append(f"[From {f['filename']}]:\n{f['text']}")
         return "\n\n".join(parts)
 
+    @staticmethod
+    def get_cached_files(user_id: str) -> list[dict]:
+        return list(_file_cache.get(user_id, []))
+
     def _get_qdrant(self):
         if self._qdrant is None:
             try:

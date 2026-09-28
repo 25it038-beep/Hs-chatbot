@@ -77,34 +77,21 @@ class ChatService:
         max_output_tokens: int = DEFAULT_OUTPUT_BUDGET,
         system_prompt: str | None = None,
     ) -> list[dict]:
-        max_context = self.CONTEXT_BUDGETS.get(provider, 100000)
-        budget = max_context - max_output_tokens
+        from app.services.chat_context.conversation_store import conversation_context_store
+        from app.services.chat_context.budget import estimate_tokens
 
-        total = self._estimate_tokens(system_prompt or "")
+        max_context = self.CONTEXT_BUDGETS.get(provider, 100000)
+        usable_budget = int(max_context * 0.85) - max_output_tokens
+        history_budget = max(1000, usable_budget - estimate_tokens(system_prompt or ""))
 
         all_dicts = []
         for m in messages:
-            content = m.content
+            content = m.content or ""
             if "data:image/png;base64" in content:
                 content = "[Generated image]"
             all_dicts.append({"role": m.role, "content": content})
-        for m in all_dicts:
-            total += self._estimate_tokens(m["content"])
 
-        if total <= budget:
-            return all_dicts
-
-        trimmed = []
-        running = self._estimate_tokens(system_prompt or "")
-        for m in reversed(all_dicts):
-            t = self._estimate_tokens(m["content"])
-            if running + t <= budget:
-                trimmed.insert(0, m)
-                running += t
-            else:
-                break
-
-        return trimmed
+        return conversation_context_store.compact_history(all_dicts, history_budget=history_budget)
 
     async def create_chat(self, user_id: str, data: ChatCreate) -> Chat:
         model = data.model if (data.model in NVIDIA_MODELS or data.model in NVIDIA_ID_MAP.values()) else (settings.nvidia_default_chat_model or "llama-3.2-11b")
@@ -514,24 +501,6 @@ class ChatService:
         else:
             skip_retrieval = False
 
-        if not skip_retrieval and user_id:
-            rag = RAGService(self.db, user_id)
-            rag_context = await rag.search_similar(request.message)
-            if rag_context:
-                system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
-            else:
-                import re as _re
-                file_match = _re.search(r'\[(?:File|Image):\s*(.+?)\]', request.message)
-                cached = None
-                if file_match:
-                    cached = RAGService.get_cached_file_content(user_id, file_match.group(1))
-                if cached:
-                    system_prompt = f"{system_prompt}\n\nThe user uploaded a file. Here is its content:\n\n{cached}"
-                else:
-                    all_texts = RAGService.get_all_cached_texts(user_id)
-                    if all_texts:
-                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
-
         messages_result = await self.db.execute(
             select(Message)
             .where(Message.chat_id == chat_id)
@@ -539,6 +508,43 @@ class ChatService:
         )
         all_messages = messages_result.scalars().all()
         recent_history = [{"role": m.role, "content": m.content} for m in all_messages[-6:]]
+
+        context_engine_used = False
+        if not skip_retrieval and user_id:
+            cached_files = RAGService.get_cached_files(user_id)
+            if cached_files:
+                try:
+                    from app.services.chat_context import general_chat_context_engine
+                    prepared_msgs, ctx_meta = await general_chat_context_engine.prepare_context(
+                        model_id=chat.model or "llama-3.2-11b",
+                        user_message=request.message,
+                        conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
+                        attached_files=cached_files,
+                        system_prompt=system_prompt,
+                    )
+                    if prepared_msgs:
+                        system_prompt = prepared_msgs[0]["content"]
+                        api_messages = prepared_msgs[1:-1]
+                        request.message = prepared_msgs[-1]["content"]
+                        context_engine_used = True
+                        _logger.info(
+                            "[CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
+                            ctx_meta.get("chunks_included", 0),
+                            len(ctx_meta.get("citations", [])),
+                            user_id
+                        )
+                except Exception as e:
+                    _logger.warning("GeneralChatContextEngineV2 failed in chat.py, falling back: %s", e)
+
+            if not context_engine_used:
+                rag = RAGService(self.db, user_id)
+                rag_context = await rag.search_similar(request.message)
+                if rag_context:
+                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+                else:
+                    all_texts = RAGService.get_all_cached_texts(user_id)
+                    if all_texts:
+                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         if not skip_retrieval and (WebSearchService.needs_web_search(request.message) or ai_router.classify(request.message).get("requires_images")) and not request.stream:
             web_context = await WebSearchService().search(
@@ -549,12 +555,13 @@ class ChatService:
             if web_context:
                 system_prompt = f"{system_prompt}\n\n{web_context}"
 
-        api_messages = self._prepare_messages(
-            all_messages,
-            provider=provider_name,
-            max_output_tokens=request.max_tokens or chat.max_tokens or self.DEFAULT_OUTPUT_BUDGET,
-            system_prompt=system_prompt,
-        )
+        if not context_engine_used:
+            api_messages = self._prepare_messages(
+                all_messages,
+                provider=provider_name,
+                max_output_tokens=request.max_tokens or chat.max_tokens or self.DEFAULT_OUTPUT_BUDGET,
+                system_prompt=system_prompt,
+            )
         api_messages.append({"role": "user", "content": request.message})
 
         # ── Browser Automation Agent (section 28) ──

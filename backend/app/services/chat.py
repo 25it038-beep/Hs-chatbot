@@ -416,8 +416,25 @@ class ChatService:
             
             try:
                 _logger.info("[CHAT] generating content")
+                chat_ai_responses: list[str] = []
+                if chat_id:
+                    prev_msgs_res = await self.db.execute(
+                        select(Message)
+                        .where(Message.chat_id == chat_id, Message.role == "assistant")
+                        .order_by(Message.created_at)
+                    )
+                    chat_ai_responses = [
+                        m.content.strip()
+                        for m in prev_msgs_res.scalars().all()
+                        if m.content and m.content.strip() and not m.content.strip().startswith("Done — ")
+                    ]
+
                 if not structured_content:
-                    structured_content = await document_service.synthesize_content(doc_intent, user_prompt=request.message)
+                    structured_content = await document_service.synthesize_content(
+                        doc_intent,
+                        user_prompt=request.message,
+                        chat_ai_responses=chat_ai_responses,
+                    )
                 
                 file_info = await document_service.generate_file(
                     fmt=doc_intent.format,

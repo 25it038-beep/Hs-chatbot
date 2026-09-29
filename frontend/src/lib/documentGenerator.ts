@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf'
-import type { Attachment, DocumentPreviewResponse } from '@/types'
+import JSZip from 'jszip'
+import type { Attachment } from '@/types'
 import { api } from '@/lib/api'
+import { useChatStore } from '@/stores/chat'
 
 export interface DocumentSection {
   heading: string
@@ -18,6 +20,7 @@ export interface StructuredDocContent {
   author?: string
   organization?: string
   sections: DocumentSection[]
+  aiResponses?: string[]
   palette?: {
     primary?: string
     secondary?: string
@@ -25,11 +28,220 @@ export interface StructuredDocContent {
   }
 }
 
+export interface ExportFormatOption {
+  ext: string
+  label: string
+  category: 'document' | 'data' | 'code' | 'markup'
+  description: string
+}
+
+export const EXPORT_FILE_FORMATS: ExportFormatOption[] = [
+  { ext: 'pdf', label: 'PDF (.pdf)', category: 'document', description: 'Formatted multi-page PDF document' },
+  { ext: 'docx', label: 'Word (.docx)', category: 'document', description: 'Microsoft Word document' },
+  { ext: 'pptx', label: 'PowerPoint (.pptx)', category: 'document', description: 'Slide deck presentation' },
+  { ext: 'xlsx', label: 'Excel (.xlsx)', category: 'data', description: 'Microsoft Excel workbook' },
+  { ext: 'md', label: 'Markdown (.md)', category: 'markup', description: 'Clean Markdown document' },
+  { ext: 'txt', label: 'Plain Text (.txt)', category: 'document', description: 'Universal plain text file' },
+  { ext: 'html', label: 'HTML (.html)', category: 'markup', description: 'Standalone styled web page' },
+  { ext: 'json', label: 'JSON (.json)', category: 'data', description: 'Structured JSON data' },
+  { ext: 'csv', label: 'CSV (.csv)', category: 'data', description: 'Comma-separated values' },
+  { ext: 'tsv', label: 'TSV (.tsv)', category: 'data', description: 'Tab-separated values' },
+  { ext: 'xml', label: 'XML (.xml)', category: 'data', description: 'Extensible Markup Language' },
+  { ext: 'yaml', label: 'YAML (.yaml)', category: 'data', description: 'YAML configuration/data format' },
+  { ext: 'rtf', label: 'Rich Text (.rtf)', category: 'document', description: 'Rich Text Format document' },
+  { ext: 'tex', label: 'LaTeX (.tex)', category: 'markup', description: 'LaTeX typesetting source' },
+  { ext: 'py', label: 'Python (.py)', category: 'code', description: 'Python script with AI code & notes' },
+  { ext: 'js', label: 'JavaScript (.js)', category: 'code', description: 'JavaScript source file' },
+  { ext: 'ts', label: 'TypeScript (.ts)', category: 'code', description: 'TypeScript source file' },
+  { ext: 'sql', label: 'SQL (.sql)', category: 'code', description: 'SQL queries & documentation' },
+  { ext: 'sh', label: 'Shell (.sh)', category: 'code', description: 'Shell script' },
+]
+
+/**
+ * Retrieves all assistant (AI) responses currently in the active chat.
+ */
+export function getActiveChatAiResponses(): string[] {
+  try {
+    const state = useChatStore.getState()
+    const msgs = state.messages || []
+    const responses = msgs
+      .filter(m => m.role === 'assistant' && m.content && m.content.trim().length > 0)
+      .map(m => m.content.trim())
+    if (responses.length === 0 && state.streamingContent && state.streamingContent.trim()) {
+      responses.push(state.streamingContent.trim())
+    }
+    return responses
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Parses one or more AI chat responses into a StructuredDocContent object
+ * preserving headings, paragraphs, bullet lists, numbered steps, tables, and code blocks.
+ */
+export function parseAiResponsesToStructuredContent(
+  responses: string[],
+  customTitle?: string
+): StructuredDocContent {
+  const cleanResponses = (responses || [])
+    .map(r => (r || '').trim())
+    .filter(r => r.length > 0)
+
+  let derivedTitle = (customTitle || '').trim()
+  if (!derivedTitle && cleanResponses.length > 0) {
+    const firstLines = cleanResponses[0].split('\n')
+    for (const line of firstLines) {
+      const stripped = line.trim().replace(/^#+\s*/, '').replace(/\*\*/g, '').trim()
+      if (stripped.length >= 3) {
+        derivedTitle = stripped.slice(0, 80)
+        break
+      }
+    }
+  }
+  if (!derivedTitle) {
+    derivedTitle = 'AI Chat Responses'
+  }
+
+  const sections: DocumentSection[] = []
+
+  cleanResponses.forEach((resp, idx) => {
+    const lines = resp.split('\n')
+    let currentHeading = cleanResponses.length > 1 ? `AI Response #${idx + 1}` : derivedTitle
+    let currentParas: string[] = []
+    let currentItems: string[] = []
+    let currentSteps: Array<{ title: string; description: string }> = []
+    let currentTable: string[][] = []
+    let currentCallout = ''
+    let inCode = false
+    let codeLines: string[] = []
+
+    const flushSection = () => {
+      const bodyText = currentParas.join('\n\n').trim()
+      if (bodyText || currentItems.length > 0 || currentSteps.length > 0 || currentTable.length > 0 || currentCallout) {
+        sections.push({
+          heading: currentHeading || `Section ${sections.length + 1}`,
+          content: bodyText,
+          callout: currentCallout || undefined,
+          steps: currentSteps.length > 0 ? [...currentSteps] : undefined,
+          table: currentTable.length > 0 ? [...currentTable] : undefined,
+          items: currentItems.length > 0 ? [...currentItems] : undefined,
+        })
+      }
+      currentParas = []
+      currentItems = []
+      currentSteps = []
+      currentTable = []
+      currentCallout = ''
+    }
+
+    for (const rawLine of lines) {
+      const stripped = rawLine.trim()
+      if (stripped.startsWith('```')) {
+        if (inCode) {
+          if (codeLines.length > 0) {
+            currentParas.push(codeLines.join('\n'))
+          }
+          codeLines = []
+          inCode = false
+        } else {
+          inCode = true
+        }
+        continue
+      }
+
+      if (inCode) {
+        codeLines.push(rawLine)
+        continue
+      }
+
+      if (!stripped) continue
+
+      const headingMatch = stripped.match(/^(#{1,4})\s+(.+)$/)
+      if (headingMatch) {
+        flushSection()
+        currentHeading = headingMatch[2].replace(/\*\*/g, '').trim()
+        continue
+      }
+
+      if (stripped.startsWith('|') && stripped.endsWith('|') && stripped.length > 2) {
+        const cells = stripped
+          .slice(1, -1)
+          .split('|')
+          .map(c => c.trim().replace(/\*\*/g, ''))
+        if (cells.every(c => /^[-:]+$/.test(c))) {
+          continue
+        }
+        currentTable.push(cells)
+        continue
+      }
+
+      const bulletMatch = stripped.match(/^[-*•]\s+(.+)$/)
+      if (bulletMatch) {
+        currentItems.push(bulletMatch[1].replace(/\*\*/g, '').trim())
+        continue
+      }
+
+      const numMatch = stripped.match(/^(\d+)[.)]\s+(.+)$/)
+      if (numMatch) {
+        const stepText = numMatch[2].replace(/\*\*/g, '').trim()
+        if (stepText.includes(':')) {
+          const [st, ...rest] = stepText.split(':')
+          currentSteps.push({
+            title: `${numMatch[1]}. ${st.trim()}`,
+            description: rest.join(':').trim(),
+          })
+        } else {
+          currentItems.push(`${numMatch[1]}. ${stepText}`)
+        }
+        continue
+      }
+
+      if (stripped.startsWith('>')) {
+        const quoteText = stripped.replace(/^>+\s*/, '').replace(/\*\*/g, '').trim()
+        if (quoteText && !currentCallout) {
+          currentCallout = quoteText
+        } else if (quoteText) {
+          currentParas.push(quoteText)
+        }
+        continue
+      }
+
+      currentParas.push(stripped.replace(/\*\*/g, ''))
+    }
+
+    if (inCode && codeLines.length > 0) {
+      currentParas.push(codeLines.join('\n'))
+    }
+    flushSection()
+  })
+
+  if (sections.length === 0) {
+    sections.push({
+      heading: derivedTitle,
+      content: cleanResponses.join('\n\n---\n\n') || 'No AI responses available.',
+    })
+  }
+
+  return {
+    title: derivedTitle,
+    subtitle: `Exported from HSBot Chat (${cleanResponses.length} AI Response${cleanResponses.length === 1 ? '' : 's'})`,
+    author: 'HSBot AI Assistant',
+    organization: 'HSBot Conversation Export',
+    sections,
+    aiResponses: cleanResponses,
+  }
+}
+
 /**
  * Extracts or synthesizes structured content for a document from attachment data,
- * preview responses, or prompt topics.
+ * preview responses, or active chat AI responses.
  */
-export function extractStructuredContent(attachment: Attachment, previewData?: any): StructuredDocContent {
+export function extractStructuredContent(
+  attachment: Attachment,
+  previewData?: any,
+  explicitAiResponses?: string[]
+): StructuredDocContent {
   const name = attachment.name || 'Document.pdf'
   const title = (previewData?.preview?.title || previewData?.title || name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ')).trim()
   const rawSections = previewData?.preview?.sections || previewData?.sections || []
@@ -37,12 +249,12 @@ export function extractStructuredContent(attachment: Attachment, previewData?: a
   if (Array.isArray(rawSections) && rawSections.length > 0) {
     return {
       title,
-      subtitle: previewData?.preview?.subtitle || previewData?.subtitle || `Structured Analysis: ${title}`,
-      author: previewData?.preview?.author || 'HSBot AI Intelligence',
-      organization: 'Enterprise Documentation',
+      subtitle: previewData?.preview?.subtitle || previewData?.subtitle || `AI Response Document: ${title}`,
+      author: previewData?.preview?.author || 'HSBot AI Assistant',
+      organization: 'HSBot Conversation Export',
       sections: rawSections.map((s: any) => ({
         heading: s.heading || s.title || 'Overview',
-        content: s.content || s.text || '',
+        content: s.content || s.text || s.content_preview || '',
         callout: s.callout || s.note,
         kpis: s.kpis || [],
         steps: s.steps || [],
@@ -52,28 +264,50 @@ export function extractStructuredContent(attachment: Attachment, previewData?: a
     }
   }
 
-  // Check if existing previewData sections are non-empty and domain-specific (not generic boilerplate)
-  if (Array.isArray(rawSections) && rawSections.length > 0) {
-    const isGenericBoilerplate = rawSections.some((s: any) =>
-      typeof s.content === 'string' && (s.content.includes('operational overview and analysis of') || s.content.includes('Discovery & Foundations'))
-    )
-    if (!isGenericBoilerplate) {
-      return {
-        title,
-        subtitle: previewData?.preview?.subtitle || previewData?.subtitle || `Structured Research Analysis: ${title}`,
-        author: previewData?.preview?.author || 'HSBot Research & Intelligence',
-        organization: 'Knowledge & Analytical Services',
-        sections: rawSections.map((s: any) => ({
-          heading: s.heading || s.title || 'Overview',
-          content: s.content || s.text || '',
-          callout: s.callout || s.note,
-          kpis: s.kpis || [],
-          steps: s.steps || [],
-          table: s.table || [],
-          items: s.items || s.bullets || [],
-        })),
-      }
+  // Handle slide deck previewData
+  const rawSlides = previewData?.preview?.slides || previewData?.slides || []
+  if (Array.isArray(rawSlides) && rawSlides.length > 0) {
+    return {
+      title,
+      subtitle: previewData?.preview?.subtitle || `Presentation: ${title}`,
+      author: 'HSBot AI Assistant',
+      organization: 'HSBot Conversation Export',
+      sections: rawSlides.map((sl: any, idx: number) => ({
+        heading: sl.title || `Slide ${idx + 1}`,
+        content: sl.notes || sl.subtitle || '',
+        items: sl.bullets || [],
+      })),
     }
+  }
+
+  // Handle text/markdown previewData
+  const rawText = previewData?.preview?.raw_text || previewData?.raw_text || previewData?.content
+  if (typeof rawText === 'string' && rawText.trim().length > 0) {
+    return parseAiResponsesToStructuredContent([rawText], title)
+  }
+
+  // Handle spreadsheet/CSV previewData
+  const rawSheets = previewData?.preview?.sheets || previewData?.sheets || []
+  if (Array.isArray(rawSheets) && rawSheets.length > 0) {
+    return {
+      title,
+      subtitle: `Spreadsheet Data: ${title}`,
+      author: 'HSBot AI Assistant',
+      organization: 'HSBot Conversation Export',
+      sections: rawSheets.map((sh: any) => ({
+        heading: sh.name || 'Sheet 1',
+        table: [sh.headers || [], ...(sh.rows || [])].filter((r: any[]) => r.length > 0),
+      })),
+    }
+  }
+
+  // Use explicit AI responses or active chat AI responses so the file always contains the chat's AI responses!
+  const chatResponses = explicitAiResponses && explicitAiResponses.length > 0
+    ? explicitAiResponses
+    : getActiveChatAiResponses()
+
+  if (chatResponses.length > 0) {
+    return parseAiResponsesToStructuredContent(chatResponses, title)
   }
 
   // Deep Domain Research Synthesizer
@@ -560,67 +794,497 @@ export async function generateClientPdf(attachment: Attachment, previewData?: an
   return doc.output('blob')
 }
 
-/**
- * Generates and downloads a file with automatic graceful client-side fallback.
- * Guarantees that the user will NEVER see "File wasn't available on site" or "Download failed".
- */
-export async function downloadDocumentWithFallback(attachment: Attachment, previewData?: any): Promise<void> {
-  const filename = attachment.name || 'document'
-  const ext = filename.split('.').pop()?.toLowerCase() || 'pdf'
+function escapeXml(str: string): string {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
 
-  // Attempt 1: Try backend API download with active auth headers
-  try {
-    await api.downloadFile(attachment.id, filename)
-    return
-  } catch (backendErr) {
-    console.warn(`[DocumentEngine] Backend download failed (${backendErr}), activating client-side generation engine:`, filename)
+/**
+ * Generates a valid OpenXML .docx file in the browser using JSZip containing all AI responses and sections.
+ */
+export async function generateClientDocxBlob(data: StructuredDocContent): Promise<Blob> {
+  const zip = new JSZip()
+
+  zip.file(
+    '[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`
+  )
+
+  zip.folder('_rels')?.file(
+    '.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+  )
+
+  const paragraphsXml: string[] = []
+  const addParagraph = (text: string, bold = false, sizeHalfPt = 22, colorHex = '1E293B') => {
+    const lines = String(text || '').split('\n')
+    for (const line of lines) {
+      paragraphsXml.push(
+        `<w:p><w:r><w:rPr>${bold ? '<w:b/>' : ''}<w:sz w:val="${sizeHalfPt}"/><w:color w:val="${colorHex}"/></w:rPr><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`
+      )
+    }
   }
 
-  // Attempt 2: Client-side synthesis based on file type
-  try {
-    let blob: Blob
+  addParagraph(data.title, true, 36, '0F172A')
+  if (data.subtitle) {
+    addParagraph(data.subtitle, false, 22, '475569')
+  }
+  addParagraph('', false, 20)
 
-    if (ext === 'pdf') {
-      blob = await generateClientPdf(attachment, previewData)
-    } else if (ext === 'csv') {
-      const data = extractStructuredContent(attachment, previewData)
-      let csvContent = 'Phase,Objective,Standard,Status\n'
-      data.sections.forEach(s => {
-        if (s.table) {
-          s.table.forEach(r => {
-            csvContent += r.map(c => `"${c.replace(/"/g, '""')}"`).join(',') + '\n'
-          })
-        }
-      })
-      blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
-    } else if (ext === 'md' || ext === 'markdown') {
-      const data = extractStructuredContent(attachment, previewData)
-      let md = `# ${data.title}\n\n_${data.subtitle || ''}_\n\n`
-      data.sections.forEach(s => {
-        md += `## ${s.heading}\n\n${s.content || ''}\n\n`
-        if (s.callout) md += `> **Note:** ${s.callout}\n\n`
-        if (s.items) s.items.forEach(it => { md += `- ${it}\n` })
-      })
-      blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
-    } else {
-      // General text or fallback
-      const data = extractStructuredContent(attachment, previewData)
-      const text = `${data.title}\n\n${data.subtitle || ''}\n\n${JSON.stringify(data.sections, null, 2)}`
-      blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  for (const sec of data.sections) {
+    if (sec.heading) {
+      addParagraph(sec.heading, true, 28, '0F172A')
     }
+    if (sec.content) {
+      addParagraph(sec.content, false, 22, '1E293B')
+    }
+    if (sec.callout) {
+      addParagraph(`Note: ${sec.callout}`, true, 21, '047857')
+    }
+    if (sec.steps && sec.steps.length > 0) {
+      for (const st of sec.steps) {
+        addParagraph(`${st.title}: ${st.description}`, false, 21, '334155')
+      }
+    }
+    if (sec.items && sec.items.length > 0) {
+      for (const it of sec.items) {
+        addParagraph(`• ${it}`, false, 21, '334155')
+      }
+    }
+    if (sec.table && sec.table.length > 0) {
+      for (const row of sec.table) {
+        addParagraph(row.join(' | '), false, 20, '334155')
+      }
+    }
+    addParagraph('', false, 20)
+  }
 
-    // Trigger instant native browser download
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+  zip.folder('word')?.file(
+    'document.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphsXml.join('\n    ')}
+  </w:body>
+</w:document>`
+  )
+
+  return zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  })
+}
+
+/**
+ * Builds a client-side Blob for ANY requested file format from StructuredDocContent and raw AI responses.
+ */
+export async function generateClientBlobForFormat(
+  data: StructuredDocContent,
+  rawFormat: string,
+  attachmentForPdf?: Attachment
+): Promise<{ blob: Blob; ext: string; mimeType: string }> {
+  const ext = (rawFormat || 'txt').trim().toLowerCase().replace(/^\.+/, '') || 'txt'
+  const rawResponses = data.aiResponses && data.aiResponses.length > 0
+    ? data.aiResponses
+    : data.sections.map(s => {
+        const parts = [`## ${s.heading}`]
+        if (s.content) parts.push(s.content)
+        if (s.callout) parts.push(`> ${s.callout}`)
+        if (s.steps && s.steps.length > 0) {
+          parts.push(s.steps.map(st => `- ${st.title}: ${st.description}`).join('\n'))
+        }
+        if (s.items && s.items.length > 0) {
+          parts.push(s.items.map(it => `- ${it}`).join('\n'))
+        }
+        if (s.table && s.table.length > 0) {
+          parts.push(s.table.map(r => `| ${r.join(' | ')} |`).join('\n'))
+        }
+        return parts.join('\n\n')
+      })
+
+  if (ext === 'pdf') {
+    const dummyAtt: Attachment = attachmentForPdf || {
+      id: 'client-pdf',
+      name: `${data.title || 'AI_Responses'}.pdf`,
+      type: 'application/pdf',
+      size: 0,
+      download_url: '',
+    }
+    const blob = await generateClientPdf(dummyAtt, { title: data.title, subtitle: data.subtitle, sections: data.sections })
+    return { blob, ext: 'pdf', mimeType: 'application/pdf' }
+  }
+
+  if (ext === 'docx' || ext === 'doc') {
+    const blob = await generateClientDocxBlob(data)
+    return {
+      blob,
+      ext,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+  }
+
+  if (ext === 'csv' || ext === 'tsv' || ext === 'xlsx' || ext === 'xls') {
+    const sep = ext === 'tsv' ? '\t' : ','
+    const escapeCell = (val: string) => {
+      const s = String(val ?? '')
+      if (sep === '\t') return s.replace(/[\t\r\n]+/g, ' ')
+      return `"${s.replace(/"/g, '""')}"`
+    }
+    const rows: string[][] = [['Response #', 'Section / Heading', 'AI Response Content', 'Key Points']]
+    data.sections.forEach((s, idx) => {
+      const points = [
+        ...(s.items || []),
+        ...((s.steps || []).map(st => `${st.title}: ${st.description}`)),
+      ].join('; ')
+      rows.push([String(idx + 1), s.heading || '', s.content || '', points])
+      if (s.table && s.table.length > 0) {
+        s.table.forEach(tr => rows.push(['Table Row', ...tr]))
+      }
+    })
+    const contentStr = rows.map(r => r.map(escapeCell).join(sep)).join('\n')
+    const mime = ext === 'tsv' ? 'text/tab-separated-values;charset=utf-8' : 'text/csv;charset=utf-8'
+    return { blob: new Blob([contentStr], { type: mime }), ext, mimeType: mime }
+  }
+
+  if (ext === 'json') {
+    const payload = {
+      title: data.title,
+      subtitle: data.subtitle,
+      response_count: rawResponses.length,
+      ai_responses: rawResponses,
+      sections: data.sections,
+    }
+    const jsonStr = JSON.stringify(payload, null, 2)
+    return { blob: new Blob([jsonStr], { type: 'application/json;charset=utf-8' }), ext: 'json', mimeType: 'application/json' }
+  }
+
+  if (ext === 'html' || ext === 'htm' || ext === 'pptx' || ext === 'ppt') {
+    const secHtml = data.sections
+      .map(s => {
+        const itemsHtml = s.items && s.items.length > 0
+          ? `<ul>${s.items.map(i => `<li>${escapeXml(i)}</li>`).join('')}</ul>`
+          : ''
+        const stepsHtml = s.steps && s.steps.length > 0
+          ? `<ol>${s.steps.map(st => `<li><strong>${escapeXml(st.title)}</strong>: ${escapeXml(st.description)}</li>`).join('')}</ol>`
+          : ''
+        const tableHtml = s.table && s.table.length > 0
+          ? `<table><tbody>${s.table.map((r, ri) => `<tr>${r.map(c => ri === 0 ? `<th>${escapeXml(c)}</th>` : `<td>${escapeXml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+          : ''
+        return `<section class="card">
+  <h2>${escapeXml(s.heading)}</h2>
+  ${s.content ? `<div class="content">${escapeXml(s.content).replace(/\n/g, '<br/>')}</div>` : ''}
+  ${s.callout ? `<blockquote class="callout">${escapeXml(s.callout)}</blockquote>` : ''}
+  ${stepsHtml}
+  ${itemsHtml}
+  ${tableHtml}
+</section>`
+      })
+      .join('\n')
+
+    const htmlStr = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapeXml(data.title)}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1.5rem; color: #0f172a; background: #f8fafc; line-height: 1.65; }
+    header { background: #0f172a; color: #f8fafc; padding: 1.75rem 2rem; border-radius: 12px; margin-bottom: 1.5rem; }
+    header h1 { margin: 0 0 0.35rem 0; font-size: 1.6rem; }
+    header p { margin: 0; color: #94a3b8; font-size: 0.95rem; }
+    .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem 1.75rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    h2 { margin-top: 0; color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 0.4rem; font-size: 1.2rem; }
+    .content { white-space: pre-wrap; color: #334155; }
+    .callout { margin: 1rem 0; padding: 0.75rem 1rem; background: #ecfdf5; border-left: 4px solid #10b981; color: #065f46; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; text-align: left; font-size: 0.9rem; }
+    th { background: #f1f5f9; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeXml(data.title)}</h1>
+    <p>${escapeXml(data.subtitle || 'AI Chat Responses')}</p>
+  </header>
+  ${secHtml}
+</body>
+</html>`
+    return { blob: new Blob([htmlStr], { type: 'text/html;charset=utf-8' }), ext, mimeType: 'text/html' }
+  }
+
+  if (ext === 'xml') {
+    const xmlStr = `<?xml version="1.0" encoding="UTF-8"?>
+<chatExport>
+  <title>${escapeXml(data.title)}</title>
+  <subtitle>${escapeXml(data.subtitle || '')}</subtitle>
+  <responses count="${rawResponses.length}">
+${rawResponses.map((r, i) => `    <response index="${i + 1}">${escapeXml(r)}</response>`).join('\n')}
+  </responses>
+  <sections>
+${data.sections.map((s, i) => `    <section index="${i + 1}">
+      <heading>${escapeXml(s.heading)}</heading>
+      <content>${escapeXml(s.content || '')}</content>
+    </section>`).join('\n')}
+  </sections>
+</chatExport>`
+    return { blob: new Blob([xmlStr], { type: 'application/xml;charset=utf-8' }), ext: 'xml', mimeType: 'application/xml' }
+  }
+
+  if (ext === 'yaml' || ext === 'yml') {
+    const yamlLines = [
+      `title: ${JSON.stringify(data.title)}`,
+      `subtitle: ${JSON.stringify(data.subtitle || '')}`,
+      `response_count: ${rawResponses.length}`,
+      `ai_responses:`,
+      ...rawResponses.flatMap(r => [
+        `  - |`,
+        ...r.split('\n').map(l => `    ${l}`),
+      ]),
+    ]
+    return { blob: new Blob([yamlLines.join('\n') + '\n'], { type: 'text/yaml;charset=utf-8' }), ext, mimeType: 'text/yaml' }
+  }
+
+  if (ext === 'rtf') {
+    const rtfEscape = (s: string) =>
+      String(s || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\{/g, '\\{')
+        .replace(/\}/g, '\\}')
+        .replace(/\n/g, '\\par\n')
+    const rtfBody = [
+      `{\\rtf1\\ansi\\deff0`,
+      `{\\fonttbl{\\f0 Arial;}}`,
+      `\\f0\\fs32\\b ${rtfEscape(data.title)}\\b0\\fs22\\par\\par`,
+      ...data.sections.map(s => {
+        const parts = [`\\fs26\\b ${rtfEscape(s.heading)}\\b0\\fs22\\par`]
+        if (s.content) parts.push(`${rtfEscape(s.content)}\\par`)
+        if (s.items && s.items.length > 0) {
+          parts.push(s.items.map(it => `\\bullet  ${rtfEscape(it)}\\par`).join('\n'))
+        }
+        return parts.join('\n') + '\\par'
+      }),
+      `}`,
+    ].join('\n')
+    return { blob: new Blob([rtfBody], { type: 'application/rtf' }), ext: 'rtf', mimeType: 'application/rtf' }
+  }
+
+  if (ext === 'tex' || ext === 'latex') {
+    const texBody = [
+      `\\documentclass[11pt]{article}`,
+      `\\usepackage[utf8]{inputenc}`,
+      `\\usepackage[margin=1in]{geometry}`,
+      `\\title{${data.title.replace(/[#$%&_{}~^\\]/g, ' ')}}`,
+      `\\author{HSBot AI Assistant}`,
+      `\\date{\\today}`,
+      `\\begin{document}`,
+      `\\maketitle`,
+      ...data.sections.map(s => [
+        `\\section*{${s.heading.replace(/[#$%&_{}~^\\]/g, ' ')}}`,
+        `\\begin{verbatim}`,
+        s.content || '',
+        ...(s.items || []).map(i => `* ${i}`),
+        `\\end{verbatim}`,
+      ].join('\n')),
+      `\\end{document}`,
+    ].join('\n\n')
+    return { blob: new Blob([texBody], { type: 'application/x-tex;charset=utf-8' }), ext, mimeType: 'application/x-tex' }
+  }
+
+  if (ext === 'md' || ext === 'markdown') {
+    const mdStr = rawResponses.length > 0
+      ? `# ${data.title}\n\n${rawResponses.map((r, i) => rawResponses.length > 1 ? `## AI Response #${i + 1}\n\n${r}` : r).join('\n\n---\n\n')}\n`
+      : `# ${data.title}\n\n` + data.sections.map(s => `## ${s.heading}\n\n${s.content || ''}`).join('\n\n')
+    return { blob: new Blob([mdStr], { type: 'text/markdown;charset=utf-8' }), ext, mimeType: 'text/markdown' }
+  }
+
+  // Code file extensions or any custom file format (.py, .js, .ts, .sql, .txt, or custom .xyz)
+  const codeExts = new Set(['py', 'js', 'ts', 'tsx', 'jsx', 'java', 'cpp', 'c', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt', 'sql', 'sh', 'bash', 'ps1', 'r', 'lua', 'dart'])
+  if (codeExts.has(ext)) {
+    const commentPrefix = ['py', 'rb', 'sh', 'bash', 'ps1', 'r'].includes(ext)
+      ? '#'
+      : ['sql', 'lua'].includes(ext)
+      ? '--'
+      : '//'
+    const fullText = rawResponses.join('\n\n')
+    const blocks: string[] = []
+    const regex = /```(?:[\w+-]*)\n([\s\S]*?)```/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(fullText)) !== null) {
+      if (match[1] && match[1].trim()) {
+        blocks.push(match[1].trim())
+      }
+    }
+    const lines = [
+      `${commentPrefix} ${data.title}`,
+      `${commentPrefix} Exported AI Responses from HSBot`,
+      '',
+    ]
+    if (blocks.length > 0) {
+      lines.push(blocks.join('\n\n'))
+      lines.push('')
+      lines.push(`${commentPrefix} --- Full AI Response Notes ---`)
+    }
+    for (const line of fullText.split('\n')) {
+      lines.push(line ? `${commentPrefix} ${line}` : commentPrefix)
+    }
+    return { blob: new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }), ext, mimeType: 'text/plain' }
+  }
+
+  // Universal plain-text or custom extension output containing all AI responses
+  const textContent = [
+    data.title,
+    '='.repeat(Math.min(60, Math.max(10, data.title.length))),
+    '',
+    ...(rawResponses.length > 0
+      ? rawResponses.map((r, i) => (rawResponses.length > 1 ? `--- AI Response #${i + 1} ---\n\n${r}` : r))
+      : data.sections.map(s => `## ${s.heading}\n\n${s.content || ''}`)),
+    '',
+  ].join('\n\n')
+
+  return { blob: new Blob([textContent], { type: 'text/plain;charset=utf-8' }), ext, mimeType: 'text/plain' }
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => window.URL.revokeObjectURL(url), 2000)
+}
+
+/**
+ * Exports and downloads one or more AI responses from the chat in ANY requested file format.
+ * Uses the backend DocumentService first (for native binary formats like DOCX, PPTX, XLSX, PDF, etc.)
+ * and seamlessly falls back to client-side generation so it never fails.
+ */
+export async function downloadAiResponsesAsFile(options: {
+  responses?: string[]
+  format: string
+  title?: string
+  filename?: string
+  chatId?: string
+}): Promise<void> {
+  const cleanFormat = (options.format || 'pdf').trim().toLowerCase().replace(/^\.+/, '') || 'pdf'
+  const responses = options.responses && options.responses.length > 0
+    ? options.responses.filter(r => r && r.trim().length > 0)
+    : getActiveChatAiResponses()
+
+  const structured = parseAiResponsesToStructuredContent(responses, options.title)
+  const safeBase = (options.filename || structured.title || 'AI_Chat_Responses')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 50) || 'AI_Chat_Responses'
+  const finalFilename = `${safeBase}.${cleanFormat}`
+
+  // Try backend generation + download first so binary Office/PDF files use ReportLab/python-docx/openpyxl/python-pptx
+  try {
+    const generated = await api.generateDocument({
+      format: cleanFormat,
+      title: structured.title,
+      filename: finalFilename,
+      chat_id: options.chatId,
+      ai_responses: responses,
+      content: structured,
+    })
+    if (generated && generated.id) {
+      await api.downloadFile(generated.id, generated.name || finalFilename)
+      return
+    }
+  } catch (err) {
+    console.warn(`[DocumentEngine] Backend generate/download fallback activated for ${finalFilename}:`, err)
+  }
+
+  // Fallback: Client-side universal format builder
+  const { blob } = await generateClientBlobForFormat(structured, cleanFormat)
+  triggerBrowserDownload(blob, finalFilename)
+}
+
+/**
+ * Generates and downloads a file with automatic graceful client-side fallback.
+ * Guarantees that the user will NEVER see "File wasn't available on site" or "Download failed",
+ * and supports converting any attachment into any requested target format.
+ */
+export async function downloadDocumentWithFallback(
+  attachment: Attachment,
+  previewData?: any,
+  targetFormat?: string,
+  explicitAiResponses?: string[]
+): Promise<void> {
+  const origFilename = attachment.name || 'document.pdf'
+  const origExt = origFilename.split('.').pop()?.toLowerCase() || 'pdf'
+  const desiredExt = (targetFormat || origExt).trim().toLowerCase().replace(/^\.+/, '') || origExt
+  const baseName = origFilename.replace(/\.[^/.]+$/, '')
+  const finalFilename = desiredExt === origExt ? origFilename : `${baseName}.${desiredExt}`
+
+  // Attempt 1: If downloading in the original format, try direct backend API download
+  if (desiredExt === origExt && attachment.id && !attachment.id.startsWith('client-')) {
+    try {
+      await api.downloadFile(attachment.id, finalFilename)
+      return
+    } catch (backendErr) {
+      console.warn(`[DocumentEngine] Backend download failed (${backendErr}), activating fallback engine:`, finalFilename)
+    }
+  }
+
+  // Ensure we have previewData if not already loaded
+  let resolvedPreview = previewData
+  if (!resolvedPreview && attachment.id && !attachment.id.startsWith('client-')) {
+    try {
+      resolvedPreview = await api.getFilePreview(attachment.id)
+    } catch {
+      // ignore and fall back to chat AI responses
+    }
+  }
+
+  const data = extractStructuredContent(attachment, resolvedPreview, explicitAiResponses)
+
+  // Attempt 2: If converting to another format, try backend /api/documents/generate first
+  if (desiredExt !== origExt) {
+    try {
+      const chatResponses = explicitAiResponses && explicitAiResponses.length > 0
+        ? explicitAiResponses
+        : data.aiResponses && data.aiResponses.length > 0
+        ? data.aiResponses
+        : getActiveChatAiResponses()
+      const generated = await api.generateDocument({
+        format: desiredExt,
+        title: data.title,
+        filename: finalFilename,
+        ai_responses: chatResponses,
+        content: data,
+      })
+      if (generated && generated.id) {
+        await api.downloadFile(generated.id, generated.name || finalFilename)
+        return
+      }
+    } catch (convErr) {
+      console.warn(`[DocumentEngine] Backend format conversion fallback activated (${convErr}):`, finalFilename)
+    }
+  }
+
+  // Attempt 3: Client-side synthesis for ANY file format
+  try {
+    const { blob } = await generateClientBlobForFormat(data, desiredExt, attachment)
+    triggerBrowserDownload(blob, finalFilename)
   } catch (err: any) {
     console.error('[DocumentEngine] Client-side generation failed:', err)
-    throw new Error(`Failed to download ${filename}: ${err?.message || 'Unknown error'}`)
+    throw new Error(`Failed to download ${finalFilename}: ${err?.message || 'Unknown error'}`)
   }
 }
 
@@ -629,13 +1293,19 @@ export async function downloadDocumentWithFallback(attachment: Attachment, previ
  */
 export async function openDocumentInNewTab(attachment: Attachment, previewData?: any): Promise<void> {
   try {
+    let resolvedPreview = previewData
+    if (!resolvedPreview && attachment.id && !attachment.id.startsWith('client-')) {
+      try {
+        resolvedPreview = await api.getFilePreview(attachment.id)
+      } catch {}
+    }
     const ext = attachment.name.split('.').pop()?.toLowerCase() || 'pdf'
     if (ext === 'pdf') {
-      const blob = await generateClientPdf(attachment, previewData)
+      const blob = await generateClientPdf(attachment, resolvedPreview)
       const url = window.URL.createObjectURL(blob)
       window.open(url, '_blank')
     } else {
-      await downloadDocumentWithFallback(attachment, previewData)
+      await downloadDocumentWithFallback(attachment, resolvedPreview)
     }
   } catch (err) {
     console.error('[DocumentEngine] Failed to open in new tab:', err)

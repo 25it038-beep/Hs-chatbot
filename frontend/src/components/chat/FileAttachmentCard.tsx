@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import {
   Download, Check, Loader2, FileText, FileSpreadsheet, Presentation,
   Eye, X, ChevronLeft, ChevronRight, Sparkles, Layers, Palette,
-  CheckCircle2, ShieldCheck, AlertTriangle, Image as ImageIcon, Code, ClipboardPaste
+  CheckCircle2, ShieldCheck, AlertTriangle, ChevronDown
 } from 'lucide-react'
 import type { Attachment, DocumentPreviewResponse, SlidePreview, SectionPreview } from '@/types'
 import { api } from '@/lib/api'
 import { useChat } from '@/stores/chat'
-import { downloadDocumentWithFallback } from '@/lib/documentGenerator'
-import { triggerBrowserDownload } from '@/lib/downloader'
+import { downloadDocumentWithFallback, EXPORT_FILE_FORMATS } from '@/lib/documentGenerator'
 
 interface FileAttachmentCardProps {
   attachment: Attachment
@@ -52,31 +51,13 @@ function getFormatDetails(filename: string, mimeType: string) {
       tag: 'pptx',
     }
   }
-  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv' || ext === 'tsv' || mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) {
+  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
     return {
-      label: ext === 'csv' || ext === 'tsv' ? `${ext.toUpperCase()} Data` : 'Excel Workbook',
+      label: 'Excel Workbook',
       color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
       icon: FileSpreadsheet,
       iconColor: 'text-emerald-500',
-      tag: ext || 'xlsx',
-    }
-  }
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext) || mimeType.startsWith('image/')) {
-    return {
-      label: `${(ext || 'IMG').toUpperCase()} Image`,
-      color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
-      icon: ImageIcon,
-      iconColor: 'text-purple-500',
-      tag: ext || 'img',
-    }
-  }
-  if (['py', 'js', 'ts', 'tsx', 'jsx', 'json', 'yaml', 'yml', 'sql', 'sh', 'html', 'css', 'go', 'rs', 'java', 'cpp', 'c'].includes(ext)) {
-    return {
-      label: `${ext.toUpperCase()} Code`,
-      color: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
-      icon: Code,
-      iconColor: 'text-cyan-500',
-      tag: ext,
+      tag: 'xlsx',
     }
   }
   return {
@@ -92,11 +73,8 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(
-    attachment.previewUrl && (attachment.previewUrl.startsWith('blob:') || attachment.previewUrl.startsWith('data:'))
-      ? attachment.previewUrl
-      : null
-  )
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false)
+  const [customExt, setCustomExt] = useState('')
 
   // Preview Modal States
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -104,65 +82,18 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const [previewData, setPreviewData] = useState<DocumentPreviewResponse | null>(null)
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
 
-  const { sendMessage, setActiveArtifact, setArtifactSidePanelOpen } = useChat()
-  const fmt = getFormatDetails(attachment.name, attachment.mimeType || attachment.type || '')
+  const { sendMessage } = useChat()
+  const fmt = getFormatDetails(attachment.name, attachment.type)
   const Icon = fmt.icon
 
-  const isUserAttachment = Boolean(
-    attachment.source ||
-      attachment.fileId ||
-      attachment.url?.includes('/api/files/') ||
-      attachment.downloadUrl?.includes('/api/files/')
-  ) && !attachment.url?.includes('/api/documents/')
-
-  const isImageAttachment =
-    attachment.type === 'image' ||
-    Boolean(attachment.mimeType && attachment.mimeType.startsWith('image/')) ||
-    /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(attachment.name)
-
-  useEffect(() => {
-    if (!isImageAttachment) return
-    if (attachment.previewUrl && (attachment.previewUrl.startsWith('blob:') || attachment.previewUrl.startsWith('data:'))) {
-      setResolvedImageUrl(attachment.previewUrl)
-      return
-    }
-    const targetFileId = attachment.fileId || attachment.id
-    if (!targetFileId || !isUserAttachment) return
-
-    let revokedUrl: string | null = null
-    let cancelled = false
-    api
-      .downloadUploadedFileBlob(targetFileId)
-      .then((blob) => {
-        if (cancelled) return
-        revokedUrl = URL.createObjectURL(blob)
-        setResolvedImageUrl(revokedUrl)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-      if (revokedUrl) {
-        try {
-          URL.revokeObjectURL(revokedUrl)
-        } catch {}
-      }
-    }
-  }, [attachment.fileId, attachment.id, attachment.previewUrl, isImageAttachment, isUserAttachment])
-
-  const handleDownload = async (e?: React.MouseEvent) => {
+  const handleDownload = async (e?: React.MouseEvent, targetFormat?: string) => {
     if (e) e.preventDefault()
     if (downloading) return
     setDownloading(true)
     setError(null)
+    setFormatMenuOpen(false)
     try {
-      if (isUserAttachment) {
-        const targetFileId = attachment.fileId || attachment.id
-        const blob = await api.downloadUploadedFileBlob(targetFileId)
-        triggerBrowserDownload(blob, attachment.name)
-      } else {
-        await downloadDocumentWithFallback(attachment, previewData)
-      }
+      await downloadDocumentWithFallback(attachment, previewData, targetFormat)
       setDownloaded(true)
       setTimeout(() => setDownloaded(false), 3000)
     } catch (err: any) {
@@ -173,13 +104,10 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
     }
   }
 
-  const handleOpenPreview = async () => {
-    if (isUserAttachment) {
-      setPreviewOpen(true)
-      return
-    }
+  const { setActiveArtifact, setArtifactSidePanelOpen } = useChat()
 
-    // Open Claude-Style Artifact Side Panel for generated documents
+  const handleOpenPreview = async () => {
+    // Open Claude-Style Artifact Side Panel
     if (setActiveArtifact && setArtifactSidePanelOpen) {
       setActiveArtifact(attachment)
       setArtifactSidePanelOpen(true)
@@ -210,200 +138,50 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const isDarkPalette = previewData?.preview?.is_dark || false
   const palette = previewData?.preview?.palette
 
-  if (isUserAttachment) {
-    return (
-      <>
-        <div className="flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl border border-border bg-card/90 shadow-xs max-w-md transition-all hover:border-primary/40">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            {isImageAttachment && resolvedImageUrl ? (
-              <button
-                type="button"
-                onClick={handleOpenPreview}
-                className="relative w-10 h-10 rounded-lg overflow-hidden border border-border shrink-0 group/thumb"
-                title="View image preview"
-              >
-                <img
-                  src={resolvedImageUrl}
-                  alt={attachment.name}
-                  className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform"
-                />
-              </button>
-            ) : (
-              <div className={`p-2 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
-                <Icon size={18} className={fmt.iconColor} />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs sm:text-[13px] font-medium text-foreground truncate block select-all">
-                  {attachment.name}
-                </span>
-                {attachment.source === 'clipboard' && (
-                  <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
-                    <ClipboardPaste size={9} />
-                    Pasted
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5 flex-wrap">
-                <span className="font-semibold uppercase text-[9px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
-                  {fmt.label}
-                </span>
-                {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
-                {error && <span className="text-destructive">• {error}</span>}
-              </div>
-            </div>
+  return (
+    <>
+      <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`p-2.5 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
+            <Icon size={22} className={fmt.iconColor} />
           </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {(isImageAttachment || attachment.textPreview) && (
-              <button
-                type="button"
-                onClick={handleOpenPreview}
-                className="p-1.5 rounded-lg text-xs font-medium border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-                title="Preview attachment"
-                aria-label="Preview attachment"
-              >
-                <Eye size={13} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={downloading}
-              className="p-1.5 rounded-lg text-xs font-medium border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-              title={`Download ${attachment.name}`}
-              aria-label={`Download ${attachment.name}`}
-            >
-              {downloading ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : downloaded ? (
-                <Check size={13} className="text-emerald-500" />
-              ) : (
-                <Download size={13} />
-              )}
-            </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] sm:text-sm font-medium text-foreground truncate block select-all">
+                {attachment.name}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+              <span className="font-semibold uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
+                {fmt.label}
+              </span>
+              {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
+              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                <ShieldCheck size={11} />
+                <span>AI Responses Included</span>
+              </span>
+              {error && <span className="text-destructive">• {error}</span>}
+            </div>
           </div>
         </div>
 
-        {previewOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
-            onClick={() => setPreviewOpen(false)}
+        <div className="flex items-center gap-1.5 shrink-0 w-full sm:w-auto">
+          {/* Preview Button */}
+          <button
+            onClick={handleOpenPreview}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-muted/50 hover:bg-muted text-foreground transition-all shrink-0 active:scale-95"
+            title="Inspect slide & document preview"
           >
-            <div
-              className="bg-card border border-border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`p-1.5 rounded-md border ${fmt.color}`}>
-                    <Icon size={16} className={fmt.iconColor} />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-foreground truncate">{attachment.name}</h3>
-                    <p className="text-[11px] text-muted-foreground">
-                      {fmt.label} {attachment.size > 0 ? `• ${formatBytes(attachment.size)}` : ''}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleDownload()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all"
-                  >
-                    <Download size={13} />
-                    <span>Download</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(false)}
-                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                {isImageAttachment && resolvedImageUrl ? (
-                  <div className="flex items-center justify-center bg-muted/20 rounded-xl p-3 border border-border">
-                    <img
-                      src={resolvedImageUrl}
-                      alt={attachment.name}
-                      className="max-h-[65vh] w-auto object-contain rounded-lg"
-                    />
-                  </div>
-                ) : attachment.textPreview ? (
-                  <pre className="p-3 rounded-xl border border-border bg-muted/20 text-xs font-mono whitespace-pre-wrap overflow-x-auto max-h-[60vh] text-foreground leading-relaxed">
-                    {attachment.textPreview}
-                  </pre>
-                ) : (
-                  <p className="text-xs text-muted-foreground text-center py-8">
-                    Attached file ready for AI analysis. Use the Download button above to save a copy.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </>
-    )
-  }
+            <Eye size={13} className="text-muted-foreground" />
+            <span>Preview</span>
+          </button>
 
-  return (
-    <>
-      <div className="flex flex-col gap-2.5 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className={`p-2.5 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
-              <Icon size={22} className={fmt.iconColor} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] sm:text-sm font-medium text-foreground truncate block select-all">
-                  {attachment.name}
-                </span>
-                {(attachment as any).version && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
-                    v{(attachment as any).version}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                <span className="font-semibold uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
-                  {fmt.label}
-                </span>
-                {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
-                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                  <ShieldCheck size={11} />
-                  <span>Verified ({attachment.verification?.overall_score || 100}%)</span>
-                </span>
-                <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-medium bg-cyan-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                  <Sparkles size={11} />
-                  <span>Generated from this conversation</span>
-                </span>
-                {error && <span className="text-destructive">• {error}</span>}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-            {/* Preview Button */}
+          {/* Split Download + Any Format Selector */}
+          <div className="relative flex items-center">
             <button
-              onClick={handleOpenPreview}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-muted/50 hover:bg-muted text-foreground transition-all shrink-0 active:scale-95"
-              title="Inspect slide & document preview"
-            >
-              <Eye size={13} className="text-muted-foreground" />
-              <span>Preview</span>
-            </button>
-
-            {/* Download Button */}
-            <button
-              onClick={handleDownload}
+              onClick={e => handleDownload(e)}
               disabled={downloading}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 justify-center ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-medium transition-all shrink-0 justify-center ${
                 downloaded
                   ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
                   : 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm active:scale-95'
@@ -427,82 +205,59 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
                 </>
               )}
             </button>
-          </div>
-        </div>
+            <button
+              type="button"
+              onClick={() => setFormatMenuOpen(v => !v)}
+              disabled={downloading}
+              className="px-1.5 py-1.5 rounded-r-lg text-xs font-medium bg-primary/90 text-primary-foreground border-l border-primary-foreground/20 hover:bg-primary transition-all"
+              title="Download in any file format"
+            >
+              <ChevronDown size={13} />
+            </button>
 
-        {/* Quick Edit & Format Conversion Bar (Sections 19, 20, 40) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60 text-[11px]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-muted-foreground font-medium">Quick Actions:</span>
-            {fmt.tag === 'pdf' && (
-              <>
-                <button
-                  onClick={() => sendMessage('Add a conclusion section to the PDF')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+            {formatMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl p-2 space-y-2">
+                <div className="text-[11px] font-semibold text-muted-foreground px-1">
+                  Download AI Responses As Format:
+                </div>
+                <div className="grid grid-cols-3 gap-1 max-h-44 overflow-y-auto pr-0.5">
+                  {EXPORT_FILE_FORMATS.map(f => (
+                    <button
+                      key={f.ext}
+                      type="button"
+                      onClick={e => handleDownload(e, f.ext)}
+                      className="px-2 py-1 rounded-md text-[11px] font-medium text-left hover:bg-muted border border-transparent hover:border-border transition-colors truncate"
+                      title={f.description}
+                    >
+                      .{f.ext.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    if (customExt.trim()) {
+                      handleDownload(undefined, customExt.trim())
+                      setCustomExt('')
+                    }
+                  }}
+                  className="flex items-center gap-1 pt-1 border-t border-border"
                 >
-                  + Conclusion
-                </button>
-                <button
-                  onClick={() => sendMessage('Convert that PDF into a PowerPoint presentation')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Convert to PPTX
-                </button>
-                <button
-                  onClick={() => sendMessage('Convert that PDF into a Word DOCX document')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Convert to DOCX
-                </button>
-              </>
-            )}
-            {fmt.tag === 'xlsx' && (
-              <>
-                <button
-                  onClick={() => sendMessage('Add a totals row to the Excel file')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  + Totals Row
-                </button>
-                <button
-                  onClick={() => sendMessage('Convert the Excel workbook to CSV')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Export CSV
-                </button>
-              </>
-            )}
-            {fmt.tag === 'pptx' && (
-              <>
-                <button
-                  onClick={() => sendMessage('Change slide 3 title to Executive Architecture & Benchmarks')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Refine Slides
-                </button>
-                <button
-                  onClick={() => sendMessage('Convert the presentation into a PDF report')}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Convert to PDF
-                </button>
-              </>
-            )}
-            {fmt.tag !== 'pdf' && fmt.tag !== 'xlsx' && fmt.tag !== 'pptx' && (
-              <>
-                <button
-                  onClick={() => sendMessage(`Convert ${attachment.name} to PDF`)}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Convert to PDF
-                </button>
-                <button
-                  onClick={() => sendMessage(`Package ${attachment.name} into a ZIP archive`)}
-                  className="px-2 py-0.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
-                >
-                  Export ZIP
-                </button>
-              </>
+                  <input
+                    type="text"
+                    value={customExt}
+                    onChange={e => setCustomExt(e.target.value)}
+                    placeholder="Any format (e.g. log, ini, rs)"
+                    className="flex-1 min-w-0 px-2 py-1 text-[11px] rounded bg-muted/60 border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2 py-1 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90"
+                  >
+                    Go
+                  </button>
+                </form>
+              </div>
             )}
           </div>
         </div>

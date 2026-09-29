@@ -1,4 +1,4 @@
-import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, FileStatusInfo, Attachment, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
+import type { User, Chat, ChatFolder, Message, ModelInfo, ProviderInfo, FileInfo, TokenResponse, StreamChunk, ImageGenResponse } from '@/types'
 
 function getBaseUrlInternal(): string {
   const envUrl = (import.meta.env.VITE_API_URL as string)?.trim()
@@ -214,7 +214,6 @@ export const api = {
     temperature?: number
     max_tokens?: number
     files?: string[]
-    attachments?: Attachment[]
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
@@ -277,90 +276,38 @@ export const api = {
   listProviders: () => request<ProviderInfo[]>('/models/providers'),
 
   // Files
-  uploadFile: async (
-    file: File,
-    options?: { source?: string; analyze?: boolean; signal?: AbortSignal }
-  ): Promise<FileInfo> => {
+  uploadFile: async (file: File, conversationId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
-    formData.append('file', file, file.name || 'clipboard-file')
-    formData.append('analyze', options?.analyze ? 'true' : 'false')
-    formData.append('source', options?.source || 'picker')
-
-    let res: Response
-    try {
-      res = await fetch(`${BASE_URL}/files/upload`, {
-        method: 'POST',
-        body: formData,
-        headers: getAuthHeader(),
-        signal: options?.signal,
-      })
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') throw err
-      throw new Error('Unable to connect to server for file upload.')
+    formData.append('file', file)
+    if (conversationId) {
+      formData.append('conversation_id', conversationId)
     }
-
+    let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
       if (fresh) {
-        res = await fetch(`${BASE_URL}/files/upload`, {
-          method: 'POST',
-          body: formData,
-          headers: getAuthHeader(),
-          signal: options?.signal,
-        })
+        res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
       }
     }
-
     if (!res.ok) {
-      let errorMessage = `Upload failed (${res.status})`
+      let detail = `Upload failed (${res.status})`
       try {
         const err = await res.json()
-        if (typeof err.detail === 'string' && err.detail.trim()) {
-          errorMessage = err.detail
-        } else if (err.message) {
-          errorMessage = err.message
-        }
+        detail = err.detail || err.message || detail
       } catch {}
-      throw new Error(errorMessage)
+      throw new Error(detail)
     }
-
     return res.json() as Promise<FileInfo>
   },
 
-  getFileStatus: (fileId: string, signal?: AbortSignal) =>
-    request<FileStatusInfo>(`/files/${fileId}/status`, { signal }),
-
-  deleteUploadedFile: (fileId: string) =>
-    request<{ status: string; id: string }>(`/files/${fileId}`, { method: 'DELETE' }),
-
-  downloadUploadedFileBlob: async (fileId: string): Promise<Blob> => {
-    await ensureFreshToken()
-    let res = await fetch(`${BASE_URL}/files/${fileId}/content`, {
-      method: 'GET',
-      headers: getAuthHeader(),
-    })
-    if (res.status === 401 && (window as any).Clerk?.session) {
-      const fresh = await ensureFreshToken(true)
-      if (fresh) {
-        res = await fetch(`${BASE_URL}/files/${fileId}/content`, {
-          method: 'GET',
-          headers: getAuthHeader(),
-        })
-      }
-    }
-    if (!res.ok) {
-      throw new Error(`Failed to download file (${res.status})`)
-    }
-    return res.blob()
-  },
-
-  uploadMultiple: async (files: File[], source: 'clipboard' | 'picker' | 'drop' = 'picker') => {
+  uploadMultiple: async (files: File[], conversationId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
-    files.forEach(f => formData.append('files', f, f.name || 'clipboard-file'))
-    formData.append('analyze', 'false')
-    formData.append('source', source)
+    files.forEach(f => formData.append('files', f))
+    if (conversationId) {
+      formData.append('conversation_id', conversationId)
+    }
     let res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
@@ -369,17 +316,59 @@ export const api = {
       }
     }
     if (!res.ok) {
-      let errorMessage = `Upload failed (${res.status})`
+      let detail = `Upload failed (${res.status})`
       try {
         const err = await res.json()
-        if (typeof err.detail === 'string' && err.detail.trim()) {
-          errorMessage = err.detail
-        }
+        detail = err.detail || err.message || detail
       } catch {}
-      throw new Error(errorMessage)
+      throw new Error(detail)
     }
-    return res.json() as Promise<{ files: FileInfo[] }>
+    return res.json() as Promise<{ files: FileInfo[]; count?: number; errors?: any[] }>
   },
+
+  getFileMetadata: (fileId: string) => request<any>(`/files/${fileId}`),
+
+  getFileContent: (fileId: string, params?: Record<string, string | number>) => {
+    const qs = params
+      ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<any>(`/files/${fileId}/content${qs}`)
+  },
+
+  searchFileContent: (fileId: string, query: string, topK = 12) =>
+    request<any>(`/files/${fileId}/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    }),
+
+  reprocessFile: (fileId: string) =>
+    request<FileInfo>(`/files/${fileId}/reprocess`, { method: 'POST' }),
+
+  deleteUploadedFile: (fileId: string) =>
+    request<{ status: string; fileId: string }>(`/files/${fileId}`, { method: 'DELETE' }),
+
+  generateDocument: (data: {
+    format: string
+    title?: string
+    filename?: string
+    chat_id?: string
+    ai_responses?: string[]
+    content?: any
+  }) =>
+    request<{
+      id: string
+      name: string
+      filename: string
+      format: string
+      url: string
+      preview_url?: string
+      size: number
+      type: string
+      preview_data?: any
+    }>('/documents/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   health: () => request<{ status: string }>('/health'),
 
@@ -399,7 +388,6 @@ export const api = {
     reasoning?: boolean
     auto_route?: boolean
     files?: string[]
-    attachments?: Attachment[]
     location?: string
     timezone?: string
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {

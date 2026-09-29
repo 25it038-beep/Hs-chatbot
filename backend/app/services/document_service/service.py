@@ -31,18 +31,70 @@ logger = logging.getLogger("hsbot.document")
 MIME_TYPES = {
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "doc": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xls": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "csv": "text/csv",
+    "tsv": "text/tab-separated-values",
     "md": "text/markdown",
     "markdown": "text/markdown",
     "txt": "text/plain",
+    "html": "text/html",
+    "htm": "text/html",
+    "json": "application/json",
+    "xml": "application/xml",
+    "yaml": "text/yaml",
+    "yml": "text/yaml",
+    "rtf": "application/rtf",
+    "tex": "application/x-tex",
+    "latex": "application/x-tex",
+    "py": "text/x-python",
+    "js": "application/javascript",
+    "ts": "application/typescript",
+    "jsx": "text/jsx",
+    "tsx": "text/tsx",
+    "sql": "application/sql",
+    "sh": "application/x-sh",
+    "css": "text/css",
+    "log": "text/plain",
 }
+
+FORMAT_ALIASES = {
+    "word": "docx",
+    "doc": "docx",
+    "powerpoint": "pptx",
+    "ppt": "pptx",
+    "presentation": "pptx",
+    "slides": "pptx",
+    "excel": "xlsx",
+    "xls": "xlsx",
+    "spreadsheet": "xlsx",
+    "markdown": "md",
+    "text": "txt",
+    "plaintext": "txt",
+    "webpage": "html",
+    "htm": "html",
+    "yml": "yaml",
+    "latex": "tex",
+    "python": "py",
+    "javascript": "js",
+    "typescript": "ts",
+}
+
+
+def normalize_format(fmt: str) -> str:
+    """Normalizes any user-requested format or extension into a clean file extension."""
+    clean = re.sub(r'[^a-zA-Z0-9]', '', (fmt or "txt").lower().strip("."))
+    if not clean:
+        return "txt"
+    return FORMAT_ALIASES.get(clean, clean[:16])
 
 
 @dataclass
 class DocumentIntent:
-    format: str                     # pdf, docx, pptx, xlsx, csv, md, txt
+    format: str                     # pdf, docx, pptx, xlsx, csv, md, txt, html, json, xml, yaml, rtf, tex, or any custom ext
     topic: str                      # e.g. "artificial intelligence"
     title: str                      # e.g. "Artificial Intelligence Overview"
     filename: str                   # e.g. "AI_Introduction.pdf"
@@ -50,6 +102,7 @@ class DocumentIntent:
     count_unit: Optional[str]       # "page", "slide", "sheet"
     is_redesign: bool = False       # True if user is requesting a redesign of existing file
     redesign_instruction: Optional[str] = None # e.g. "make it dark", "use blue", "minimal"
+    use_chat_responses: bool = False # True if the file should contain the AI responses in the chat
 
 
 class DocumentService:
@@ -129,7 +182,17 @@ class DocumentService:
             (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(markdown|md(?:\s+file)?)\b', 'md', None),
 
             # Text
-            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(text\s+file|txt(?:\s+file)?)\b', 'txt', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(text\s+file|plain\s*text|txt(?:\s+file)?)\b', 'txt', None),
+
+            # HTML / JSON / XML / YAML / RTF / LaTeX / Code formats
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(html(?:\s+file|\s+document|\s+page)?|webpage)\b', 'html', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(json(?:\s+file)?)\b', 'json', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(xml(?:\s+file)?)\b', 'xml', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(yaml|yml(?:\s+file)?)\b', 'yaml', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(rtf(?:\s+file)?)\b', 'rtf', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(latex|tex(?:\s+file)?)\b', 'tex', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(tsv(?:\s+file)?)\b', 'tsv', None),
+            (r'\b(?:' + verbs + r')\b.*?\b(?:a|an|the)?\s*(sql(?:\s+file)?|python\s+file|py\s+file|js\s+file|ts\s+file)\b', 'txt', None),
         ]
 
         detected_fmt = None
@@ -148,19 +211,35 @@ class DocumentService:
                 break
 
         if not detected_fmt:
-            simple_match = re.search(r'\b(create|generate|make)\s+(?:a\s+)?(pdf|docx?|pptx?|xlsx?|csv|markdown|md)\b', lower)
+            simple_match = re.search(
+                r'\b(create|generate|make|download|export|save|convert)\b.*?\b(?:as|to|in|into|a|an)?\s*\.?(pdf|docx?|pptx?|xlsx?|csv|tsv|markdown|md|txt|html?|json|xml|ya?ml|rtf|tex|latex|py|js|ts|sql|log)\b',
+                lower,
+            )
             if simple_match:
-                fmt_raw = simple_match.group(2)
-                fmt_map = {
-                    'pdf': 'pdf', 'doc': 'docx', 'docx': 'docx',
-                    'ppt': 'pptx', 'pptx': 'pptx',
-                    'xls': 'xlsx', 'xlsx': 'xlsx',
-                    'csv': 'csv', 'md': 'md', 'markdown': 'md',
-                }
-                detected_fmt = fmt_map.get(fmt_raw, 'pdf')
+                detected_fmt = normalize_format(simple_match.group(2))
+
+        if not detected_fmt:
+            # Generic custom format request: "download as .xyz" or "save as a xyz file"
+            custom_ext_match = re.search(
+                r'\b(?:download|export|save|convert)\b.*?\b(?:as|to|in|into)\s+(?:a\s+|an\s+)?\.?([a-z0-9]{1,10})(?:\s+file|\s+format)?\b',
+                lower,
+            )
+            if custom_ext_match:
+                candidate = custom_ext_match.group(1)
+                if candidate not in {"the", "this", "that", "it", "my", "your", "chat", "ai", "response", "responses", "any", "file", "format"}:
+                    detected_fmt = normalize_format(candidate)
 
         if not detected_fmt:
             return None
+
+        # Detect if the user wants the file to contain the AI responses from the chat
+        chat_ref_patterns = [
+            r'\b(this|these|above|previous|prior|last|earlier)\b',
+            r'\b(ai\s+responses?|your\s+responses?|your\s+answers?|the\s+responses?|the\s+answers?|chat\s+responses?|assistant\s+responses?)\b',
+            r'\b(chat|conversation|messages?|history|transcript|discussion)\b',
+            r'^\s*(?:please\s+)?(?:download|export|save|convert)\s+(?:as|to|in|into)?\s*\.?[a-z0-9]+\s*$',
+        ]
+        use_chat_responses = any(re.search(cp, lower) for cp in chat_ref_patterns)
 
         # Check for count if not captured yet
         if not count:
@@ -170,20 +249,21 @@ class DocumentService:
                 count_unit = count_match.group(2)
 
         # Extract topic/subject
-        strip_pattern = r'^(?:please\s+)?(?:create|make|generate|build|write|produce|prepare|export|save|convert|turn(?:\s+this)?(?:\s+into)?)\s+(?:\b(?:a|an|the|my)\b\s*)?(?:\d+\s*(?:-| )*(?:page|slide|sheet)s?\s*)?(?:(?:\b(?:pdf|word\s+doc(?:ument)?|docx?|powerpoint|pptx?|presentation|excel|xlsx?|spreadsheet|csv|markdown|md|report|resume|expense\s+tracker|budget(?:\s+sheet|\s+tracker|\s+spreadsheet)?|file|document)\b)\s*)*(?:about|on|explaining|for|of|with|showing|covering)?\s*'
+        strip_pattern = r'^(?:please\s+)?(?:create|make|generate|build|write|produce|prepare|export|save|convert|download|turn(?:\s+this)?(?:\s+into)?)\s+(?:\b(?:a|an|the|my|this|these|all|ai|your|chat|response|responses|answer|answers|as|to|in|into)\b\s*)*(?:\d+\s*(?:-| )*(?:page|slide|sheet)s?\s*)?(?:(?:\b(?:pdf|word\s+doc(?:ument)?|docx?|powerpoint|pptx?|presentation|excel|xlsx?|spreadsheet|csv|tsv|markdown|md|txt|text|html?|json|xml|ya?ml|rtf|tex|latex|report|resume|expense\s+tracker|budget(?:\s+sheet|\s+tracker|\s+spreadsheet)?|file|format|document)\b)\s*)*(?:about|on|explaining|for|of|with|showing|covering|from|containing)?\s*'
         clean_topic = re.sub(strip_pattern, '', msg, flags=re.IGNORECASE).strip()
-        if clean_topic:
+        if clean_topic and clean_topic.lower() not in {"the chat", "in the chat", "ai responses", "ai response", "this", "it", "chat", "responses"}:
             first_line = clean_topic.splitlines()[0].strip()
             first_clause = re.split(r'[:;.\n]', first_line)[0].strip()
-            topic = (first_clause or first_line)[:80].strip() or "Document"
+            topic = (first_clause or first_line)[:80].strip() or "AI Chat Responses"
         else:
-            topic = "Document"
+            topic = "AI Chat Responses"
+            use_chat_responses = True
 
         clean_title = re.sub(r'[\r\n\t]+', ' ', topic).strip(' .?!')
-        title = " ".join(w.capitalize() for w in clean_title.split()[:8]) if clean_title else "Document"
+        title = " ".join(w.capitalize() for w in clean_title.split()[:8]) if clean_title else "AI Chat Responses"
 
         file_base = re.sub(r'[^a-zA-Z0-9_\- ]', '', title)
-        file_base = re.sub(r'\s+', '_', file_base.strip())[:40] or "Document"
+        file_base = re.sub(r'\s+', '_', file_base.strip())[:40] or "AI_Chat_Responses"
 
         if detected_fmt == "pdf" and "report" in lower and not file_base.lower().endswith("report"):
             file_base = f"{file_base}_Report"
@@ -203,6 +283,7 @@ class DocumentService:
             filename=filename,
             count=count,
             count_unit=count_unit,
+            use_chat_responses=use_chat_responses,
         )
 
     @staticmethod
@@ -283,9 +364,16 @@ class DocumentService:
 
         Returns dictionary with file metadata, download url, preview data, and design spec.
         """
-        fmt = fmt.lower().strip(".")
-        if fmt not in MIME_TYPES:
-            raise ValueError(f"Unsupported document format: {fmt}")
+        fmt = normalize_format(fmt)
+        if not filename.lower().endswith(f".{fmt}"):
+            base_part = filename.rsplit(".", 1)[0] if "." in filename else filename
+            filename = f"{base_part}.{fmt}"
+
+        # If content is a raw string (e.g., AI response markdown from chat), parse it into structured content
+        if isinstance(content, str) and fmt in ("pdf", "docx", "pptx", "xlsx", "csv"):
+            content = self.parse_ai_responses_to_content([content], fmt, title)
+        elif isinstance(content, list) and content and all(isinstance(x, str) for x in content) and fmt in ("pdf", "docx", "pptx", "xlsx", "csv"):
+            content = self.parse_ai_responses_to_content(content, fmt, title)
 
         # 1. Infer or accept design spec
         if not design_spec:
@@ -390,12 +478,55 @@ class DocumentService:
                 elif fmt in ("md", "markdown"):
                     if isinstance(content, list):
                         generate_markdown(title=title, sections=content, output_path=file_path)
+                    elif isinstance(content, dict) and "sections" in content:
+                        generate_markdown(title=content.get("title", title), sections=content["sections"], output_path=file_path)
                     else:
                         generate_simple_markdown(title=title, text=str(content), output_path=file_path)
 
-                elif fmt == "txt":
+                elif fmt == "json":
+                    payload = content if isinstance(content, (dict, list)) else {
+                        "title": title,
+                        "content": str(content),
+                    }
                     with open(file_path, "w", encoding="utf-8") as f:
-                        f.write(str(content))
+                        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+                elif fmt in ("html", "htm"):
+                    html_str = self._render_html_document(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(html_str)
+
+                elif fmt == "xml":
+                    xml_str = self._render_xml_document(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(xml_str)
+
+                elif fmt in ("yaml", "yml"):
+                    yaml_str = self._render_yaml_document(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(yaml_str)
+
+                elif fmt == "rtf":
+                    rtf_str = self._render_rtf_document(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(rtf_str)
+
+                elif fmt in ("tex", "latex"):
+                    tex_str = self._render_latex_document(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(tex_str)
+
+                elif fmt == "tsv":
+                    rows = content if isinstance(content, list) else [[c.strip() for c in line.split("\t")] for line in str(content).splitlines() if line.strip()]
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        for row in (rows or [["Content"], [str(content)]]):
+                            f.write("\t".join(str(c).replace("\t", " ") for c in row) + "\n")
+
+                else:
+                    # txt, code files (.py, .js, .ts, .sql, .sh, etc.), or any custom file format
+                    text_out = self._extract_plain_text(title, content)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(text_out)
 
             except Exception as e:
                 logger.error("[DOCUMENT] Generator execution failed: %s", e, exc_info=True)
@@ -595,14 +726,21 @@ class DocumentService:
             sections_preview = []
             raw_sec = content.get("sections", []) if isinstance(content, dict) else (content if isinstance(content, list) else [])
             for idx, sec in enumerate(raw_sec, 1):
+                sec_content = str(sec.get("content", ""))
                 sections_preview.append({
                     "section_number": idx,
                     "heading": sec.get("heading", f"Section {idx}"),
+                    "content": sec_content,
+                    "callout": sec.get("callout"),
+                    "kpis": sec.get("kpis", []),
+                    "steps": sec.get("steps", []),
+                    "table": sec.get("table", []),
+                    "items": sec.get("items", []),
                     "has_kpis": bool(sec.get("kpis")),
                     "has_callout": bool(sec.get("callout")),
                     "has_workflow": bool(sec.get("steps")),
                     "has_table": bool(sec.get("table")),
-                    "preview_text": str(sec.get("content", ""))[:180],
+                    "preview_text": sec_content[:240],
                 })
             preview["sections"] = sections_preview
             preview["total_count"] = len(sections_preview) + 1  # +1 for cover
@@ -615,22 +753,499 @@ class DocumentService:
                         sheets_preview.append({
                             "sheet_name": s_name,
                             "headers": [str(c) for c in rows[0]] if rows else [],
-                            "sample_rows": [[str(c) for c in r] for r in rows[1:5]] if len(rows) > 1 else [],
+                            "sample_rows": [[str(c) for c in r] for r in rows[1:15]] if len(rows) > 1 else [],
+                            "rows": [[str(c) for c in r] for r in rows[:50]],
                             "row_count": len(rows),
                         })
             preview["sheets"] = sheets_preview
             preview["total_count"] = len(sheets_preview)
+        else:
+            preview["sample_text"] = self._extract_plain_text(title, content)[:4000]
 
         return preview
 
-    async def synthesize_content(self, intent: DocumentIntent, user_prompt: str = "") -> Any:
+    @staticmethod
+    def _parse_markdown_sections(markdown_text: str, default_heading: str = "AI Response") -> List[Dict[str, Any]]:
+        """Parses an AI response's Markdown text into structured document sections
+        preserving headings, paragraphs, code blocks, bullet lists, numbered steps, callouts, and tables.
+        """
+        cleaned = re.sub(r'!\[[^\]]*\]\(data:image\/[^)]+\)', '', markdown_text or "")
+        cleaned = re.sub(r'<img[^>]+src="data:image\/[^"]+"[^>]*>', '', cleaned).strip()
+        if not cleaned:
+            return [{"heading": default_heading, "content": ""}]
+
+        lines = cleaned.splitlines()
+        raw_blocks: List[Tuple[str, List[str]]] = []
+        current_heading = default_heading
+        current_lines: List[str] = []
+        found_any_heading = False
+
+        in_code_block = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                current_lines.append(line)
+                continue
+
+            if not in_code_block:
+                h_match = re.match(r'^(#{1,4})\s+(.+)$', stripped)
+                if h_match:
+                    heading_text = re.sub(r'\*+|`+', '', h_match.group(2)).strip()
+                    if current_lines or found_any_heading:
+                        if any(l.strip() for l in current_lines):
+                            raw_blocks.append((current_heading, current_lines))
+                    current_heading = heading_text or default_heading
+                    current_lines = []
+                    found_any_heading = True
+                    continue
+
+            current_lines.append(line)
+
+        if any(l.strip() for l in current_lines) or not raw_blocks:
+            raw_blocks.append((current_heading, current_lines))
+
+        sections: List[Dict[str, Any]] = []
+        for idx, (heading, b_lines) in enumerate(raw_blocks, 1):
+            paragraphs: List[str] = []
+            items: List[str] = []
+            steps: List[Dict[str, str]] = []
+            table_rows: List[List[str]] = []
+            callouts: List[str] = []
+            curr_para: List[str] = []
+            in_code = False
+            code_buf: List[str] = []
+
+            for line in b_lines:
+                s = line.strip()
+                if s.startswith("```"):
+                    if in_code:
+                        if code_buf:
+                            paragraphs.append("\n".join(code_buf))
+                            code_buf = []
+                        in_code = False
+                    else:
+                        if curr_para:
+                            paragraphs.append(" ".join(curr_para))
+                            curr_para = []
+                        in_code = True
+                    continue
+
+                if in_code:
+                    code_buf.append(line)
+                    continue
+
+                if not s:
+                    if curr_para:
+                        paragraphs.append(" ".join(curr_para))
+                        curr_para = []
+                    continue
+
+                # Markdown table row
+                if s.startswith("|") and s.endswith("|") and len(s) > 2:
+                    if curr_para:
+                        paragraphs.append(" ".join(curr_para))
+                        curr_para = []
+                    cells = [re.sub(r'\*\*|`', '', c).strip() for c in s.strip("|").split("|")]
+                    # Skip separator row like |---|---|
+                    if all(re.match(r'^:?-{2,}:?$', c) for c in cells if c):
+                        continue
+                    if any(cells):
+                        table_rows.append(cells)
+                    continue
+
+                # Blockquote / callout
+                if s.startswith(">"):
+                    if curr_para:
+                        paragraphs.append(" ".join(curr_para))
+                        curr_para = []
+                    q_text = re.sub(r'^>+\s*', '', s).strip()
+                    if q_text:
+                        callouts.append(re.sub(r'\*\*|`', '', q_text))
+                    continue
+
+                # Bullet item
+                b_match = re.match(r'^[-*•]\s+(.+)$', s)
+                if b_match:
+                    if curr_para:
+                        paragraphs.append(" ".join(curr_para))
+                        curr_para = []
+                    item_txt = re.sub(r'\*\*|`', '', b_match.group(1)).strip()
+                    if item_txt:
+                        items.append(item_txt)
+                    continue
+
+                # Numbered list item
+                n_match = re.match(r'^(\d+)[.)]\s+(.+)$', s)
+                if n_match:
+                    if curr_para:
+                        paragraphs.append(" ".join(curr_para))
+                        curr_para = []
+                    step_raw = re.sub(r'\*\*|`', '', n_match.group(2)).strip()
+                    if ":" in step_raw:
+                        st_title, st_desc = step_raw.split(":", 1)
+                        steps.append({"title": st_title.strip()[:60], "description": st_desc.strip()})
+                    else:
+                        steps.append({"title": f"Step {n_match.group(1)}", "description": step_raw})
+                    continue
+
+                curr_para.append(re.sub(r'\*\*|__', '', s))
+
+            if code_buf:
+                paragraphs.append("\n".join(code_buf))
+            if curr_para:
+                paragraphs.append(" ".join(curr_para))
+
+            content_text = "\n\n".join(p for p in paragraphs if p.strip())
+            # Ensure section content is never empty if items/steps exist
+            if not content_text and items:
+                content_text = "\n".join(f"• {it}" for it in items)
+                items = []
+
+            sec_dict: Dict[str, Any] = {
+                "heading": heading or f"Section {idx}",
+                "content": content_text,
+            }
+            if callouts:
+                sec_dict["callout"] = " ".join(callouts)[:340]
+            if items:
+                sec_dict["items"] = items
+            if steps:
+                sec_dict["steps"] = steps
+            if table_rows and len(table_rows) >= 2:
+                col_count = max(len(r) for r in table_rows)
+                norm_rows = [r + [""] * (col_count - len(r)) for r in table_rows]
+                sec_dict["table"] = norm_rows
+
+            sections.append(sec_dict)
+
+        return sections
+
+    @classmethod
+    def parse_ai_responses_to_content(cls, ai_responses: List[str], fmt: str, title: str = "AI Chat Responses") -> Any:
+        """Converts one or more AI responses from the chat into rich structured content
+        for any target file format so the downloaded file contains the exact AI responses.
+        """
+        fmt = normalize_format(fmt)
+        valid_responses = [r.strip() for r in (ai_responses or []) if r and r.strip()]
+        if not valid_responses:
+            valid_responses = [f"No AI responses available yet for {title}."]
+
+        all_sections: List[Dict[str, Any]] = []
+        multi = len(valid_responses) > 1
+        for r_idx, resp_text in enumerate(valid_responses, 1):
+            default_h = f"AI Response #{r_idx}" if multi else (title or "AI Response")
+            parsed_secs = cls._parse_markdown_sections(resp_text, default_heading=default_h)
+            if multi and parsed_secs:
+                first_h = parsed_secs[0].get("heading", "")
+                if not first_h.lower().startswith(f"ai response #{r_idx}"):
+                    parsed_secs[0]["heading"] = f"Response #{r_idx}: {first_h}"
+            all_sections.extend(parsed_secs)
+
+        if not all_sections:
+            all_sections = [{"heading": title or "AI Response", "content": "\n\n".join(valid_responses)}]
+
+        if fmt in ("pdf", "docx"):
+            return {
+                "title": title or "AI Chat Responses",
+                "subtitle": f"Compiled from {len(valid_responses)} AI Response{'s' if len(valid_responses) != 1 else ''} in Chat",
+                "author": "HSBot AI Assistant",
+                "organization": "HSBot Chat Export",
+                "sections": all_sections,
+            }
+
+        if fmt == "pptx":
+            slides: List[Dict[str, Any]] = []
+            for sec in all_sections:
+                s_title = sec.get("heading", title)[:70]
+                if sec.get("table") and len(sec["table"]) >= 2:
+                    slides.append({
+                        "title": s_title,
+                        "layout": "table",
+                        "table_data": sec["table"][:8],
+                    })
+                elif sec.get("steps"):
+                    slides.append({
+                        "title": s_title,
+                        "layout": "process",
+                        "steps": sec["steps"][:5],
+                    })
+                else:
+                    bullets: List[str] = []
+                    if sec.get("content"):
+                        for para in sec["content"].split("\n\n"):
+                            p_clean = para.strip()
+                            if p_clean:
+                                bullets.append(p_clean[:180])
+                    if sec.get("items"):
+                        bullets.extend(it[:160] for it in sec["items"])
+                    if not bullets:
+                        bullets = ["AI response content from chat."]
+
+                    cards = []
+                    chunk_size = max(1, (len(bullets) + 2) // 3)
+                    for c_i in range(0, len(bullets), chunk_size):
+                        group = bullets[c_i:c_i + chunk_size][:4]
+                        cards.append({
+                            "title": f"Key Point {len(cards) + 1}" if len(bullets) > 1 else s_title[:40],
+                            "points": group,
+                        })
+                    slides.append({
+                        "title": s_title,
+                        "layout": "cards",
+                        "cards": cards[:3],
+                    })
+
+            return {
+                "title": title or "AI Chat Responses",
+                "subtitle": "Presentation Generated from Chat AI Responses",
+                "slides": slides or [{"title": title, "layout": "cards", "cards": [{"title": "Response", "points": valid_responses[:3]}]}],
+            }
+
+        if fmt == "xlsx":
+            sheets: Dict[str, List[List[Any]]] = {}
+            response_rows: List[List[Any]] = [["Section #", "Heading", "AI Response Content", "Key Items / Notes"]]
+            table_idx = 1
+            for s_idx, sec in enumerate(all_sections, 1):
+                items_str = "; ".join(sec.get("items", [])) or (
+                    "; ".join(f"{st.get('title')}: {st.get('description')}" for st in sec.get("steps", []))
+                ) or (sec.get("callout") or "")
+                response_rows.append([
+                    s_idx,
+                    sec.get("heading", f"Section {s_idx}"),
+                    sec.get("content", ""),
+                    items_str,
+                ])
+                if sec.get("table"):
+                    sheets[f"Table_{table_idx}"] = sec["table"]
+                    table_idx += 1
+
+            sheets["AI_Responses"] = response_rows
+            return sheets
+
+        if fmt in ("csv", "tsv"):
+            rows: List[List[Any]] = []
+            # If there is a single table and minimal prose, include table first
+            for sec in all_sections:
+                if sec.get("table"):
+                    rows.extend(sec["table"])
+                    rows.append([])
+            rows.append(["Section #", "Heading", "AI Response Content", "Bullet Points / Notes"])
+            for s_idx, sec in enumerate(all_sections, 1):
+                notes = " | ".join(sec.get("items", []))
+                rows.append([
+                    s_idx,
+                    sec.get("heading", f"Section {s_idx}"),
+                    sec.get("content", ""),
+                    notes,
+                ])
+            return rows
+
+        if fmt == "json":
+            return {
+                "title": title or "AI Chat Responses",
+                "response_count": len(valid_responses),
+                "responses": valid_responses,
+                "sections": all_sections,
+            }
+
+        # For md, txt, html, xml, yaml, rtf, tex, code files, or any custom format:
+        combined_md = "\n\n---\n\n".join(valid_responses)
+        return combined_md
+
+    def _extract_plain_text(self, title: str, content: Any) -> str:
+        if isinstance(content, str):
+            return content if content.startswith("#") else f"# {title}\n\n{content}"
+        if isinstance(content, dict):
+            if "sections" in content and isinstance(content["sections"], list):
+                parts = [f"# {content.get('title', title)}\n"]
+                for sec in content["sections"]:
+                    if sec.get("heading"):
+                        parts.append(f"## {sec['heading']}\n")
+                    if sec.get("content"):
+                        parts.append(f"{sec['content']}\n")
+                    if sec.get("callout"):
+                        parts.append(f"> {sec['callout']}\n")
+                    for it in sec.get("items", []):
+                        parts.append(f"- {it}")
+                    for st in sec.get("steps", []):
+                        parts.append(f"1. {st.get('title', '')}: {st.get('description', '')}")
+                    if sec.get("table"):
+                        for row in sec["table"]:
+                            parts.append(" | ".join(str(c) for c in row))
+                    parts.append("")
+                return "\n".join(parts).strip()
+            return json.dumps(content, indent=2, ensure_ascii=False)
+        if isinstance(content, list):
+            if all(isinstance(x, str) for x in content):
+                return "\n\n---\n\n".join(content)
+            return "\n".join(
+                ", ".join(str(c) for c in row) if isinstance(row, list) else str(row)
+                for row in content
+            )
+        return str(content)
+
+    def _render_html_document(self, title: str, content: Any) -> str:
+        import html as _html
+        text_body = self._extract_plain_text(title, content)
+        escaped_title = _html.escape(title or "AI Chat Responses")
+        sections = self._parse_markdown_sections(text_body, default_heading=title)
+        sec_html_parts: List[str] = []
+        for sec in sections:
+            h = _html.escape(str(sec.get("heading", "")))
+            c = _html.escape(str(sec.get("content", ""))).replace("\n\n", "</p><p>").replace("\n", "<br/>")
+            part = f"<section class='card'><h2>{h}</h2>"
+            if c:
+                part += f"<p>{c}</p>"
+            if sec.get("callout"):
+                part += f"<blockquote>{_html.escape(str(sec['callout']))}</blockquote>"
+            if sec.get("items"):
+                items_li = "".join(f"<li>{_html.escape(str(i))}</li>" for i in sec["items"])
+                part += f"<ul>{items_li}</ul>"
+            if sec.get("steps"):
+                steps_li = "".join(
+                    f"<li><strong>{_html.escape(str(st.get('title', '')))}:</strong> {_html.escape(str(st.get('description', '')))}</li>"
+                    for st in sec["steps"]
+                )
+                part += f"<ol>{steps_li}</ol>"
+            if sec.get("table"):
+                t_rows = sec["table"]
+                th = "".join(f"<th>{_html.escape(str(cell))}</th>" for cell in t_rows[0])
+                tb = ""
+                for r in t_rows[1:]:
+                    tb += "<tr>" + "".join(f"<td>{_html.escape(str(cell))}</td>" for cell in r) + "</tr>"
+                part += f"<table><thead><tr>{th}</tr></thead><tbody>{tb}</tbody></table>"
+            part += "</section>"
+            sec_html_parts.append(part)
+
+        body_html = "\n".join(sec_html_parts)
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{escaped_title}</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 24px; color: #0f172a; background: #f8fafc; line-height: 1.65; }}
+    header {{ background: #0f172a; color: #ffffff; padding: 28px 32px; border-radius: 14px; margin-bottom: 24px; }}
+    header h1 {{ margin: 0 0 6px 0; font-size: 24px; }}
+    header p {{ margin: 0; color: #94a3b8; font-size: 13px; }}
+    .card {{ background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }}
+    h2 {{ margin-top: 0; color: #0f172a; font-size: 18px; border-bottom: 2px solid #10b981; padding-bottom: 6px; display: inline-block; }}
+    blockquote {{ margin: 16px 0; padding: 12px 16px; background: #ecfdf5; border-left: 4px solid #10b981; color: #065f46; border-radius: 6px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }}
+    th, td {{ border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }}
+    th {{ background: #f1f5f9; font-weight: 600; }}
+    pre, code {{ font-family: monospace; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{escaped_title}</h1>
+    <p>Exported AI Responses from HSBot Chat</p>
+  </header>
+  {body_html}
+</body>
+</html>"""
+
+    def _render_xml_document(self, title: str, content: Any) -> str:
+        import html as _html
+        text_body = self._extract_plain_text(title, content)
+        sections = self._parse_markdown_sections(text_body, default_heading=title)
+        xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<chatResponses>', f'  <title>{_html.escape(title)}</title>']
+        for idx, sec in enumerate(sections, 1):
+            xml_lines.append(f'  <section id="{idx}">')
+            xml_lines.append(f'    <heading>{_html.escape(str(sec.get("heading", "")))}</heading>')
+            xml_lines.append(f'    <content>{_html.escape(str(sec.get("content", "")))}</content>')
+            if sec.get("items"):
+                xml_lines.append('    <items>')
+                for it in sec["items"]:
+                    xml_lines.append(f'      <item>{_html.escape(str(it))}</item>')
+                xml_lines.append('    </items>')
+            xml_lines.append('  </section>')
+        xml_lines.append('</chatResponses>')
+        return "\n".join(xml_lines)
+
+    def _render_yaml_document(self, title: str, content: Any) -> str:
+        text_body = self._extract_plain_text(title, content)
+        sections = self._parse_markdown_sections(text_body, default_heading=title)
+        safe_title = title.replace('"', '\\"')
+        lines = [f'title: "{safe_title}"', 'sections:']
+        for sec in sections:
+            h = str(sec.get("heading", "")).replace('"', '\\"')
+            lines.append(f'  - heading: "{h}"')
+            lines.append('    content: |')
+            for l in str(sec.get("content", "")).splitlines() or [""]:
+                lines.append(f'      {l}')
+            if sec.get("items"):
+                lines.append('    items:')
+                for it in sec["items"]:
+                    safe_it = str(it).replace('"', '\\"')
+                    lines.append(f'      - "{safe_it}"')
+        return "\n".join(lines)
+
+    def _render_rtf_document(self, title: str, content: Any) -> str:
+        text_body = self._extract_plain_text(title, content)
+        def _rtf_esc(s: str) -> str:
+            return s.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").encode("ascii", "ignore").decode("ascii")
+        lines = [r"{\rtf1\ansi\deff0", r"{\fonttbl{\f0 Helvetica;}}", f"\\b\\fs32 {_rtf_esc(title)}\\b0\\fs22\\par\\par"]
+        for para in text_body.splitlines():
+            lines.append(f"{_rtf_esc(para)}\\par")
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _render_latex_document(self, title: str, content: Any) -> str:
+        text_body = self._extract_plain_text(title, content)
+        sections = self._parse_markdown_sections(text_body, default_heading=title)
+        def _tex_esc(s: str) -> str:
+            for ch in ["\\", "&", "%", "$", "#", "_", "{", "}"]:
+                s = s.replace(ch, f"\\{ch}" if ch != "\\" else r"\textbackslash{}")
+            return s
+        lines = [
+            r"\documentclass[11pt]{article}",
+            r"\usepackage[utf8]{inputenc}",
+            r"\usepackage[margin=1in]{geometry}",
+            f"\\title{{{_tex_esc(title)}}}",
+            r"\author{HSBot AI Assistant}",
+            r"\date{\today}",
+            r"\begin{document}",
+            r"\maketitle",
+        ]
+        for sec in sections:
+            lines.append(f"\\section{{{_tex_esc(str(sec.get('heading', '')))}}}")
+            lines.append(_tex_esc(str(sec.get("content", ""))))
+            if sec.get("items"):
+                lines.append(r"\begin{itemize}")
+                for it in sec["items"]:
+                    lines.append(f"  \\item {_tex_esc(str(it))}")
+                lines.append(r"\end{itemize}")
+        lines.append(r"\end{document}")
+        return "\n\n".join(lines)
+
+    async def synthesize_content(
+        self,
+        intent: DocumentIntent,
+        user_prompt: str = "",
+        chat_ai_responses: Optional[List[str]] = None,
+    ) -> Any:
         """Synthesizes structured content tailored to the document type and user's prompt.
 
-        Performs deep research retrieval, queries fast LLMs (SambaNova / NVIDIA) with research grounding,
-        and uses domain-aware deep knowledge synthesis fallback if models are busy.
+        When `chat_ai_responses` are present in the chat, builds the document directly from
+        the chat's AI responses so downloaded files contain the actual AI responses in the chat.
         """
-        logger.info("[DOCUMENT] Deep research & synthesis started for format=%s topic='%s'", intent.format, intent.topic)
-        fmt = intent.format
+        logger.info("[DOCUMENT] Synthesis started for format=%s topic='%s' chat_responses=%d",
+                    intent.format, intent.topic, len(chat_ai_responses or []))
+        fmt = normalize_format(intent.format)
+
+        valid_chat_responses = [
+            r.strip() for r in (chat_ai_responses or [])
+            if r and r.strip() and not r.strip().startswith("Done — your ") and not r.strip().startswith("Done — created ")
+        ]
+
+        # If there are AI responses in the chat, build the file directly from the chat's AI responses
+        if valid_chat_responses:
+            logger.info("[DOCUMENT] Building %s directly from %d AI responses in the chat", fmt.upper(), len(valid_chat_responses))
+            return self.parse_ai_responses_to_content(valid_chat_responses, fmt, intent.title)
 
         # 1. Perform Deep Research Retrieval on topic
         research_context = ""
@@ -688,25 +1303,34 @@ class DocumentService:
 
             if raw:
                 # Clean markdown fences or surrounding commentary
-                if "```" in raw:
-                    raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE)
-                    raw = re.sub(r'\s*```$', '', raw).strip()
+                cleaned_raw = raw
+                if "```" in cleaned_raw:
+                    cleaned_raw = re.sub(r'^```(?:json)?\s*', '', cleaned_raw, flags=re.IGNORECASE)
+                    cleaned_raw = re.sub(r'\s*```$', '', cleaned_raw).strip()
 
                 data = None
                 try:
-                    data = json.loads(raw)
+                    data = json.loads(cleaned_raw)
                 except Exception:
-                    match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', raw)
+                    match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', cleaned_raw)
                     if match:
-                        data = json.loads(match.group(1))
+                        try:
+                            data = json.loads(match.group(1))
+                        except Exception:
+                            data = None
 
                 if data and self._validate_structured_data(fmt, data):
                     logger.info("[DOCUMENT] Successfully synthesized structured content via LLM for topic='%s'", intent.topic)
                     return data
+
+                # If the LLM returned markdown/prose instead of JSON, parse the AI response directly into the file!
+                return self.parse_ai_responses_to_content([raw], fmt, intent.title)
         except Exception as e:
             logger.warning("[DOCUMENT] LLM content synthesis skipped/failed (%s), activating deep research domain engine", e)
 
         # 3. High quality domain-grounded deep research fallback matching the request
+        if research_context:
+            return self.parse_ai_responses_to_content([research_context], fmt, intent.title)
         return self._generate_fallback_content(intent, user_prompt=user_prompt, research_context=research_context)
 
     def _build_synthesis_prompt(self, intent: DocumentIntent, user_prompt: str = "", research_context: str = "") -> str:

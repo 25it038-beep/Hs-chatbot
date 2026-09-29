@@ -40,7 +40,8 @@ import {
   downloadDocumentWithFallback,
   openDocumentInNewTab,
   extractStructuredContent,
-  verifyDocumentPromptMatch
+  verifyDocumentPromptMatch,
+  EXPORT_FILE_FORMATS,
 } from '@/lib/documentGenerator'
 
 export function ArtifactSidePanel() {
@@ -924,17 +925,32 @@ export function ArtifactSidePanel() {
                 {/* Conversion options */}
                 <div className="pt-4 border-t border-border">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                    Format Conversions
+                    Download AI Responses in Any Format
                   </h4>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1 rounded-lg">
-                      <FileText size={12} />
-                      <span>Export as PDF</span>
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1 rounded-lg">
-                      <FileText size={12} />
-                      <span>Export as DOCX</span>
-                    </Button>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {EXPORT_FILE_FORMATS.map(fmt => (
+                      <Button
+                        key={fmt.ext}
+                        variant="outline"
+                        size="sm"
+                        disabled={isDownloading}
+                        onClick={async () => {
+                          setIsDownloading(true)
+                          try {
+                            await downloadDocumentWithFallback(activeArtifact, previewData, fmt.ext)
+                            setDownloadSuccess(true)
+                            setTimeout(() => setDownloadSuccess(false), 2500)
+                          } finally {
+                            setIsDownloading(false)
+                          }
+                        }}
+                        className="h-7 px-2.5 text-[11px] gap-1 rounded-lg"
+                        title={fmt.description}
+                      >
+                        <Download size={11} />
+                        <span>.{fmt.ext.toUpperCase()}</span>
+                      </Button>
+                    ))}
                   </div>
                 </div>
               </div>

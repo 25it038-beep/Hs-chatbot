@@ -1,7 +1,7 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { Copy, Check, Download, Pencil, Undo2, Volume2, VolumeX } from 'lucide-react'
+import { Copy, Check, Download, Pencil, Undo2, Volume2, VolumeX, Loader2, ChevronDown } from 'lucide-react'
 import type { Message, Attachment } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
 import { FileAttachmentCard } from './FileAttachmentCard'
@@ -12,6 +12,12 @@ import { WebSearchResults } from './WebSearchResults'
 import { ClarificationQuizComponent } from './ClarificationQuiz'
 import { SatisfactionCheckComponent } from './SatisfactionCheck'
 import { YouTubeSearchResults } from './YouTubeSearchResults'
+import {
+  downloadAiResponsesAsFile,
+  EXPORT_FILE_FORMATS,
+  getActiveChatAiResponses,
+} from '@/lib/documentGenerator'
+import { useChatStore } from '@/stores/chat'
 
 
 interface ChatMessageProps {
@@ -57,6 +63,11 @@ function GeneratedImage({ content }: { content: string }) {
 
 export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend, showImages = true }: ChatMessageProps) {
   const [copied, setCopied] = React.useState(false)
+  const [downloadMenuOpen, setDownloadMenuOpen] = React.useState(false)
+  const [downloadingFormat, setDownloadingFormat] = React.useState<string | null>(null)
+  const [exportScope, setExportScope] = React.useState<'single' | 'all'>('all')
+  const [customFormat, setCustomFormat] = React.useState('')
+
   const isUser = message.role === 'user'
   const isGeneratedImage = !isUser && message.content.startsWith('<img ')
   const { isSpeaking, speakingMessageId, speakText, stopSpeaking, synthesisSupported } = useVoiceStore()
@@ -78,6 +89,32 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
       stopSpeaking()
     } else {
       speakText(message.content, message.id)
+    }
+  }
+
+  const handleDownloadAsFormat = async (fmt: string) => {
+    const cleanFmt = fmt.trim().toLowerCase().replace(/^\.+/, '')
+    if (!cleanFmt || downloadingFormat) return
+    setDownloadingFormat(cleanFmt)
+    try {
+      const currentChat = useChatStore.getState().currentChat
+      const allChatResponses = getActiveChatAiResponses()
+      const responsesToExport =
+        exportScope === 'all' && allChatResponses.length > 0
+          ? allChatResponses
+          : [message.content]
+
+      await downloadAiResponsesAsFile({
+        responses: responsesToExport,
+        format: cleanFmt,
+        title: currentChat?.title || undefined,
+        chatId: currentChat?.id,
+      })
+      setDownloadMenuOpen(false)
+    } catch (err) {
+      console.error('Failed to download AI responses:', err)
+    } finally {
+      setDownloadingFormat(null)
     }
   }
 
@@ -186,7 +223,7 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
             )}
 
             {!isStreaming && message.content && (
-              <div className="flex items-center gap-0.5 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
+              <div className="relative flex items-center gap-0.5 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-200">
                 <button
                   onClick={handleCopy}
                   className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-all"
@@ -195,6 +232,110 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
                 >
                   {copied ? <Check size={12} className="text-brand" /> : <Copy size={12} />}
                 </button>
+
+                {/* Download AI Response(s) as any file format */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setDownloadMenuOpen(v => !v)}
+                    className={cn(
+                      'px-2 py-1 rounded-md text-xs transition-all flex items-center gap-1',
+                      downloadMenuOpen
+                        ? 'text-primary bg-primary/10'
+                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted'
+                    )}
+                    title="Download AI responses as any file format"
+                    aria-label="Download AI responses as any file format"
+                  >
+                    {downloadingFormat ? (
+                      <Loader2 size={12} className="animate-spin text-primary" />
+                    ) : (
+                      <Download size={12} />
+                    )}
+                    <span className="text-[11px] font-medium">Download</span>
+                    <ChevronDown size={10} />
+                  </button>
+
+                  {downloadMenuOpen && (
+                    <div className="absolute left-0 bottom-full mb-1.5 z-50 w-72 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl p-2.5 space-y-2">
+                      <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-border">
+                        <span className="text-[11px] font-semibold text-foreground">
+                          Download AI Responses
+                        </span>
+                        <div className="flex items-center rounded-md bg-muted p-0.5 text-[10px]">
+                          <button
+                            type="button"
+                            onClick={() => setExportScope('all')}
+                            className={cn(
+                              'px-1.5 py-0.5 rounded font-medium transition-colors',
+                              exportScope === 'all'
+                                ? 'bg-background text-foreground shadow-xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            All in Chat
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExportScope('single')}
+                            className={cn(
+                              'px-1.5 py-0.5 rounded font-medium transition-colors',
+                              exportScope === 'single'
+                                ? 'bg-background text-foreground shadow-xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            This Reply
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1 max-h-44 overflow-y-auto pr-0.5">
+                        {EXPORT_FILE_FORMATS.map(f => (
+                          <button
+                            key={f.ext}
+                            type="button"
+                            disabled={!!downloadingFormat}
+                            onClick={() => handleDownloadAsFormat(f.ext)}
+                            className="px-2 py-1 rounded-md text-[11px] font-medium text-left hover:bg-muted border border-transparent hover:border-border transition-colors flex items-center justify-between"
+                            title={f.description}
+                          >
+                            <span>.{f.ext.toUpperCase()}</span>
+                            {downloadingFormat === f.ext && (
+                              <Loader2 size={10} className="animate-spin text-primary" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+
+                      <form
+                        onSubmit={e => {
+                          e.preventDefault()
+                          if (customFormat.trim()) {
+                            handleDownloadAsFormat(customFormat.trim())
+                            setCustomFormat('')
+                          }
+                        }}
+                        className="flex items-center gap-1 pt-1.5 border-t border-border"
+                      >
+                        <input
+                          type="text"
+                          value={customFormat}
+                          onChange={e => setCustomFormat(e.target.value)}
+                          placeholder="Any format (e.g. docx, log, ini, yaml)"
+                          className="flex-1 min-w-0 px-2 py-1 text-[11px] rounded bg-muted/60 border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!customFormat.trim() || !!downloadingFormat}
+                          className="px-2.5 py-1 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
 
                 {synthesisSupported && (
                   <button

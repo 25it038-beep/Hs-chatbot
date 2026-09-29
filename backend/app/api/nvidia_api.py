@@ -358,6 +358,22 @@ async def nvidia_chat(
         chat_id = request.chat_id
         u_id = user.id if user else "default_user"
 
+        chat_ai_responses: list[str] = []
+        if chat_id:
+            try:
+                prev_msgs_res = await db.execute(
+                    select(Message)
+                    .where(Message.chat_id == chat_id, Message.role == "assistant")
+                    .order_by(Message.created_at)
+                )
+                chat_ai_responses = [
+                    m.content.strip()
+                    for m in prev_msgs_res.scalars().all()
+                    if m.content and m.content.strip() and not m.content.strip().startswith("Done — ")
+                ]
+            except Exception:
+                chat_ai_responses = []
+
         if request.stream:
             async def generate_document_stream():
                 yield f"data: {json.dumps({'type': 'meta', 'model': 'document-generator', 'task': 'document', 'chat_id': chat_id or ''})}\n\n"
@@ -373,7 +389,11 @@ async def nvidia_chat(
                         nonlocal structured_content, design_spec
                         current_content = structured_content
                         if not current_content:
-                            current_content = await document_service.synthesize_content(intent_item, user_prompt=request.message)
+                            current_content = await document_service.synthesize_content(
+                                intent_item,
+                                user_prompt=request.message,
+                                chat_ai_responses=chat_ai_responses,
+                            )
 
                         file_info = await document_service.generate_file(
                             fmt=intent_item.format,

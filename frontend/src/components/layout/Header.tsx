@@ -4,11 +4,13 @@ import { useTheme } from '@/components/theme/ThemeProvider'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import {
-  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio, MessageSquare, Bot, Video
+  Sun, Moon, Monitor, Settings, Sparkles, PanelLeft, Download, Radio, MessageSquare, Bot, Video, Image as ImageIcon
 } from 'lucide-react'
 import { isTauri } from '@/lib/tauri'
 import { useChat } from '@/stores/chat'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
+import { WallpaperPickerModal } from '@/components/wallpaper/WallpaperPickerModal'
+import { useWallpaperStore } from '@/stores/wallpaper'
 import { HAS_CLERK, CLERK_PUBLISHABLE_KEY } from '@/lib/clerkConfig'
 
 const THEME_CYCLE = ['light', 'dark', 'system'] as const
@@ -35,6 +37,8 @@ export function Header() {
   const { setLiveOpen } = useChat()
   const { theme, setTheme } = useTheme()
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
+  const [wallpaperModalOpen, setWallpaperModalOpen] = useState(false)
+  const { autoCycle, currentWallpaperId } = useWallpaperStore()
   const current = THEME_META[(theme as ThemeOption) in THEME_META ? (theme as ThemeOption) : 'system']
   const ThemeIcon = current.icon
 
@@ -127,6 +131,22 @@ export function Header() {
           )}
           {HAS_CLERK && CLERK_PUBLISHABLE_KEY && <ClerkUserAvatar />}
           <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground relative"
+            onClick={() => setWallpaperModalOpen(true)}
+            title={autoCycle ? "Wallpapers (Auto-cycling every 30s)" : "Wallpapers & Backgrounds"}
+            aria-label="Wallpapers & Backgrounds"
+          >
+            <ImageIcon size={15} />
+            {autoCycle && (
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+            {!autoCycle && currentWallpaperId !== 'none' && (
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-primary" />
+            )}
+          </Button>
+          <Button
             variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground"
             onClick={() => setTheme(current.next)}
             title={`${current.label} — switch to ${THEME_META[current.next].label}`}
@@ -148,6 +168,10 @@ export function Header() {
       <WindowsDownloadModal
         open={downloadModalOpen}
         onOpenChange={setDownloadModalOpen}
+      />
+      <WallpaperPickerModal
+        open={wallpaperModalOpen}
+        onOpenChange={setWallpaperModalOpen}
       />
     </>
   )

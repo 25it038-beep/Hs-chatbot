@@ -225,6 +225,8 @@ class ChatRequest(BaseModel):
     auto_route: bool = True
     chat_id: Optional[str] = None
     files: Optional[list[str]] = None
+    file_ids: Optional[list[str]] = None
+    attachments: Optional[list[dict]] = None
     location: Optional[str] = None
     timezone: Optional[str] = None
 
@@ -521,9 +523,21 @@ async def nvidia_chat(
     from app.services.game.detector import game_detector
     from app.services.game.generator import game_generator
     from app.services.nvidia.router import WEB_PROJECT_RE
+    from sqlalchemy import func
 
     is_game_req = game_detector.is_game_request(request.message)
     is_web_project_req = is_game_req or bool(WEB_PROJECT_RE.search(request.message))
+
+    has_attached_files = bool(request.file_ids or request.attachments or request.files)
+    if not has_attached_files and request.chat_id:
+        try:
+            f_count = await db.scalar(
+                select(func.count(GeneratedFile.id)).where(GeneratedFile.conversation_id == str(request.chat_id))
+            )
+            if f_count and f_count > 0:
+                has_attached_files = True
+        except Exception:
+            pass
 
     if request.auto_route:
 
@@ -543,11 +557,13 @@ async def nvidia_chat(
             except Exception:
                 context = []
         decision = ai_router.classify(request.message, context=context)
-        task = ai_router.detect_task(request.message, context=context)
+        task = ai_router.detect_task(request.message, context=context, has_files=has_attached_files)
         if is_game_req:
             task = "game_development"
         elif is_web_project_req:
             task = "coding"
+        elif has_attached_files and task == "web_images":
+            task = "chat"
         auto_model = ai_router.get_best_model(task)
         if task == "image_generation":
             model = auto_model or "flux-1-dev"
@@ -555,7 +571,9 @@ async def nvidia_chat(
             model = auto_model
     else:
         decision = ai_router.classify(request.message)
-        task = "game_development" if is_game_req else ("coding" if is_web_project_req else ai_router.detect_task(request.message))
+        task = "game_development" if is_game_req else ("coding" if is_web_project_req else ai_router.detect_task(request.message, has_files=has_attached_files))
+        if has_attached_files and task == "web_images":
+            task = "chat"
         _generic_defaults = {"llama-3.2-11b", "llama-3.1-70b", "llama-3.2-vision", "DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct"}
         if is_game_req or is_web_project_req or (task in ("coding", "game_development") and (not request.model or request.model in _generic_defaults)):
             model = "llama-3.2-11b"
@@ -666,7 +684,7 @@ async def nvidia_chat(
                 return {"content": f"Image generation failed: {str(e)}", "model": model, "provider": "nvidia"}
 
     # ── Web image search path (Wikimedia Commons, no API key needed) ──
-    if task == "web_images":
+    if task == "web_images" and not has_attached_files:
         query = web_image_search.extract_query(request.message)
         if request.stream:
             async def search_images():
@@ -737,42 +755,75 @@ async def nvidia_chat(
         all_messages = result.scalars().all()
         recent_history = [{"role": m.role, "content": m.content, "extra_data": m.extra_data} for m in all_messages[-6:]]
 
-        context_engine_used = False
-        if user:
-            cached_files = RAGService.get_cached_files(user.id)
-            if cached_files:
-                try:
-                    from app.services.chat_context import general_chat_context_engine
-                    prepared_msgs, ctx_meta = await general_chat_context_engine.prepare_context(
-                        model_id=model or "llama-3.2-11b",
-                        user_message=request.message,
-                        conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
-                        attached_files=cached_files,
-                        system_prompt=system_prompt,
-                    )
-                    if prepared_msgs:
-                        system_prompt = prepared_msgs[0]["content"]
-                        api_messages = prepared_msgs[1:-1]
-                        request.message = prepared_msgs[-1]["content"]
-                        context_engine_used = True
-                        _logger.info(
-                            "[NVIDIA][CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
-                            ctx_meta.get("chunks_included", 0),
-                            len(ctx_meta.get("citations", [])),
-                            user.id
-                        )
-                except Exception as e:
-                    _logger.warning("GeneralChatContextEngineV2 failed in nvidia_api, falling back: %s", e)
+        # Resolve attachments if only file_ids were sent
+        if request.file_ids and not request.attachments:
+            from app.models.file import GeneratedFile
+            from sqlalchemy import select
+            f_stmt = select(GeneratedFile).where(GeneratedFile.id.in_(request.file_ids))
+            f_res = await db.execute(f_stmt)
+            db_files = f_res.scalars().all()
+            request.attachments = [
+                {
+                    "id": f.id,
+                    "filename": f.filename,
+                    "name": f.filename,
+                    "size": f.file_size,
+                    "mime_type": f.mime_type,
+                    "status": f.status or "READY",
+                    "url": f"/api/files/{f.id}/download",
+                    "download_url": f"/api/files/{f.id}/download",
+                }
+                for f in db_files
+            ]
 
-            if not context_engine_used:
-                rag = RAGService(db, user.id)
-                rag_context = await rag.search_similar(request.message)
-                if rag_context:
-                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
-                else:
-                    all_texts = RAGService.get_all_cached_texts(user.id)
-                    if all_texts:
-                        system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
+        # Link files to this chat permanently in DB so follow-ups never forget them
+        if request.chat_id and request.file_ids:
+            from app.models.file import GeneratedFile
+            from sqlalchemy import update
+            await db.execute(
+                update(GeneratedFile)
+                .where(GeneratedFile.id.in_(request.file_ids))
+                .values(conversation_id=str(request.chat_id))
+            )
+            await db.commit()
+
+        context_engine_used = False
+        try:
+            from app.services.chat_context import general_chat_file_context_engine
+            cached_files = RAGService.get_cached_files(user.id) if user else None
+            prepared_msgs, ctx_meta = await general_chat_file_context_engine.prepare_context(
+                user_id=user.id if user else "default_user_id",
+                chat_id=str(request.chat_id) if request.chat_id else None,
+                file_ids=request.file_ids,
+                attached_files=request.attachments or cached_files,
+                model_id=model or "llama-3.2-11b",
+                user_message=request.message,
+                conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
+                system_prompt=system_prompt,
+            )
+            if prepared_msgs:
+                system_prompt = prepared_msgs[0]["content"]
+                api_messages = prepared_msgs[1:-1]
+                request.message = prepared_msgs[-1]["content"]
+                context_engine_used = True
+                _logger.info(
+                    "[NVIDIA][CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
+                    ctx_meta.get("chunks_included", 0),
+                    len(ctx_meta.get("citations", [])),
+                    user.id if user else "anon"
+                )
+        except Exception as e:
+            _logger.warning("GeneralChatFileContextEngineV2 failed in nvidia_api, falling back: %s", e)
+
+        if not context_engine_used and user:
+            rag = RAGService(db, user.id)
+            rag_context = await rag.search_similar(request.message)
+            if rag_context:
+                system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+            else:
+                all_texts = RAGService.get_all_cached_texts(user.id)
+                if all_texts:
+                    system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
 
         # ── General Intent Classification & Adaptive Clarification Quiz ──
         from app.services.intent import GeneralIntentClassifier, AnswerVerifier
@@ -819,7 +870,17 @@ async def nvidia_chat(
                 yield f"data: {json.dumps({'type': 'meta', 'model': model, 'task': task, 'chat_id': request.chat_id})}\n\n"
                 if intent_result.needs_quiz and intent_result.quiz:
                     quiz_dict = intent_result.quiz.to_dict()
-                    user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+                    user_extra = {}
+                    if request.attachments:
+                        user_extra["attachments"] = request.attachments
+                    if request.file_ids:
+                        user_extra["file_ids"] = request.file_ids
+                    user_msg = Message(
+                        chat_id=request.chat_id,
+                        role="user",
+                        content=original_message,
+                        extra_data=user_extra if user_extra else None,
+                    )
                     asst_msg = Message(
                         chat_id=request.chat_id,
                         role="assistant",
@@ -1005,7 +1066,17 @@ async def nvidia_chat(
                         if v_res.satisfaction_check:
                             extra_d["satisfaction_check"] = True
 
-                        user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+                        user_extra = {}
+                        if request.attachments:
+                            user_extra["attachments"] = request.attachments
+                        if request.file_ids:
+                            user_extra["file_ids"] = request.file_ids
+                        user_msg = Message(
+                            chat_id=request.chat_id,
+                            role="user",
+                            content=original_message,
+                            extra_data=user_extra if user_extra else None,
+                        )
                         assistant_msg = Message(
                             chat_id=request.chat_id,
                             role="assistant",
@@ -1115,7 +1186,17 @@ async def nvidia_chat(
             if v_res.satisfaction_check:
                 extra_d["satisfaction_check"] = True
 
-            user_msg = Message(chat_id=request.chat_id, role="user", content=original_message)
+            user_extra = {}
+            if request.attachments:
+                user_extra["attachments"] = request.attachments
+            if request.file_ids:
+                user_extra["file_ids"] = request.file_ids
+            user_msg = Message(
+                chat_id=request.chat_id,
+                role="user",
+                content=original_message,
+                extra_data=user_extra if user_extra else None,
+            )
             assistant_msg = Message(
                 chat_id=request.chat_id,
                 role="assistant",

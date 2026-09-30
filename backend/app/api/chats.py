@@ -116,3 +116,36 @@ async def send_message(request: ChatRequest, current_user: User = Depends(get_cu
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     })
+
+
+@router.get("/{chat_id}/files")
+async def get_chat_files(chat_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Returns all files attached to this conversation with durable status and metadata."""
+    svc = ChatService(db)
+    chat = await svc.get_chat(chat_id, current_user.id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    from app.models.file import GeneratedFile
+    from sqlalchemy import select, or_
+
+    stmt = select(GeneratedFile).where(
+        GeneratedFile.conversation_id == chat_id,
+        or_(GeneratedFile.user_id == current_user.id, GeneratedFile.user_id == "default_user_id")
+    ).order_by(GeneratedFile.created_at.desc())
+    res = await db.execute(stmt)
+    files = res.scalars().all()
+
+    return [
+        {
+            "id": f.id,
+            "filename": f.filename,
+            "size": f.file_size,
+            "mime_type": f.mime_type,
+            "status": f.status,
+            "processing_stage": f.processing_stage or "READY",
+            "download_url": f"/api/files/{f.id}/download",
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+        }
+        for f in files
+    ]

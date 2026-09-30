@@ -187,8 +187,32 @@ class LexicalChunkRanker:
                 selected_ids.add(chunk.chunk_id)
                 accumulated_tokens += chunk.token_count
             elif token_budget - accumulated_tokens < 100:
-                # Budget nearly exhausted
                 break
+
+        # Fallback guarantee: if nothing could fit (e.g. single chunk exceeded token budget)
+        if not selected and scored:
+            top_chunk, _ = scored[0]
+            if top_chunk.token_count > token_budget:
+                char_limit = max(300, token_budget * 4)
+                truncated_content = top_chunk.content[:char_limit] + "\n\n[... content truncated to fit token budget ...]"
+                truncated_chunk = DocumentChunk(
+                    chunk_id=top_chunk.chunk_id,
+                    file_id=top_chunk.file_id,
+                    source=top_chunk.source,
+                    location=top_chunk.location,
+                    page=top_chunk.page,
+                    section=top_chunk.section,
+                    slide=top_chunk.slide,
+                    sheet=top_chunk.sheet,
+                    start_line=top_chunk.start_line,
+                    end_line=top_chunk.end_line,
+                    content=truncated_content,
+                    token_count=max(1, len(truncated_content) // 4),
+                    metadata=top_chunk.metadata
+                )
+                selected.append(truncated_chunk)
+            else:
+                selected.append(top_chunk)
 
         # Re-sort selected chunks back into logical document order (by source, then page/line)
         selected.sort(key=lambda c: (

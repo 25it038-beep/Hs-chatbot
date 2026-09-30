@@ -90,7 +90,7 @@ interface ChatState {
   selectChat: (id: string) => Promise<void>
   createChat: () => Promise<Chat>
   deleteChat: (id: string) => Promise<void>
-  sendMessage: (content: string, chatId?: string) => Promise<void>
+  sendMessage: (content: string, chatId?: string, options?: { fileIds?: string[]; attachments?: Attachment[] }) => Promise<void>
   addAssistantMessage: (content: string, chatId?: string) => Promise<void>
   updateLastAssistantMessage: (content: string, chatId?: string) => Promise<void>
   cancelStream: (chatId?: string) => void
@@ -290,7 +290,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       syncDisplay()
     },
 
-    sendMessage: async (content: string, chatId?: string) => {
+    sendMessage: async (content: string, chatId?: string, options?: { fileIds?: string[]; attachments?: Attachment[] }) => {
       const { currentChat, chatMessages, streamingPhase } = get()
       const chat = chatId ? get().chats.find(c => c.id === chatId) : currentChat
 
@@ -321,7 +321,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
 
       if (!chat) {
         const newChat = await get().createChat()
-        await get().sendMessage(content, newChat.id)
+        await get().sendMessage(content, newChat.id, options)
         return
       }
 
@@ -334,6 +334,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         input_tokens: 0,
         output_tokens: 0,
         created_at: new Date().toISOString(),
+        attachments: options?.attachments,
       }
 
       const updatedMessages = [...(chatMessages[chat.id] || []), userMsg]
@@ -369,6 +370,18 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const getReader = async () => {
           const city = localStorage.getItem('hsbot_location') || undefined
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+          if (provider && provider !== 'nvidia') {
+            return api.sendMessageStream({
+              message: content,
+              chat_id: chat.id,
+              model,
+              provider,
+              location: city,
+              timezone,
+              file_ids: options?.fileIds,
+              attachments: options?.attachments,
+            }, controller.signal)
+          }
           return api.nvidiaChatStream({
             message: content,
             chat_id: chat.id,
@@ -377,6 +390,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
             auto_route: shouldAutoRoute,
             location: city,
             timezone,
+            file_ids: options?.fileIds,
+            attachments: options?.attachments,
           }, controller.signal)
         }
 

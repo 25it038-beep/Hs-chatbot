@@ -1,12 +1,20 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { Copy, Check, Download, Pencil, Undo2, Volume2, VolumeX } from 'lucide-react'
+import { Copy, Check, Download, Pencil, Undo2, Volume2, VolumeX, FileText } from 'lucide-react'
 import type { Message, Attachment } from '@/types'
 import { MessageEntrance } from '@/components/animations/ChatAnimations'
 import { FileAttachmentCard } from './FileAttachmentCard'
 import { useVoiceStore } from '@/lib/speech'
 import { extractWebProject } from '@/lib/webProject'
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return ''
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+}
 import { WebProjectCard } from './WebProjectCard'
 import { WebSearchResults } from './WebSearchResults'
 import { ClarificationQuizComponent } from './ClarificationQuiz'
@@ -86,6 +94,26 @@ export function ChatMessage({ message, isStreaming, index = 0, onEdit, onUnsend,
       <div className={cn('group py-4 sm:py-5 min-w-0', isUser ? 'flex justify-end' : '')}>
         {isUser ? (
           <div className="max-w-[85%] sm:max-w-[75%]">
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2 justify-end">
+                {message.attachments.map((att, idx) => (
+                  <div
+                    key={att.id || idx}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/60 border border-border text-xs text-foreground shadow-2xs"
+                  >
+                    <FileText size={13} className="text-primary shrink-0" />
+                    <span className="font-medium truncate max-w-[180px]">
+                      {att.name || att.filename || 'Attached file'}
+                    </span>
+                    {att.size ? (
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {formatBytes(att.size)}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="inline-block rounded-xl bg-accent px-3.5 py-2.5 text-[13px] sm:text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">
               {message.content}
             </div>

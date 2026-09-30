@@ -25,11 +25,32 @@ class FileCapability(str, Enum):
 
 class FileProcessingState(str, Enum):
     UPLOADING = "UPLOADING"
+    UPLOADED = "UPLOADED"
+    VALIDATING = "VALIDATING"
     PROCESSING = "PROCESSING"
-    ANALYZING = "ANALYZING"
+    EXTRACTING = "EXTRACTING"
+    INDEXING = "INDEXING"
     READY = "READY"
+    PARTIAL = "PARTIAL"
     PARTIALLY_SUPPORTED = "PARTIALLY_SUPPORTED"
     FAILED = "FAILED"
+    DELETED = "DELETED"
+
+
+@dataclass
+class FileCapabilities:
+    can_extract_text: bool = True
+    can_extract_tables: bool = False
+    can_extract_images: bool = False
+    can_preview: bool = True
+    can_search: bool = True
+    can_chunk: bool = True
+    can_analyze_visually: bool = False
+    can_transcribe: bool = False
+    can_inspect_structure: bool = True
+
+    def to_dict(self) -> Dict[str, bool]:
+        return asdict(self)
 
 
 class ChatRequestPhase(str, Enum):
@@ -151,3 +172,10 @@ class RequestObservability:
         d = asdict(self)
         d["phase"] = self.phase.value
         return d
+
+
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+

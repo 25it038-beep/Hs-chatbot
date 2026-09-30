@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Any
 from app.services.chat_context.contracts import (
     FileCapability,
     FileProcessingState,
+    FileCapabilities,
     DocumentChunk,
     FileAnalysisResult
 )
@@ -19,8 +20,12 @@ class BaseFileAdapter(ABC):
     """
 
     capability: FileCapability = FileCapability.OTHER
+    capabilities: FileCapabilities = FileCapabilities()
     supported_extensions: List[str] = []
     supported_mimes: List[str] = []
+
+    def get_capabilities(self) -> FileCapabilities:
+        return self.capabilities
 
     def can_handle(self, filename: str, mime_type: Optional[str] = None) -> bool:
         ext = os.path.splitext(filename)[1].lower()

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import {
   Download, Check, Loader2, FileText, FileSpreadsheet, Presentation,
   Eye, X, ChevronLeft, ChevronRight, Sparkles, Layers, Palette,
-  CheckCircle2, ShieldCheck, AlertTriangle
+  CheckCircle2, ShieldCheck, AlertTriangle, Code2, Database, Archive, Image
 } from 'lucide-react'
 import type { Attachment, DocumentPreviewResponse, SlidePreview, SectionPreview } from '@/types'
 import { api } from '@/lib/api'
@@ -33,16 +33,16 @@ function getFormatDetails(filename: string, mimeType: string) {
       tag: 'pdf',
     }
   }
-  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word')) {
+  if (['docx', 'doc', 'odt', 'rtf'].includes(ext) || mimeType.includes('word') || mimeType.includes('document')) {
     return {
-      label: 'Word Document',
+      label: ext.toUpperCase() + ' Document',
       color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
       icon: FileText,
       iconColor: 'text-blue-500',
       tag: 'docx',
     }
   }
-  if (ext === 'pptx' || ext === 'ppt' || mimeType.includes('presentation')) {
+  if (['pptx', 'ppt', 'odp'].includes(ext) || mimeType.includes('presentation')) {
     return {
       label: 'PowerPoint Deck',
       color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
@@ -51,13 +51,67 @@ function getFormatDetails(filename: string, mimeType: string) {
       tag: 'pptx',
     }
   }
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
+  if (['xlsx', 'xls', 'ods'].includes(ext) || mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
     return {
       label: 'Excel Workbook',
       color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
       icon: FileSpreadsheet,
       iconColor: 'text-emerald-500',
       tag: 'xlsx',
+    }
+  }
+  if (['csv', 'tsv'].includes(ext) || mimeType.includes('csv')) {
+    return {
+      label: ext.toUpperCase() + ' Sheet',
+      color: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20',
+      icon: FileSpreadsheet,
+      iconColor: 'text-teal-500',
+      tag: 'spreadsheet',
+    }
+  }
+  if (['py', 'js', 'ts', 'html', 'css', 'sh', 'ps1'].includes(ext)) {
+    return {
+      label: ext.toUpperCase() + ' Code',
+      color: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20',
+      icon: Code2,
+      iconColor: 'text-sky-500',
+      tag: 'code',
+    }
+  }
+  if (['json', 'yaml', 'yml', 'xml', 'sql'].includes(ext) || mimeType.includes('json') || mimeType.includes('xml')) {
+    return {
+      label: ext.toUpperCase() + ' Data',
+      color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+      icon: Database,
+      iconColor: 'text-indigo-500',
+      tag: 'data',
+    }
+  }
+  if (ext === 'zip' || mimeType.includes('zip')) {
+    return {
+      label: 'ZIP Archive',
+      color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+      icon: Archive,
+      iconColor: 'text-purple-500',
+      tag: 'zip',
+    }
+  }
+  if (['svg', 'png', 'jpg', 'jpeg', 'webp'].includes(ext) || mimeType.includes('image')) {
+    return {
+      label: ext.toUpperCase() + ' Graphic',
+      color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20',
+      icon: Image,
+      iconColor: 'text-pink-500',
+      tag: ext === 'svg' ? 'svg' : 'image',
+    }
+  }
+  if (['md', 'markdown', 'txt'].includes(ext)) {
+    return {
+      label: ext === 'md' ? 'Markdown' : 'Plain Text',
+      color: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
+      icon: FileText,
+      iconColor: 'text-slate-500',
+      tag: 'text',
     }
   }
   return {
@@ -484,6 +538,57 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
                         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
                           {sec.preview_text}
                         </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : fmt.tag === 'code' || fmt.tag === 'data' || fmt.tag === 'text' ? (
+                /* Code / Data / Text Previewer */
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl border border-border bg-muted/20 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">File Content</h4>
+                      <p className="text-xs text-muted-foreground">{fmt.label} • Production-grade deliverable</p>
+                    </div>
+                  </div>
+                  <pre className="p-4 rounded-xl border border-border bg-muted/30 font-mono text-xs overflow-x-auto text-foreground max-h-96 whitespace-pre-wrap select-all">
+                    <code>
+                      {(previewData?.preview as any)?.code ||
+                        (previewData?.preview as any)?.data
+                          ? typeof (previewData?.preview as any)?.data === 'string'
+                            ? (previewData?.preview as any)?.data
+                            : JSON.stringify((previewData?.preview as any)?.data, null, 2)
+                          : (previewData?.preview as any)?.text ||
+                            '// File ready for download'}
+                    </code>
+                  </pre>
+                </div>
+              ) : fmt.tag === 'svg' ? (
+                /* SVG Vector Graphic Preview */
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl border border-border bg-muted/20">
+                    <h4 className="text-sm font-bold text-foreground">Vector Graphic Preview</h4>
+                  </div>
+                  <div className="p-6 rounded-xl border border-border bg-background flex items-center justify-center min-h-[220px]">
+                    {(previewData?.preview as any)?.svg ? (
+                      <div dangerouslySetInnerHTML={{ __html: (previewData?.preview as any)?.svg }} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Vector graphic ready</span>
+                    )}
+                  </div>
+                </div>
+              ) : fmt.tag === 'zip' ? (
+                /* ZIP Project Archive Manifest */
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl border border-border bg-muted/20">
+                    <h4 className="text-sm font-bold text-foreground">Archive Manifest</h4>
+                    <p className="text-xs text-muted-foreground">Packaged project files</p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-border bg-card space-y-1.5">
+                    {((previewData?.preview as any)?.files || ['README.md', 'project.zip']).map((f: string, i: number) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-foreground py-1 px-2 rounded hover:bg-muted/40 font-mono">
+                        <FileText size={14} className="text-primary shrink-0" />
+                        <span>{f}</span>
                       </div>
                     ))}
                   </div>

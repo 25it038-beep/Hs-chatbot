@@ -120,6 +120,9 @@ export interface Attachment {
   type: string
   size: number
   download_url: string
+  filename?: string
+  status?: string
+  processing_stage?: string
   preview?: DocumentPreviewData
   verification?: DocumentVerificationData
 }
@@ -251,8 +254,11 @@ export interface FileInfo {
   content_type: string
   text_preview: string
   chunk_count: number
+  status?: string
+  processing_stage?: string
   analysis?: string
   created_at?: string
+  download_url?: string
 }
 
 export interface ImageGenResponse {
@@ -280,6 +286,8 @@ export interface ChatRequest {
   max_tokens?: number
   stream?: boolean
   files?: string[]
+  file_ids?: string[]
+  attachments?: Attachment[]
   tools?: Record<string, unknown>[]
 }
 

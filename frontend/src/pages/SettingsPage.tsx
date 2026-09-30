@@ -7,7 +7,8 @@ import { useAmbient } from '@/stores/ambient'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { X, Sun, Moon, Monitor, LogOut, Trash2, Sparkles, Check, Loader2, Download } from 'lucide-react'
+import { X, Sun, Moon, Monitor, LogOut, Trash2, Sparkles, Check, Loader2, Download, Image as ImageIcon, Play, Pause, SkipForward, SkipBack, Sliders, Eye } from 'lucide-react'
+import { useWallpaperStore, WALLPAPERS } from '@/stores/wallpaper'
 import { LocationSettings } from '@/components/settings/LocationSettings'
 import { motion, AnimatePresence } from 'framer-motion'
 import { isTauri } from '@/lib/tauri'
@@ -24,6 +25,17 @@ export function SettingsPage() {
   const { user, logout } = useAuth()
   const { chats, deleteChat } = useChat()
   const { festivalEnabled, setFestivalEnabled } = useAmbient()
+  const {
+    currentWallpaperId,
+    autoCycle,
+    cycleIntervalSeconds,
+    opacity,
+    blur,
+    setWallpaper,
+    setAutoCycle,
+    setOpacity,
+    setBlur,
+  } = useWallpaperStore()
   const [confirmClear, setConfirmClear] = React.useState(false)
   const [clearing, setClearing] = React.useState(false)
 
@@ -141,6 +153,130 @@ export function SettingsPage() {
                   <p className="text-xs text-muted-foreground/60 mt-2 ml-1">
                     Auto-apply festival color palettes (Diwali, Pongal, Independence Day, ...) to the ambient glow.
                   </p>
+                </section>
+
+                <Separator className="opacity-30" />
+
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider ml-1">
+                        Wallpapers & Backgrounds
+                      </h3>
+                      <p className="text-xs text-muted-foreground/60 ml-1">
+                        Macro flora wallpapers • Change manually or auto-cycle every 30s
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setAutoCycle(!autoCycle)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                        autoCycle
+                          ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                          : 'border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {autoCycle ? (
+                        <>
+                          <Pause size={12} className="text-emerald-500" />
+                          <span>30s Cycle Active</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play size={12} />
+                          <span>Start 30s Auto-Cycle</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Thumbnail Selector Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                    {WALLPAPERS.map((wp) => {
+                      const active = currentWallpaperId === wp.id
+                      const isAmbient = wp.id === 'none'
+
+                      return (
+                        <button
+                          key={wp.id}
+                          onClick={() => setWallpaper(wp.id)}
+                          className={`group relative flex flex-col rounded-xl overflow-hidden border text-left transition-all duration-200 ${
+                            active
+                              ? 'border-primary ring-2 ring-primary/40 shadow-sm scale-[1.01]'
+                              : 'border-border/60 hover:border-foreground/25 hover:shadow-xs'
+                          }`}
+                        >
+                          <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted/30">
+                            {isAmbient ? (
+                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-amber-500/20">
+                                <Sparkles size={20} className="text-primary/70" />
+                              </div>
+                            ) : (
+                              <img
+                                src={wp.previewUrl}
+                                alt={wp.title}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                loading="lazy"
+                              />
+                            )}
+                            {active && (
+                              <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
+                                <Check size={10} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-1.5 bg-card min-w-0">
+                            <p className="text-[11px] font-medium text-foreground truncate">{wp.title}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Controls: Opacity & Blur sliders */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 p-3 rounded-xl border border-border/60 bg-muted/20">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <Eye size={12} />
+                          <span>Wallpaper Opacity</span>
+                        </span>
+                        <span className="font-mono text-[11px] text-foreground font-medium">
+                          {Math.round(opacity * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.15"
+                        max="0.85"
+                        step="0.05"
+                        value={opacity}
+                        onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <Sliders size={12} />
+                          <span>Soft Depth Blur</span>
+                        </span>
+                        <span className="font-mono text-[11px] text-foreground font-medium">
+                          {blur}px
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={blur}
+                        onChange={(e) => setBlur(parseInt(e.target.value, 10))}
+                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
                 </section>
 
                 <Separator className="opacity-30" />

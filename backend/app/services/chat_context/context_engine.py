@@ -18,14 +18,16 @@ from app.services.chat_context.budget import (
 from app.services.chat_context.file_adapters.registry import file_adapter_registry
 from app.services.chat_context.ranker import chunk_ranker
 from app.services.chat_context.conversation_store import conversation_context_store
+from app.services.chat_context.retrieval_engine import file_retrieval_engine
 
 logger = logging.getLogger("hsbot.chat_context.engine")
 
 
-class GeneralChatContextEngineV2:
+class GeneralChatFileContextEngineV2:
     """
     Production-grade context management, universal file extraction,
     and token-budgeted prompt assembler for General Chat.
+    Resolves files across request attachments, conversation history, and explicit user mentions.
     """
 
     async def prepare_context(
@@ -33,7 +35,10 @@ class GeneralChatContextEngineV2:
         model_id: str,
         user_message: str,
         conversation_history: List[Dict[str, str]],
+        user_id: Optional[str] = None,
+        chat_id: Optional[str] = None,
         attached_files: Optional[List[Dict[str, Any]]] = None,
+        file_ids: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
         request_id: Optional[str] = None
     ) -> Tuple[List[Dict[str, str]], Dict[str, Any]]:
@@ -58,32 +63,22 @@ class GeneralChatContextEngineV2:
             safety_margin=DEFAULT_SAFETY_MARGIN
         )
 
-        attached_files = attached_files or []
-        analysis_results: List[FileAnalysisResult] = []
-        all_chunks: List[DocumentChunk] = []
-        file_citations: List[str] = []
+        # 1. Resolve active files across current request, conversation history, and prompt mentions
+        resolved_files: List[Dict[str, Any]] = []
+        if user_id:
+            resolved_files = await file_retrieval_engine.resolve_active_files(
+                user_id=user_id,
+                chat_id=chat_id,
+                file_ids=file_ids,
+                attachments=attached_files,
+                message=user_message
+            )
+        elif attached_files:
+            resolved_files = attached_files
 
-        # 1. Process all attached files
-        if attached_files:
-            obs.phase = ChatRequestPhase.READING_FILES
-            obs.file_count = len(attached_files)
-            for f_info in attached_files:
-                f_path = f_info.get("file_path") or f_info.get("path") or ""
-                f_name = f_info.get("filename") or f_info.get("name") or os.path.basename(f_path)
-                f_id = str(f_info.get("file_id") or f_info.get("id") or f_name)
-                m_type = f_info.get("mime_type") or f_info.get("type")
-
-                if f_path and os.path.exists(f_path):
-                    res = await file_adapter_registry.process_file(
-                        file_path=f_path,
-                        filename=f_name,
-                        file_id=f_id,
-                        mime_type=m_type
-                    )
-                    analysis_results.append(res)
-                    all_chunks.extend(res.chunks)
-                    file_citations.extend(res.citations)
-                    obs.input_sources.append(f_name)
+        obs.file_count = len(resolved_files)
+        for rf in resolved_files:
+            obs.input_sources.append(rf.get("filename", "file"))
 
         # 2. Token budgeting: System Prompt
         sys_content = system_prompt or (
@@ -98,42 +93,29 @@ class GeneralChatContextEngineV2:
         user_msg_tokens = estimate_tokens(user_message)
         budget.user_tokens = user_msg_tokens
 
-        # Budget allocation:
-        # Total usable budget minus system prompt and user query
+        # Budget allocation: usable budget minus system and user message
         available_pool = max(1000, budget.usable_budget - sys_tokens - user_msg_tokens)
+        max_file_tokens = int(available_pool * 0.65) if resolved_files else 0
 
-        # Allocate up to 65% of available pool to documents if files are attached
-        max_file_tokens = int(available_pool * 0.65) if all_chunks else 0
-        selected_chunks: List[DocumentChunk] = []
         file_context_str = ""
+        citations: List[str] = []
+        retrieved_chunks_count = 0
+        analysis_results: List[Dict[str, Any]] = []
 
-        if all_chunks:
-            total_chunk_tokens = sum(c.token_count for c in all_chunks)
-            if total_chunk_tokens <= max_file_tokens:
-                selected_chunks = all_chunks
-            else:
-                selected_chunks = chunk_ranker.select_top_chunks(
-                    chunks=all_chunks,
-                    query=user_message,
-                    token_budget=max_file_tokens
-                )
-
-            obs.retrieved_chunks_count = len(selected_chunks)
-
-            # Build file summaries header
-            file_summaries_header = "### Attached Documents Summary:\n"
-            for a_res in analysis_results:
-                file_summaries_header += f"- **{a_res.filename}**: {a_res.summary}\n"
-
-            # Build extracted chunks body
-            chunks_body = "\n\n".join(c.content for c in selected_chunks)
-            file_context_str = (
-                f"\n\n==================== ATTACHED FILE CONTEXT ====================\n"
-                f"{file_summaries_header}\n"
-                f"### Relevant Extracted Content:\n"
-                f"{chunks_body}\n"
-                f"================================================================"
+        if resolved_files:
+            obs.phase = ChatRequestPhase.READING_FILES
+            retrieval_result = await file_retrieval_engine.retrieve_relevant_context(
+                user_id=user_id or "default_user_id",
+                chat_id=chat_id,
+                query=user_message,
+                active_files=resolved_files,
+                token_budget=max_file_tokens
             )
+            file_context_str = retrieval_result.get("context_text", "")
+            citations = retrieval_result.get("citations", [])
+            retrieved_chunks = retrieval_result.get("chunks", [])
+            retrieved_chunks_count = len(retrieved_chunks)
+            obs.retrieved_chunks_count = retrieved_chunks_count
 
         file_tokens = estimate_tokens(file_context_str)
         budget.file_tokens = file_tokens
@@ -174,12 +156,14 @@ class GeneralChatContextEngineV2:
         meta = {
             "budget": budget.to_dict(),
             "observability": obs.to_dict(),
-            "file_analysis": [r.to_dict() for r in analysis_results],
-            "citations": list(dict.fromkeys(file_citations)),
-            "chunks_included": len(selected_chunks)
+            "active_files": resolved_files,
+            "citations": citations,
+            "chunks_included": retrieved_chunks_count
         }
 
         return final_messages, meta
 
 
-general_chat_context_engine = GeneralChatContextEngineV2()
+GeneralChatContextEngineV2 = GeneralChatFileContextEngineV2
+general_chat_context_engine = GeneralChatFileContextEngineV2()
+general_chat_file_context_engine = general_chat_context_engine

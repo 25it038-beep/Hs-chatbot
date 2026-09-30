@@ -220,11 +220,12 @@ export function ChatContainer() {
     const uploadedInfos: FileInfo[] = []
     for (const f of files) {
       try {
-        const uploadRes = await api.uploadFile(f) as FileInfo
+        const uploadRes = await api.uploadFile(f, chatId) as FileInfo
         if (uploadRes) {
           uploadedInfos.push(uploadRes)
         }
-      } catch {
+      } catch (err) {
+        console.warn('File upload fallback:', err)
         uploadedInfos.push({
           id: `local-${Date.now()}-${Math.random()}`,
           filename: f.name,
@@ -241,34 +242,31 @@ export function ChatContainer() {
       setAttachedFiles(prev => [...prev, ...uploadedInfos])
     }
 
+    const fileIds = uploadedInfos.map(u => u.id).filter(id => !id.startsWith('local-'))
+    const attachments = uploadedInfos.map(u => ({
+      id: u.id,
+      name: u.filename,
+      filename: u.filename,
+      type: u.content_type || 'application/octet-stream',
+      size: u.size,
+      download_url: u.download_url || `/api/files/${u.id}/download`,
+      status: u.status || 'READY',
+      processing_stage: u.processing_stage || 'READY',
+    }))
+
     // Single image prompt
     if (files.length === 1 && files[0].type.startsWith('image/')) {
-      await sendMessage(`[Image: ${files[0].name}]${prompt ? ` ${prompt}` : ''}`, chatId)
+      await sendMessage(prompt ? prompt.trim() : `Analyze this image in detail: ${files[0].name}`, chatId, { fileIds, attachments })
       return
     }
 
-    // Single document prompt
-    if (files.length === 1) {
-      if (!prompt) {
-        await addAssistantMessage(
-          `I've received and indexed **${files[0].name}** (${formatBytes(files[0].size)}). What would you like me to do? You can ask for a full summary, key takeaways, specific code explanations, or data insights.`,
-        )
-        return
-      }
-      await sendMessage(`[File: ${files[0].name}] ${prompt}`, chatId)
-      return
-    }
+    const finalPrompt = prompt.trim() || (
+      files.length === 1
+        ? `Please analyze and summarize the attached document "${files[0].name}".`
+        : `Please analyze and summarize the ${files.length} attached documents.`
+    )
 
-    // Multi-file batch prompt
-    const names = files.map(f => f.name).join(', ')
-    if (!prompt) {
-      await addAssistantMessage(
-        `Loaded **${files.length} files** into the HSBot File Engine:\n${files.map(f => `• **${f.name}** (${formatBytes(f.size)})`).join('\n')}\n\nWhat would you like to analyze, compare, or extract across these files?`,
-      )
-      return
-    }
-
-    await sendMessage(`[Files: ${names}] ${prompt}`, chatId)
+    await sendMessage(finalPrompt, chatId, { fileIds, attachments })
   }
 
   const handleSendWithFile = async (file: File, prompt: string) => {

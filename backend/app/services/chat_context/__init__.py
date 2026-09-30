@@ -1,6 +1,7 @@
 from app.services.chat_context.contracts import (
     FileCapability,
     FileProcessingState,
+    FileCapabilities,
     ChatRequestPhase,
     ContextPriority,
     DocumentChunk,
@@ -35,11 +36,18 @@ from app.services.chat_context.file_adapters import (
 from app.services.chat_context.ranker import LexicalChunkRanker, chunk_ranker
 from app.services.chat_context.conversation_store import ConversationContextStore, conversation_context_store
 from app.services.chat_context.watchdog import StreamWatchdog
-from app.services.chat_context.context_engine import GeneralChatContextEngineV2, general_chat_context_engine
+from app.services.chat_context.retrieval_engine import FileRetrievalEngineV2, file_retrieval_engine
+from app.services.chat_context.context_engine import (
+    GeneralChatContextEngineV2,
+    general_chat_context_engine,
+    GeneralChatFileContextEngineV2,
+    general_chat_file_context_engine
+)
 
 __all__ = [
     "FileCapability",
     "FileProcessingState",
+    "FileCapabilities",
     "ChatRequestPhase",
     "ContextPriority",
     "DocumentChunk",
@@ -71,6 +79,10 @@ __all__ = [
     "ConversationContextStore",
     "conversation_context_store",
     "StreamWatchdog",
+    "FileRetrievalEngineV2",
+    "file_retrieval_engine",
     "GeneralChatContextEngineV2",
     "general_chat_context_engine",
+    "GeneralChatFileContextEngineV2",
+    "general_chat_file_context_engine",
 ]

@@ -336,108 +336,192 @@ class ChatService:
                 "Output each file in its own markdown code block with the filename as a comment on line 1."
             )
 
-        # Document generation intent detection
-        from app.services.document_service import document_service
+        # Universal Artifact & Document generation intent detection (§3, §8, §15, §30)
+        from app.services.universal_artifacts import (
+            output_intent_engine,
+            UniversalArtifactEngineV2,
+            ArtifactValidator,
+            ArtifactConverter,
+            ArtifactVersionManager,
+            UniversalArtifactSynthesizer,
+            OutputIntent,
+            ArtifactCategory,
+            ArtifactSpec,
+        )
         from app.models.file import GeneratedFile
-        doc_intent = document_service.detect_intent(request.message)
-        if doc_intent:
-            structured_content = None
-            design_spec = None
 
-            if doc_intent.is_redesign:
-                stmt = select(GeneratedFile).where(GeneratedFile.conversation_id == str(chat_id)).order_by(desc(GeneratedFile.created_at))
-                res = await self.db.execute(stmt)
-                prev_file = res.scalars().first()
-                if prev_file:
-                    _logger.info("[CHAT] redesign request for previous file id=%s", prev_file.id)
-                    doc_intent.format = prev_file.filename.split('.')[-1].lower()
-                    base_name = prev_file.filename.rsplit('.', 1)[0]
-                    clean_base = re.sub(r'_v\d+$', '', base_name)
-                    doc_intent.filename = f"{clean_base}_v2.{doc_intent.format}"
-                    doc_intent.title = clean_base.replace('_', ' ')
-                    if prev_file.content_data:
-                        try:
-                            structured_content = json.loads(prev_file.content_data)
-                        except Exception:
-                            structured_content = None
-                    if prev_file.design_spec:
-                        try:
-                            from app.services.document_service.design_system import infer_design_spec
-                            design_spec = infer_design_spec(
-                                topic=doc_intent.title,
-                                doc_format=doc_intent.format,
-                                user_prompt=doc_intent.redesign_instruction or request.message,
-                            )
-                        except Exception:
-                            design_spec = None
-                else:
-                    # No previous file in this conversation; not a redesign
-                    doc_intent = None
+        art_spec: Optional[ArtifactSpec] = None
+        extra_attachments: List[Dict[str, Any]] = []
 
-        if doc_intent:
-            _logger.info("[CHAT] document request detected")
-            _logger.info("[CHAT] requested format: %s", doc_intent.format)
-            yield StreamChunk(type="searching", content=f"Designing {doc_intent.format.upper()} and synthesizing structure...")
-            yield StreamChunk(type="searching", content="Running AI quality verification & physical inspection...")
+        try:
+            art_spec = output_intent_engine.detect_intent(
+                prompt=request.message,
+                conversation_history=recent_history,
+                uploaded_files=request.files if hasattr(request, "files") else None,
+            )
+        except Exception as e:
+            _logger.warning("[CHAT] Intent engine error: %s", e)
+            art_spec = None
+
+        if art_spec and art_spec.output_intent != OutputIntent.CHAT:
+            _logger.info("[CHAT] universal artifact request detected format=%s category=%s intent=%s",
+                         art_spec.format, art_spec.category.value, art_spec.output_intent.value)
             
+            structured_content = None
+            version = 1
+            parent_id = None
+            previous_content = None
+
+            # Handle format conversion or conversational edit
+            if art_spec.is_format_conversion or art_spec.is_conversational_edit:
+                prev_file = await ArtifactVersionManager.get_latest_artifact_for_chat(str(chat_id), self.db)
+                if prev_file:
+                    parent_id = prev_file.id
+                    if art_spec.is_format_conversion:
+                        prev_fmt = prev_file.filename.split('.')[-1].lower()
+                        if ArtifactConverter.can_convert(prev_fmt, art_spec.format):
+                            yield StreamChunk(type="searching", content=f"Converting previous {prev_fmt.upper()} to {art_spec.format.upper()}...")
+                            try:
+                                conv_dir, target_path = UniversalArtifactEngineV2.get_storage_path(str(user_id), str(chat_id), art_spec.filename)
+                                ok, conv_msg = ArtifactConverter.convert(prev_file.storage_path, prev_fmt, art_spec.format, target_path)
+                                if ok:
+                                    val_res = ArtifactValidator.validate(target_path, art_spec.format)
+                                    if val_res.is_valid:
+                                        import hashlib, uuid
+                                        sha256 = hashlib.sha256()
+                                        with open(target_path, "rb") as f:
+                                            while c_bytes := f.read(65536):
+                                                sha256.update(c_bytes)
+                                        f_hash = sha256.hexdigest()
+                                        f_size = os.path.getsize(target_path)
+                                        art_id = str(uuid.uuid4())
+                                        from app.services.universal_artifacts.registry import ArtifactFormatRegistryV2
+                                        mime_type = ArtifactFormatRegistryV2.get_mime_type(art_spec.format)
+                                        download_url = f"/api/files/{art_id}/download"
+
+                                        gen_file = GeneratedFile(
+                                            id=art_id,
+                                            user_id=str(user_id),
+                                            conversation_id=str(chat_id),
+                                            filename=art_spec.filename,
+                                            storage_path=target_path,
+                                            mime_type=mime_type,
+                                            file_size=f_size,
+                                            content_hash=f_hash,
+                                            status="ready",
+                                            verification_result=json.dumps(val_res.to_dict()),
+                                        )
+                                        self.db.add(gen_file)
+                                        await self.db.commit()
+
+                                        attachment = {
+                                            "id": art_id,
+                                            "name": art_spec.filename,
+                                            "filename": art_spec.filename,
+                                            "type": mime_type,
+                                            "size": f_size,
+                                            "download_url": download_url,
+                                            "url": download_url,
+                                            "verification": val_res.to_dict(),
+                                            "hash": f_hash,
+                                            "category": art_spec.category.value,
+                                        }
+
+                                        msg_content = f"Converted {prev_fmt.upper()} to {art_spec.filename} successfully."
+                                        self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                                        self.db.add(Message(
+                                            chat_id=chat_id,
+                                            role="assistant",
+                                            content=msg_content,
+                                            model="universal-artifact-engine",
+                                            provider=provider_name,
+                                            extra_data={"attachments": [attachment]},
+                                        ))
+                                        await self.db.commit()
+                                        yield StreamChunk(type="file_created", file=attachment, attachments=[attachment])
+                                        yield StreamChunk(type="content", content=msg_content, attachments=[attachment], model="universal-artifact-engine", provider=provider_name, done=True)
+                                        return
+                            except Exception as ex:
+                                _logger.warning("[CHAT] Direct format conversion failed, falling back to synthesis: %s", ex)
+
+                    if art_spec.is_conversational_edit:
+                        version, next_name = ArtifactVersionManager.compute_next_version(prev_file.filename)
+                        art_spec.filename = next_name
+                        if prev_file.content_data:
+                            try:
+                                previous_content = json.loads(prev_file.content_data)
+                            except Exception:
+                                previous_content = prev_file.content_data
+
+            yield StreamChunk(type="searching", content=f"Synthesizing {art_spec.format.upper()} structure ({art_spec.category.value.capitalize()})...")
+            yield StreamChunk(type="searching", content="Running AI quality verification & physical inspection...")
+
             try:
-                _logger.info("[CHAT] generating content")
-                if not structured_content:
-                    structured_content = await document_service.synthesize_content(doc_intent, user_prompt=request.message)
-                
-                file_info = await document_service.generate_file(
-                    fmt=doc_intent.format,
-                    filename=doc_intent.filename,
-                    title=doc_intent.title,
-                    content=structured_content,
-                    conversation_id=str(chat_id),
-                    user_id=str(user_id),
-                    db=self.db,
-                    design_spec=design_spec,
+                structured_content = await UniversalArtifactSynthesizer.synthesize(
+                    spec=art_spec,
                     user_prompt=request.message,
+                    conversation_history=recent_history,
+                    source_files=art_spec.source_files,
+                    previous_content=previous_content,
+                    edit_instruction=art_spec.prompt_instruction,
+                )
+
+                meta = await UniversalArtifactEngineV2.generate_artifact(
+                    spec=art_spec,
+                    content=structured_content,
+                    user_id=str(user_id),
+                    conversation_id=str(chat_id),
+                    db=self.db,
+                    version=version,
+                    parent_id=parent_id,
                 )
 
                 attachment = {
-                    "id": file_info["id"],
-                    "name": file_info["filename"],
-                    "type": file_info["mime_type"],
-                    "size": file_info["file_size"],
-                    "download_url": file_info["download_url"],
-                    "verification": file_info.get("verification"),
+                    "id": meta.id,
+                    "name": meta.filename,
+                    "filename": meta.filename,
+                    "type": meta.mime_type,
+                    "size": meta.file_size,
+                    "download_url": meta.download_url,
+                    "url": meta.download_url,
+                    "verification": meta.verification,
+                    "hash": meta.sha256_hash,
+                    "category": meta.category,
                 }
 
-                verification = file_info.get("verification")
-                if verification and verification.get("passed"):
-                    score = verification.get("overall_score", 100)
-                    checks_passed = len([c for c in verification.get("checks", []) if c.get("status") == "PASSED"])
-                    total_checks = len(verification.get("checks", []))
-                    msg_content = f"Done — your {doc_intent.format.upper()} is ready (Quality Verified: {score}%, {checks_passed}/{total_checks} checks passed)."
+                if art_spec.output_intent == OutputIntent.CHAT_AND_FILE:
+                    # Dual intent: emit file attachment immediately, then continue conversational stream
+                    extra_attachments.append(attachment)
+                    yield StreamChunk(type="file_created", file=attachment, attachments=[attachment])
+                    _logger.info("[CHAT] Dual intent: file created id=%s, continuing chat stream", meta.id)
                 else:
-                    msg_content = f"Done — your {doc_intent.format.upper()} is ready."
+                    # Single/Multiple file intent: complete the request directly
+                    score = meta.verification.get("overall_score", 100) if meta.verification else 100
+                    msg_content = f"Done — your {meta.filename} is ready (Quality Verified: {score}%)."
 
-                # Save user message and assistant message with attachments in database
-                self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
-                self.db.add(Message(
-                    chat_id=chat_id,
-                    role="assistant",
-                    content=msg_content,
-                    model="document-generator",
-                    provider=provider_name,
-                    extra_data={"attachments": [attachment]},
-                ))
-                if chat.title == "New Chat":
-                    chat.title = doc_intent.title
-                await self.db.commit()
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(
+                        chat_id=chat_id,
+                        role="assistant",
+                        content=msg_content,
+                        model="universal-artifact-engine",
+                        provider=provider_name,
+                        extra_data={"attachments": [attachment]},
+                    ))
+                    if chat.title == "New Chat":
+                        chat.title = art_spec.title
+                    await self.db.commit()
 
-                _logger.info("[CHAT] attachment returned id=%s", file_info["id"])
-                yield StreamChunk(type="file_created", file=attachment, attachments=[attachment])
-                yield StreamChunk(type="content", content=msg_content, attachments=[attachment], model="document-generator", provider=provider_name, done=True)
-                return
+                    _logger.info("[CHAT] attachment delivered id=%s", meta.id)
+                    yield StreamChunk(type="file_created", file=attachment, attachments=[attachment])
+                    yield StreamChunk(type="content", content=msg_content, attachments=[attachment], model="universal-artifact-engine", provider=provider_name, done=True)
+                    return
             except Exception as e:
-                _logger.error("[DOCUMENT] document generation failed: %s", e, exc_info=True)
+                _logger.error("[CHAT] universal artifact generation failed: %s", e, exc_info=True)
                 await self.db.rollback()
-                yield StreamChunk(type="error", content=f"Document generation failed: {str(e)}", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
+                yield StreamChunk(type="error", content=f"Deliverable generation failed: {str(e)}", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
                 return
+
 
 
         # Live intent router – must run BEFORE RAG / web search
@@ -509,32 +593,65 @@ class ChatService:
         all_messages = messages_result.scalars().all()
         recent_history = [{"role": m.role, "content": m.content} for m in all_messages[-6:]]
 
+        # Resolve attachments if only file_ids were sent
+        if request.file_ids and not request.attachments:
+            from app.models.file import GeneratedFile
+            f_stmt = select(GeneratedFile).where(GeneratedFile.id.in_(request.file_ids))
+            f_res = await self.db.execute(f_stmt)
+            db_files = f_res.scalars().all()
+            request.attachments = [
+                {
+                    "id": f.id,
+                    "filename": f.filename,
+                    "name": f.filename,
+                    "size": f.file_size,
+                    "mime_type": f.mime_type,
+                    "status": f.status or "READY",
+                    "url": f"/api/files/{f.id}/download",
+                    "download_url": f"/api/files/{f.id}/download",
+                }
+                for f in db_files
+            ]
+
+        # Link files to this chat permanently in DB so follow-ups never forget them
+        if chat_id and request.file_ids:
+            from app.models.file import GeneratedFile
+            from sqlalchemy import update
+            await self.db.execute(
+                update(GeneratedFile)
+                .where(GeneratedFile.id.in_(request.file_ids))
+                .values(conversation_id=str(chat_id))
+            )
+            await self.db.commit()
+
         context_engine_used = False
         if not skip_retrieval and user_id:
-            cached_files = RAGService.get_cached_files(user_id)
-            if cached_files:
-                try:
-                    from app.services.chat_context import general_chat_context_engine
-                    prepared_msgs, ctx_meta = await general_chat_context_engine.prepare_context(
-                        model_id=chat.model or "llama-3.2-11b",
-                        user_message=request.message,
-                        conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
-                        attached_files=cached_files,
-                        system_prompt=system_prompt,
+            try:
+                from app.services.chat_context import general_chat_file_context_engine
+                cached_files = RAGService.get_cached_files(user_id)
+                prepared_msgs, ctx_meta = await general_chat_file_context_engine.prepare_context(
+                    user_id=user_id,
+                    chat_id=str(chat_id) if chat_id else None,
+                    file_ids=request.file_ids,
+                    attached_files=request.attachments or cached_files,
+                    model_id=chat.model or "llama-3.2-11b",
+                    user_message=request.message,
+                    conversation_history=[{"role": m.role, "content": m.content} for m in all_messages],
+                    system_prompt=system_prompt,
+                )
+                if prepared_msgs:
+                    system_prompt = prepared_msgs[0]["content"]
+                    api_messages = prepared_msgs[1:-1]
+                    request.message = prepared_msgs[-1]["content"]
+                    context_engine_used = True
+                    _logger.info(
+                        "[CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
+                        ctx_meta.get("chunks_included", 0),
+                        len(ctx_meta.get("citations", [])),
+                        user_id
                     )
-                    if prepared_msgs:
-                        system_prompt = prepared_msgs[0]["content"]
-                        api_messages = prepared_msgs[1:-1]
-                        request.message = prepared_msgs[-1]["content"]
-                        context_engine_used = True
-                        _logger.info(
-                            "[CHAT] ContextEngine prepared %d chunks, %d citations for user %s",
-                            ctx_meta.get("chunks_included", 0),
-                            len(ctx_meta.get("citations", [])),
-                            user_id
-                        )
-                except Exception as e:
-                    _logger.warning("GeneralChatContextEngineV2 failed in chat.py, falling back: %s", e)
+            except Exception as e:
+                _logger.warning("GeneralChatFileContextEngineV2 failed in chat.py, falling back: %s", e)
 
             if not context_engine_used:
                 rag = RAGService(self.db, user_id)
@@ -981,7 +1098,17 @@ class ChatService:
 
                 if full_content:
                     latency = (time.time() - start) * 1000
-                    user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+                    user_extra = {}
+                    if request.attachments:
+                        user_extra["attachments"] = request.attachments
+                    if request.file_ids:
+                        user_extra["file_ids"] = request.file_ids
+                    user_msg = Message(
+                        chat_id=chat_id,
+                        role="user",
+                        content=original_message,
+                        extra_data=user_extra if user_extra else None,
+                    )
                     
                     # Check if response generated web site files to bundle as an artifact ZIP
                     extra_data = None
@@ -1077,6 +1204,8 @@ class ChatService:
 
                     if extra_data is None:
                         extra_data = {}
+                    if extra_attachments:
+                        extra_data["attachments"] = extra_data.get("attachments", []) + extra_attachments
                     if web_sources_list:
                         extra_data["sources"] = web_sources_list
                     if yt_results_list:
@@ -1162,7 +1291,17 @@ class ChatService:
                             done=True,
                         )
                         return
-            user_msg = Message(chat_id=chat_id, role="user", content=original_message)
+            user_extra = {}
+            if request.attachments:
+                user_extra["attachments"] = request.attachments
+            if request.file_ids:
+                user_extra["file_ids"] = request.file_ids
+            user_msg = Message(
+                chat_id=chat_id,
+                role="user",
+                content=original_message,
+                extra_data=user_extra if user_extra else None,
+            )
             extra_data = None
             if response.content:
                 try:
@@ -1250,6 +1389,8 @@ class ChatService:
             )
             if extra_data is None:
                 extra_data = {}
+            if extra_attachments:
+                extra_data["attachments"] = extra_data.get("attachments", []) + extra_attachments
             extra_data["verification"] = v_res.to_dict()
             if v_res.satisfaction_check:
                 extra_data["satisfaction_check"] = True

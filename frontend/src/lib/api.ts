@@ -215,6 +215,8 @@ export const api = {
     max_tokens?: number
     location?: string
     timezone?: string
+    file_ids?: string[]
+    attachments?: any[]
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     await ensureFreshToken()
     const headers: Record<string, string> = {
@@ -275,10 +277,13 @@ export const api = {
   listProviders: () => request<ProviderInfo[]>('/models/providers'),
 
   // Files
-  uploadFile: async (file: File) => {
+  uploadFile: async (file: File, chatId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
     formData.append('file', file)
+    if (chatId) {
+      formData.append('chat_id', chatId)
+    }
     let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
@@ -286,13 +291,24 @@ export const api = {
         res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
       }
     }
+    if (!res.ok) {
+      let msg = `Upload failed with status ${res.status}`
+      try {
+        const errJson = await res.json()
+        msg = errJson.detail || errJson.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
     return res.json() as Promise<FileInfo>
   },
 
-  uploadMultiple: async (files: File[]) => {
+  uploadMultiple: async (files: File[], chatId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
+    if (chatId) {
+      formData.append('chat_id', chatId)
+    }
     let res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
@@ -300,8 +316,19 @@ export const api = {
         res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
       }
     }
+    if (!res.ok) {
+      let msg = `Upload failed with status ${res.status}`
+      try {
+        const errJson = await res.json()
+        msg = errJson.detail || errJson.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
     return res.json() as Promise<{ files: FileInfo[] }>
   },
+
+  getFileStatus: (fileId: string) => request<any>(`/files/${fileId}/status`),
+  getChatFiles: (chatId: string) => request<any[]>(`/chats/${chatId}/files`),
 
   health: () => request<{ status: string }>('/health'),
 
@@ -322,6 +349,8 @@ export const api = {
     auto_route?: boolean
     location?: string
     timezone?: string
+    file_ids?: string[]
+    attachments?: any[]
   }, signal?: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
     await ensureFreshToken()
     const headers: Record<string, string> = {

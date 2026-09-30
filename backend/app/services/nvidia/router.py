@@ -25,8 +25,8 @@ VISUAL_NOUNS = (
 # Verbs that RETRIEVE existing images
 SEARCH_VERBS = r"show|find|search|get|give|fetch|locate"
 
-# Existing-image nouns (retrieval)
-RETRIEVAL_NOUNS = r"\b(?:i[am]*g[e]*s?|pictures?|photos?|pics?|photographs?|examples?|diagrams?|wallpapers?|screenshots?)\b"
+# Existing-image nouns (retrieval) — strictly visual media, never educational/text terms like 'examples'
+RETRIEVAL_NOUNS = r"\b(?:i[am]*g[e]*s?|pictures?|photos?|pics?|photographs?|wallpapers?)\b"
 
 # Verbs for creating software, websites, projects (handles common typos like cretea, biuld, mak)
 CODE_CREATE_VERBS = (
@@ -188,12 +188,12 @@ class AIRouter:
             return self._web_and_images(0.9)
 
         # ── Image search: retrieve existing images ──
-        if re.search(rf"\b(?:{SEARCH_VERBS})\b.*{RETRIEVAL_NOUNS}", text):
+        if re.search(rf"\b(?:{SEARCH_VERBS})\b(?:\s+\w+){{0,3}}\s+{RETRIEVAL_NOUNS}\b", text):
             return self._image_search(0.92)
         # Noun-last form: "cristiano ronaldo images", "cat pictures", "dog photos"
-        if re.search(r"[\w'\-\s]{2,}\s+(images?|pictures?|photos?|pics?|screenshots?)\s*$", text):
+        if re.search(r"[\w'\-\s]{2,}\s+(images?|pictures?|photos?|pics?)\s*$", text):
             return self._image_search(0.85)
-        # "images of X", "photos of X", "examples of X"
+        # "images of X", "photos of X"
         if re.search(rf"{RETRIEVAL_NOUNS}\s+(?:of|for|about)\s+\w+", text):
             return self._image_search(0.88)
 
@@ -416,8 +416,16 @@ class AIRouter:
         return False
 
     # ── Legacy single-task API (kept for backward compatibility) ──
-    def detect_task(self, message: str, context: Optional[list[str]] = None) -> str:
+    def detect_task(self, message: str, context: Optional[list[str]] = None, has_files: bool = False) -> str:
         d = self.classify(message, context=context)
+        if has_files:
+            # If uploaded files are present, never hijack into web_images or general search
+            if d.get("requires_image_generation"):
+                return "image_generation"
+            if d.get("primary_intent") == "coding":
+                return "coding"
+            return "chat"
+
         if d["requires_image_generation"]:
             return "image_generation"
         if d["requires_images"] and not d["requires_web"]:
@@ -445,9 +453,9 @@ class AIRouter:
         return route.get("fallback", [])
 
     def get_model_for_message(
-        self, message: str, preferred_model: Optional[str] = None, context: Optional[list[str]] = None
+        self, message: str, preferred_model: Optional[str] = None, context: Optional[list[str]] = None, has_files: bool = False
     ) -> tuple[str, str]:
-        task = self.detect_task(message, context=context)
+        task = self.detect_task(message, context=context, has_files=has_files)
         model = self.get_best_model(task, preferred_model)
         return task, model
 

@@ -301,7 +301,13 @@ class RAGService:
         try:
             from docx import Document
             doc = Document(path)
-            return "\n".join(p.text for p in doc.paragraphs)
+            parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_cells:
+                        parts.append(" | ".join(row_cells))
+            return "\n\n".join(parts)
         except Exception:
             return f"[DOCX file: {os.path.basename(path)}]"
 

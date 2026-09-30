@@ -239,7 +239,28 @@ class ChatService:
 
         # ── General Intent Classification & Adaptive Clarification Quiz ──
         from app.services.intent import GeneralIntentClassifier, AnswerVerifier
+        from app.api.files import resolve_conversation_file_context
+
+        has_incoming_files = bool(request.files or request.attachments or re.search(r'\[(?:File|Files|Image):\s*', request.message))
+        req_file_ids = list(request.files or [])
+        if request.attachments:
+            for att in request.attachments:
+                if isinstance(att, dict):
+                    aid = att.get("fileId") or att.get("id")
+                    if aid and str(aid) not in req_file_ids:
+                        req_file_ids.append(str(aid))
+
+        file_ctx, verified_user_attachments = await resolve_conversation_file_context(
+            db=self.db,
+            user_id=str(user_id) if user_id else None,
+            chat_id=str(chat_id) if chat_id else None,
+            file_ids=req_file_ids,
+            message_text=request.message,
+        )
+
         intent_result = GeneralIntentClassifier.classify(request.message, context=recent_history)
+        if file_ctx or verified_user_attachments or has_incoming_files:
+            intent_result.needs_quiz = False
         _logger.info(
             "[INTENT] message=%r -> primary=%s confidence=%s needs_quiz=%s",
             request.message[:60],
@@ -349,6 +370,7 @@ class ChatService:
             ArtifactSpec,
         )
         from app.models.file import GeneratedFile
+
 
         art_spec: Optional[ArtifactSpec] = None
         extra_attachments: List[Dict[str, Any]] = []
@@ -522,6 +544,78 @@ class ChatService:
                 yield StreamChunk(type="error", content=f"Deliverable generation failed: {str(e)}", model=model or settings.nvidia_default_chat_model, provider=provider_name, done=True)
                 return
 
+        # Universal Artifact Engine V2 (Sections 1-67: code/data/web/archive/edits/conversions/unsupported)
+        try:
+            from app.services.artifacts.universal_engine_v2 import (
+                ArtifactIntentDetector,
+                ArtifactStorageAndVersionManager,
+                UniversalArtifactEngineV2,
+            )
+            from app.services.artifacts.output_intent_engine import OutputMode
+
+            u_id_str = str(user_id or "default_user")
+            latest_prev_v2 = ArtifactStorageAndVersionManager.get_latest_for_conversation(u_id_str, str(chat_id))
+            v2_intent = ArtifactIntentDetector.detect(
+                message=request.message,
+                has_uploaded_files=False,
+                has_previous_artifact=bool(latest_prev_v2),
+                previous_artifact_ext=latest_prev_v2.get("extension") if latest_prev_v2 else None,
+            )
+            if v2_intent.unsupported_format or v2_intent.needs_format_clarification or v2_intent.mode != OutputMode.CHAT:
+                v2_res = UniversalArtifactEngineV2.execute(
+                    user_id=u_id_str,
+                    conversation_id=str(chat_id),
+                    message_id=str(uuid.uuid4()),
+                    user_message=request.message,
+                    intent=v2_intent,
+                )
+                if v2_res.get("status") == "error":
+                    err_text = v2_res.get("message", "Unsupported artifact format.")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(chat_id=chat_id, role="assistant", content=err_text, model="artifact-engine-v2", provider=provider_name))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=err_text, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+                if v2_res.get("status") == "clarification_needed":
+                    q_text = v2_res.get("question", "Which file format would you like?")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(chat_id=chat_id, role="assistant", content=q_text, model="artifact-engine-v2", provider=provider_name))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=q_text, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+                if v2_res.get("status") == "completed" and v2_res.get("artifacts"):
+                    v2_atts = []
+                    for card in v2_res["artifacts"]:
+                        att_item = {
+                            "id": card["artifactId"],
+                            "name": card["filename"],
+                            "filename": card["filename"],
+                            "type": card["mimeType"],
+                            "size": card["size"],
+                            "download_url": card["download_url"],
+                            "preview_url": card["preview_url"],
+                            "version": card.get("version", 1),
+                            "versionHistory": card.get("versionHistory", []),
+                            "verification": {"passed": True, "overall_score": 100},
+                        }
+                        v2_atts.append(att_item)
+                        yield StreamChunk(type="file_created", file=att_item, attachments=[att_item])
+                    summary_msg = v2_res.get("summary_message", "Done — your artifact is ready.")
+                    self.db.add(Message(chat_id=chat_id, role="user", content=original_message))
+                    self.db.add(Message(
+                        chat_id=chat_id,
+                        role="assistant",
+                        content=summary_msg,
+                        model="artifact-engine-v2",
+                        provider=provider_name,
+                        extra_data={"attachments": v2_atts},
+                    ))
+                    await self.db.commit()
+                    yield StreamChunk(type="content", content=summary_msg, attachments=v2_atts, model="artifact-engine-v2", provider=provider_name, done=True)
+                    return
+        except Exception as e:
+            _logger.warning("[ARTIFACT_V2] fallback to standard chat: %s", e)
+
 
 
         # Live intent router – must run BEFORE RAG / web search
@@ -585,6 +679,29 @@ class ChatService:
         else:
             skip_retrieval = False
 
+        if not skip_retrieval and user_id:
+            if file_ctx:
+                system_prompt = f"{system_prompt}\n\n{file_ctx}"
+            else:
+                rag = RAGService(self.db, user_id)
+                rag_context = await rag.search_similar(request.message)
+                if rag_context:
+                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+                else:
+                    import re as _re
+                    file_match = _re.search(r'\[(?:File|Files|Image):\s*(.+?)\]', request.message)
+                    cached = None
+                    if file_match:
+                        for part in [p.strip() for p in file_match.group(1).split(",") if p.strip()]:
+                            c = RAGService.get_cached_file_content(user_id, part)
+                            if c:
+                                cached = f"{cached}\n\n[From {part}]:\n{c}" if cached else f"[From {part}]:\n{c}"
+                    if cached:
+                        system_prompt = f"{system_prompt}\n\nThe user uploaded file(s). Here is the extracted content:\n\n{cached}"
+                    else:
+                        all_texts = RAGService.get_all_cached_texts(user_id)
+                        if all_texts:
+                            system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
         messages_result = await self.db.execute(
             select(Message)
             .where(Message.chat_id == chat_id)
@@ -1101,7 +1218,9 @@ class ChatService:
                     user_extra = {}
                     if request.attachments:
                         user_extra["attachments"] = request.attachments
-                    if request.file_ids:
+                    elif verified_user_attachments:
+                        user_extra["attachments"] = verified_user_attachments
+                    if getattr(request, "file_ids", None):
                         user_extra["file_ids"] = request.file_ids
                     user_msg = Message(
                         chat_id=chat_id,
@@ -1294,7 +1413,9 @@ class ChatService:
             user_extra = {}
             if request.attachments:
                 user_extra["attachments"] = request.attachments
-            if request.file_ids:
+            elif verified_user_attachments:
+                user_extra["attachments"] = verified_user_attachments
+            if getattr(request, "file_ids", None):
                 user_extra["file_ids"] = request.file_ids
             user_msg = Message(
                 chat_id=chat_id,

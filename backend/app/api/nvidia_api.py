@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import asyncio
 import os
@@ -18,6 +19,7 @@ from app.middleware.auth import get_current_user, get_optional_user
 from app.models.user import User
 from app.models.chat import Chat
 from app.models.message import Message
+from app.models.file import GeneratedFile
 from app.services.chat import ChatService
 from app.services.document_service import document_service
 
@@ -312,7 +314,8 @@ async def nvidia_chat(
 
     # Document & Universal Artifact generation intent detector
     from app.models.file import GeneratedFile
-    doc_intents = document_service.detect_multiple_intents(request.message)
+    has_incoming_files = bool(request.files or request.attachments or re.search(r'\[(?:File|Files|Image):\s*', request.message))
+    doc_intents = [] if has_incoming_files else document_service.detect_multiple_intents(request.message)
     doc_intent = doc_intents[0] if doc_intents else None
     structured_content = None
     design_spec = None
@@ -357,6 +360,22 @@ async def nvidia_chat(
         chat_id = request.chat_id
         u_id = user.id if user else "default_user"
 
+        chat_ai_responses: list[str] = []
+        if chat_id:
+            try:
+                prev_msgs_res = await db.execute(
+                    select(Message)
+                    .where(Message.chat_id == chat_id, Message.role == "assistant")
+                    .order_by(Message.created_at)
+                )
+                chat_ai_responses = [
+                    m.content.strip()
+                    for m in prev_msgs_res.scalars().all()
+                    if m.content and m.content.strip() and not m.content.strip().startswith("Done — ")
+                ]
+            except Exception:
+                chat_ai_responses = []
+
         if request.stream:
             async def generate_document_stream():
                 yield f"data: {json.dumps({'type': 'meta', 'model': 'document-generator', 'task': 'document', 'chat_id': chat_id or ''})}\n\n"
@@ -372,7 +391,11 @@ async def nvidia_chat(
                         nonlocal structured_content, design_spec
                         current_content = structured_content
                         if not current_content:
-                            current_content = await document_service.synthesize_content(intent_item, user_prompt=request.message)
+                            current_content = await document_service.synthesize_content(
+                                intent_item,
+                                user_prompt=request.message,
+                                chat_ai_responses=chat_ai_responses,
+                            )
 
                         file_info = await document_service.generate_file(
                             fmt=intent_item.format,
@@ -519,6 +542,91 @@ async def nvidia_chat(
             except Exception as e:
                 _log.error("[DOCUMENT] Generation failed: %s", e, exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
+
+    # Universal Artifact Engine V2 (Sections 1-67: code/data/web/archive/edits/conversions/unsupported)
+    try:
+        import uuid as _uuid
+        from app.services.artifacts.universal_engine_v2 import (
+            ArtifactIntentDetector,
+            ArtifactStorageAndVersionManager,
+            UniversalArtifactEngineV2,
+        )
+        from app.services.artifacts.output_intent_engine import OutputMode
+
+        u_id_str = str(user.id if user else "default_user")
+        conv_id_str = str(request.chat_id or "general")
+        latest_prev_v2 = ArtifactStorageAndVersionManager.get_latest_for_conversation(u_id_str, conv_id_str)
+        v2_intent = ArtifactIntentDetector.detect(
+            message=request.message,
+            has_uploaded_files=bool(request.files),
+            has_previous_artifact=bool(latest_prev_v2),
+            previous_artifact_ext=latest_prev_v2.get("extension") if latest_prev_v2 else None,
+        )
+        if v2_intent.unsupported_format or v2_intent.needs_format_clarification or v2_intent.mode != OutputMode.CHAT:
+            v2_res = UniversalArtifactEngineV2.execute(
+                user_id=u_id_str,
+                conversation_id=conv_id_str,
+                message_id=str(_uuid.uuid4()),
+                user_message=request.message,
+                intent=v2_intent,
+            )
+            if v2_res.get("status") in ("error", "clarification_needed"):
+                reply_text = v2_res.get("message") or v2_res.get("question") or "Unsupported format."
+                if user and request.chat_id:
+                    db.add(Message(chat_id=request.chat_id, role="user", content=original_message))
+                    db.add(Message(chat_id=request.chat_id, role="assistant", content=reply_text, model="artifact-engine-v2", provider="nvidia"))
+                    await db.commit()
+                if request.stream:
+                    async def _v2_msg_stream():
+                        yield f"data: {json.dumps({'type': 'meta', 'model': 'artifact-engine-v2', 'task': 'artifact', 'chat_id': request.chat_id or ''})}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': reply_text})}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(_v2_msg_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+                return JSONResponse({"content": reply_text, "model": "artifact-engine-v2", "provider": "nvidia"})
+
+            if v2_res.get("status") == "completed" and v2_res.get("artifacts"):
+                v2_atts = []
+                for card in v2_res["artifacts"]:
+                    v2_atts.append({
+                        "id": card["artifactId"],
+                        "name": card["filename"],
+                        "filename": card["filename"],
+                        "type": card["mimeType"],
+                        "size": card["size"],
+                        "download_url": card["download_url"],
+                        "preview_url": card["preview_url"],
+                        "version": card.get("version", 1),
+                        "versionHistory": card.get("versionHistory", []),
+                        "verification": {"passed": True, "overall_score": 100},
+                    })
+                summary_msg = v2_res.get("summary_message", "Done — your artifact is ready.")
+                if user and request.chat_id:
+                    db.add(Message(chat_id=request.chat_id, role="user", content=original_message))
+                    db.add(Message(
+                        chat_id=request.chat_id,
+                        role="assistant",
+                        content=summary_msg,
+                        model="artifact-engine-v2",
+                        provider="nvidia",
+                        extra_data={"attachments": v2_atts},
+                    ))
+                    await db.commit()
+                if request.stream:
+                    async def _v2_art_stream():
+                        yield f"data: {json.dumps({'type': 'meta', 'model': 'artifact-engine-v2', 'task': 'artifact', 'chat_id': request.chat_id or ''})}\n\n"
+                        for att in v2_atts:
+                            yield f"data: {json.dumps({'type': 'file_created', 'file': att, 'attachments': [att]})}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'content': summary_msg, 'attachments': v2_atts})}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(_v2_art_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+                return JSONResponse({
+                    "content": summary_msg,
+                    "attachments": v2_atts,
+                    "model": "artifact-engine-v2",
+                    "provider": "nvidia",
+                })
+    except Exception as e:
+        _logger.warning("[ARTIFACT_V2] fallback to standard nvidia chat: %s", e)
 
     from app.services.game.detector import game_detector
     from app.services.game.generator import game_generator
@@ -741,7 +849,7 @@ async def nvidia_chat(
 
         # ── File-only message (no prompt) ──
         tag_match = _re.fullmatch(r'\[(Image|File):\s*(.+?)\]', request.message.strip())
-        if tag_match and user:
+        if tag_match and user and not request.files and not request.attachments:
             tag_kind, fname = tag_match.group(1), tag_match.group(2)
             if tag_kind == "Image":
                 file_path = RAGService.get_cached_file_path(user.id, fname)
@@ -749,6 +857,50 @@ async def nvidia_chat(
                     return await _vision_response(request, user, db, file_path)
             return await _ask_for_prompt_response(request, db, fname)
 
+        verified_user_attachments: list[dict] = []
+        has_conversation_files = False
+        if user:
+            from app.api.files import resolve_conversation_file_context
+            req_file_ids = list(request.files or [])
+            if request.attachments:
+                for att in request.attachments:
+                    if isinstance(att, dict):
+                        aid = att.get("fileId") or att.get("id")
+                        if aid and str(aid) not in req_file_ids:
+                            req_file_ids.append(str(aid))
+
+            file_ctx, verified_user_attachments = await resolve_conversation_file_context(
+                db=db,
+                user_id=str(user.id),
+                chat_id=str(request.chat_id),
+                file_ids=req_file_ids,
+                message_text=request.message,
+            )
+            if file_ctx:
+                has_conversation_files = True
+                system_prompt = f"{system_prompt}\n\n{file_ctx}"
+            else:
+                rag = RAGService(db, user.id)
+                rag_context = await rag.search_similar(request.message)
+                if rag_context:
+                    has_conversation_files = True
+                    system_prompt = f"{system_prompt}\n\nRelevant context from uploaded files:\n{rag_context}"
+                else:
+                    file_match = _re.search(r'\[(?:File|Files|Image):\s*(.+?)\]', request.message)
+                    cached = None
+                    if file_match:
+                        for part in [p.strip() for p in file_match.group(1).split(",") if p.strip()]:
+                            c = RAGService.get_cached_file_content(user.id, part)
+                            if c:
+                                cached = f"{cached}\n\n[From {part}]:\n{c}" if cached else f"[From {part}]:\n{c}"
+                    if cached:
+                        has_conversation_files = True
+                        system_prompt = f"{system_prompt}\n\nThe user uploaded file(s). Here is the extracted content:\n\n{cached}"
+                    else:
+                        all_texts = RAGService.get_all_cached_texts(user.id)
+                        if all_texts:
+                            has_conversation_files = True
+                            system_prompt = f"{system_prompt}\n\nThe user has uploaded the following files. Use their content to answer the user's question:\n{all_texts}"
         result = await db.execute(
             select(Message).where(Message.chat_id == request.chat_id).order_by(Message.created_at)
         )
@@ -828,6 +980,8 @@ async def nvidia_chat(
         # ── General Intent Classification & Adaptive Clarification Quiz ──
         from app.services.intent import GeneralIntentClassifier, AnswerVerifier
         intent_result = GeneralIntentClassifier.classify(request.message, context=recent_history)
+        if has_conversation_files or verified_user_attachments or has_incoming_files:
+            intent_result.needs_quiz = False
         _logger.info(
             "[INTENT][NVIDIA] message=%r -> primary=%s confidence=%s needs_quiz=%s",
             request.message[:60],
@@ -1069,7 +1223,9 @@ async def nvidia_chat(
                         user_extra = {}
                         if request.attachments:
                             user_extra["attachments"] = request.attachments
-                        if request.file_ids:
+                        elif verified_user_attachments:
+                            user_extra["attachments"] = verified_user_attachments
+                        if getattr(request, "file_ids", None):
                             user_extra["file_ids"] = request.file_ids
                         user_msg = Message(
                             chat_id=request.chat_id,
@@ -1189,7 +1345,9 @@ async def nvidia_chat(
             user_extra = {}
             if request.attachments:
                 user_extra["attachments"] = request.attachments
-            if request.file_ids:
+            elif verified_user_attachments:
+                user_extra["attachments"] = verified_user_attachments
+            if getattr(request, "file_ids", None):
                 user_extra["file_ids"] = request.file_ids
             user_msg = Message(
                 chat_id=request.chat_id,
@@ -1620,3 +1778,60 @@ async def nvidia_route(message: str = Query(...), preferred_model: Optional[str]
         "available_fallbacks": ai_router.get_fallback_models(task),
         **decision,
     }
+
+
+async def resolve_message_attachments(
+    db: AsyncSession,
+    user_id: Optional[str],
+    message: str,
+    file_ids: Optional[list[str]] = None,
+    attachments: Optional[list[dict]] = None,
+    client_attachments: Optional[list[dict]] = None,
+    chat_id: Optional[str] = None,
+    **kwargs,
+) -> tuple[str, Optional[str], list[dict]]:
+    """
+    Resolve attachments and file context for incoming chat message.
+    Returns: (file_context_str, image_b64_or_none, persisted_attachments_list)
+    """
+    if not user_id:
+        return "", None, []
+    
+    from app.api.files import resolve_conversation_file_context
+    raw_attachments = client_attachments or attachments or []
+    req_file_ids = list(file_ids or [])
+    for att in raw_attachments:
+        if isinstance(att, dict):
+            aid = att.get("fileId") or att.get("id")
+            if aid and str(aid) not in req_file_ids:
+                req_file_ids.append(str(aid))
+
+    file_ctx, verified_attachments = await resolve_conversation_file_context(
+        db=db,
+        user_id=str(user_id),
+        chat_id=str(chat_id) if chat_id else None,
+        file_ids=req_file_ids,
+        message_text=message,
+        client_attachments=raw_attachments,
+    )
+    
+    img_b64 = None
+    for att in verified_attachments:
+        mime = str(att.get("mimeType") or att.get("type", "")).lower()
+        fname = str(att.get("filename") or att.get("name", "")).lower()
+        if att.get("category") == "image" or mime.startswith("image/") or fname.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+            fid = att.get("id") or att.get("fileId")
+            stmt = select(GeneratedFile).where(GeneratedFile.id == fid)
+            res = await db.execute(stmt)
+            gfile = res.scalar_one_or_none()
+            if gfile and gfile.storage_path and os.path.exists(gfile.storage_path):
+                try:
+                    async with aiofiles.open(gfile.storage_path, "rb") as f:
+                        raw_bytes = await f.read()
+                    import base64
+                    img_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+                    break
+                except Exception:
+                    pass
+
+    return file_ctx or "", img_b64, verified_attachments

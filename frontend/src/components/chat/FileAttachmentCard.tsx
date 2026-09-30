@@ -2,12 +2,12 @@ import React, { useState } from 'react'
 import {
   Download, Check, Loader2, FileText, FileSpreadsheet, Presentation,
   Eye, X, ChevronLeft, ChevronRight, Sparkles, Layers, Palette,
-  CheckCircle2, ShieldCheck, AlertTriangle, Code2, Database, Archive, Image
+  CheckCircle2, ShieldCheck, AlertTriangle, Code2, Database, Archive, Image, ChevronDown
 } from 'lucide-react'
 import type { Attachment, DocumentPreviewResponse, SlidePreview, SectionPreview } from '@/types'
 import { api } from '@/lib/api'
 import { useChat } from '@/stores/chat'
-import { downloadDocumentWithFallback } from '@/lib/documentGenerator'
+import { downloadDocumentWithFallback, EXPORT_FILE_FORMATS } from '@/lib/documentGenerator'
 
 interface FileAttachmentCardProps {
   attachment: Attachment
@@ -127,6 +127,8 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false)
+  const [customExt, setCustomExt] = useState('')
 
   // Preview Modal States
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -138,13 +140,14 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
   const fmt = getFormatDetails(attachment.name, attachment.type)
   const Icon = fmt.icon
 
-  const handleDownload = async (e?: React.MouseEvent) => {
+  const handleDownload = async (e?: React.MouseEvent, targetFormat?: string) => {
     if (e) e.preventDefault()
     if (downloading) return
     setDownloading(true)
     setError(null)
+    setFormatMenuOpen(false)
     try {
-      await downloadDocumentWithFallback(attachment, previewData)
+      await downloadDocumentWithFallback(attachment, previewData, targetFormat)
       setDownloaded(true)
       setTimeout(() => setDownloaded(false), 3000)
     } catch (err: any) {
@@ -191,7 +194,7 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
 
   return (
     <>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
+      <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 my-2.5 rounded-xl border border-border bg-card/85 shadow-sm max-w-xl transition-all hover:border-primary/40 hover:shadow-md">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className={`p-2.5 rounded-lg border flex items-center justify-center shrink-0 ${fmt.color}`}>
             <Icon size={22} className={fmt.iconColor} />
@@ -202,25 +205,21 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
                 {attachment.name}
               </span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
               <span className="font-semibold uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-muted/60">
                 {fmt.label}
               </span>
               {attachment.size > 0 && <span>• {formatBytes(attachment.size)}</span>}
               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
                 <ShieldCheck size={11} />
-                <span>Prompt Verified ({attachment.verification?.overall_score || 98}%)</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-medium bg-cyan-500/10 px-1.5 py-0.5 rounded text-[10px]">
-                <Sparkles size={11} />
-                <span>Deep Research Grounded</span>
+                <span>AI Responses Included</span>
               </span>
               {error && <span className="text-destructive">• {error}</span>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+        <div className="flex items-center gap-1.5 shrink-0 w-full sm:w-auto">
           {/* Preview Button */}
           <button
             onClick={handleOpenPreview}
@@ -231,34 +230,90 @@ export function FileAttachmentCard({ attachment }: FileAttachmentCardProps) {
             <span>Preview</span>
           </button>
 
-          {/* Download Button */}
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 justify-center ${
-              downloaded
-                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
-                : 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm active:scale-95'
-            }`}
-            title={`Download ${attachment.name}`}
-          >
-            {downloading ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>Downloading...</span>
-              </>
-            ) : downloaded ? (
-              <>
-                <Check size={13} />
-                <span>Downloaded</span>
-              </>
-            ) : (
-              <>
-                <Download size={13} />
-                <span>Download</span>
-              </>
+          {/* Split Download + Any Format Selector */}
+          <div className="relative flex items-center">
+            <button
+              onClick={e => handleDownload(e)}
+              disabled={downloading}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-medium transition-all shrink-0 justify-center ${
+                downloaded
+                  ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
+                  : 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm active:scale-95'
+              }`}
+              title={`Download ${attachment.name}`}
+            >
+              {downloading ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Downloading...</span>
+                </>
+              ) : downloaded ? (
+                <>
+                  <Check size={13} />
+                  <span>Downloaded</span>
+                </>
+              ) : (
+                <>
+                  <Download size={13} />
+                  <span>Download</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormatMenuOpen(v => !v)}
+              disabled={downloading}
+              className="px-1.5 py-1.5 rounded-r-lg text-xs font-medium bg-primary/90 text-primary-foreground border-l border-primary-foreground/20 hover:bg-primary transition-all"
+              title="Download in any file format"
+            >
+              <ChevronDown size={13} />
+            </button>
+
+            {formatMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl p-2 space-y-2">
+                <div className="text-[11px] font-semibold text-muted-foreground px-1">
+                  Download AI Responses As Format:
+                </div>
+                <div className="grid grid-cols-3 gap-1 max-h-44 overflow-y-auto pr-0.5">
+                  {EXPORT_FILE_FORMATS.map(f => (
+                    <button
+                      key={f.ext}
+                      type="button"
+                      onClick={e => handleDownload(e, f.ext)}
+                      className="px-2 py-1 rounded-md text-[11px] font-medium text-left hover:bg-muted border border-transparent hover:border-border transition-colors truncate"
+                      title={f.description}
+                    >
+                      .{f.ext.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    if (customExt.trim()) {
+                      handleDownload(undefined, customExt.trim())
+                      setCustomExt('')
+                    }
+                  }}
+                  className="flex items-center gap-1 pt-1 border-t border-border"
+                >
+                  <input
+                    type="text"
+                    value={customExt}
+                    onChange={e => setCustomExt(e.target.value)}
+                    placeholder="Any format (e.g. log, ini, rs)"
+                    className="flex-1 min-w-0 px-2 py-1 text-[11px] rounded bg-muted/60 border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2 py-1 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90"
+                  >
+                    Go
+                  </button>
+                </form>
+              </div>
             )}
-          </button>
+          </div>
         </div>
       </div>
 

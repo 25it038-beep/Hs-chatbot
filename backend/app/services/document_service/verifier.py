@@ -106,7 +106,7 @@ class DocumentVerificationService:
             ))
         else:
             # Baseline minimum quantity
-            min_default = 4 if fmt == "pptx" else (2 if fmt in ("pdf", "docx") else 1)
+            min_default = 1
             reqs.append(Requirement(
                 id="req_quantity_min",
                 category="quantity",
@@ -251,7 +251,7 @@ class DocumentVerificationService:
                 DocumentVerificationService._inspect_docx(file_path, report)
             elif fmt == "xlsx":
                 DocumentVerificationService._inspect_xlsx(file_path, report)
-            elif fmt in ("csv", "md", "txt"):
+            else:
                 DocumentVerificationService._inspect_text_file(file_path, report)
         except Exception as e:
             logger.error("[VERIFIER] Real file inspection error on %s: %s", file_path, e, exc_info=True)
@@ -734,51 +734,13 @@ class DocumentVerificationService:
             elif isinstance(content, list):
                 sections = list(content)
 
-            req_qty = next((r.expected_value for r in requirements.requirements if r.category == "quantity"), None)
-            if req_qty and len(sections) < req_qty:
-                deficit = req_qty - len(sections)
-                for i in range(deficit):
-                    sections.append({
-                        "heading": f"Section {len(sections) + 1}: Governance, Security & Performance",
-                        "content": "To ensure enterprise reliability, strict guardrails and verification layers are implemented across the entire workflow. Continuous automated testing validates accuracy and visual consistency.",
-                        "callout": "Automated verification eliminates hallucinations and formatting anomalies before delivery.",
-                    })
-
-            # Inject KPI block if requested
-            if any("kpi" in s.lower() for s in issues) and not any(s.get("kpis") for s in sections):
-                if sections:
-                    sections[0]["kpis"] = [
-                        {"metric": "99.9%", "label": "Uptime"},
-                        {"metric": "10x", "label": "Acceleration"},
-                        {"metric": "100%", "label": "Compliance"},
-                    ]
-
-            # Inject Table if requested
-            if any("table" in s.lower() for s in issues) and not any(s.get("table") for s in sections):
-                sections.append({
-                    "heading": "Comparative Analysis",
-                    "content": "Detailed breakdown comparing key architectural metrics against baseline standards.",
-                    "table": [
-                        ["Dimension", "Industry Average", "HSBot Engine"],
-                        ["Fidelity", "60%", "98%"],
-                        ["Latency", "8.5s", "1.2s"],
-                        ["Quality Assurance", "Manual", "Automated Loop"],
-                    ]
-                })
-
             if isinstance(content, dict):
                 content["sections"] = sections
                 return content
             return sections
 
         elif fmt == "xlsx":
-            if isinstance(content, dict):
-                if not content.get("kpis"):
-                    content["kpis"] = [
-                        {"metric": "$1.2M", "label": "Annualized Efficiency"},
-                        {"metric": "99.4%", "label": "Accuracy Rating"},
-                    ]
-                return content
+            return content
 
         return content
 

@@ -23,6 +23,8 @@ class RAGService:
     def cache_file(user_id: str, filename: str, file_path: str, text: str, file_id: str):
         if user_id not in _file_cache:
             _file_cache[user_id] = []
+        # Avoid duplicate cache entries for same file_id
+        _file_cache[user_id] = [f for f in _file_cache[user_id] if f.get("file_id") != file_id]
         _file_cache[user_id].append({
             "filename": filename,
             "file_path": file_path,
@@ -31,18 +33,34 @@ class RAGService:
         })
 
     @staticmethod
-    def get_cached_file_content(user_id: str, filename_hint: str) -> Optional[str]:
+    def get_cached_file_by_id(user_id: str, file_id: str) -> Optional[dict]:
         files = _file_cache.get(user_id, [])
         for f in files:
-            if filename_hint.lower() in f["filename"].lower():
+            if f.get("file_id") == file_id:
+                return f
+        return None
+
+    @staticmethod
+    def remove_cached_file(user_id: str, file_id: str) -> bool:
+        if user_id not in _file_cache:
+            return False
+        before = len(_file_cache[user_id])
+        _file_cache[user_id] = [f for f in _file_cache[user_id] if f.get("file_id") != file_id]
+        return len(_file_cache[user_id]) < before
+
+    @staticmethod
+    def get_cached_file_content(user_id: str, filename_hint: str) -> Optional[str]:
+        files = _file_cache.get(user_id, [])
+        for f in reversed(files):
+            if filename_hint.lower() in f["filename"].lower() or filename_hint == f.get("file_id"):
                 return f["text"]
         return None
 
     @staticmethod
     def get_cached_file_path(user_id: str, filename_hint: str) -> Optional[str]:
         files = _file_cache.get(user_id, [])
-        for f in files:
-            if filename_hint.lower() in f["filename"].lower():
+        for f in reversed(files):
+            if filename_hint.lower() in f["filename"].lower() or filename_hint == f.get("file_id"):
                 return f["file_path"]
         return None
 
@@ -53,8 +71,9 @@ class RAGService:
             return None
         parts = []
         for f in files:
-            parts.append(f"[From {f['filename']}]:\n{f['text']}")
-        return "\n\n".join(parts)
+            if f.get("text"):
+                parts.append(f"[From {f['filename']} (file_id={f.get('file_id', '')})]:\n{f['text']}")
+        return "\n\n".join(parts) if parts else None
 
     @staticmethod
     def get_cached_files(user_id: str) -> list[dict]:
@@ -105,31 +124,52 @@ class RAGService:
 
     async def process_file(self, file_path: str, filename: str, file_id: Optional[str] = None) -> dict:
         ext = os.path.splitext(filename)[1].lower()
-        text = ""
-        metadata = {"filename": filename, "path": file_path, "size": os.path.getsize(file_path)}
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            raise ValueError("File is empty (0 bytes)")
 
-        if ext == ".txt":
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        elif ext == ".md":
+        text = ""
+        metadata = {"filename": filename, "path": file_path, "size": file_size}
+
+        if ext in (".txt", ".md", ".rtf", ".log", ".ini", ".cfg", ".env.example"):
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
         elif ext == ".pdf":
             text = self._extract_pdf(file_path)
-        elif ext == ".docx":
+        elif ext in (".docx", ".doc"):
             text = self._extract_docx(file_path)
         elif ext in (".csv", ".tsv"):
-            text = self._extract_csv(file_path)
+            text = self._extract_csv(file_path, ext)
         elif ext in (".xlsx", ".xls"):
             text = self._extract_excel(file_path)
-        elif ext == ".pptx":
+        elif ext in (".pptx", ".ppt"):
             text = self._extract_pptx(file_path)
-        elif ext in (".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp", ".cs", ".go", ".rs", ".sql", ".html", ".css", ".json", ".xml", ".yaml", ".yml"):
+        elif ext == ".zip":
+            text = self._extract_zip(file_path)
+        elif ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"):
+            text = self._extract_image_meta(file_path, filename, ext)
+        elif ext in (
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp", ".cs", ".go",
+            ".rs", ".sql", ".html", ".css", ".scss", ".json", ".xml", ".yaml", ".yml",
+            ".sh", ".ps1", ".rb", ".php", ".kt", ".swift", ".toml"
+        ):
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
+                raw_text = f.read()
+            if ext == ".json":
+                import json as _json
+                try:
+                    parsed = _json.loads(raw_text)
+                    text = _json.dumps(parsed, indent=2)
+                except Exception as exc:
+                    raise ValueError(f"Malformed JSON file: {exc}") from exc
+            else:
+                text = raw_text
             metadata["language"] = ext.lstrip(".")
         else:
-            text = f"File: {filename}\nType: {ext}\nSize: {metadata['size']} bytes\n"
+            raise ValueError(f"Unsupported file format: {ext or 'unknown'}")
+
+        if not text or not text.strip():
+            raise ValueError(f"No readable content could be extracted from '{filename}'")
 
         content_hash = hashlib.sha256(text.encode()).hexdigest()
         chunks = self._chunk_text(text)
@@ -290,49 +330,143 @@ class RAGService:
         return chunks
 
     def _extract_pdf(self, path: str) -> str:
+        with open(path, "rb") as f:
+            header = f.read(1024)
+        if b"%PDF-" not in header:
+            raise ValueError("Invalid or corrupt PDF file header")
         try:
             from PyPDF2 import PdfReader
             reader = PdfReader(path)
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
-            return f"[PDF file: {os.path.basename(path)}]"
+            if len(reader.pages) == 0:
+                raise ValueError("PDF file contains 0 pages")
+            extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+            if not extracted.strip():
+                return f"PDF Document ({len(reader.pages)} pages, scanned/image-based layout)"
+            return extracted
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"Corrupt or unreadable PDF file: {exc}") from exc
 
     def _extract_docx(self, path: str) -> str:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic not in (b"PK\x03\x04", b"\xd0\xcf\x11\xe0"):
+            raise ValueError("Invalid or corrupt Word document header")
         try:
             from docx import Document
             doc = Document(path)
-            parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            parts = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
             for table in doc.tables:
                 for row in table.rows:
-                    row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    row_cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
                     if row_cells:
                         parts.append(" | ".join(row_cells))
-            return "\n\n".join(parts)
-        except Exception:
-            return f"[DOCX file: {os.path.basename(path)}]"
+            return "\n\n".join(parts) if parts else "Word document (empty text body)"
+        except Exception as exc:
+            raise ValueError(f"Corrupt or unreadable DOCX file: {exc}") from exc
 
-    def _extract_csv(self, path: str) -> str:
-        import pandas as pd
-        df = pd.read_csv(path)
-        return df.to_string()
+    def _extract_csv(self, path: str, ext: str = ".csv") -> str:
+        try:
+            import pandas as pd
+            sep = "\t" if ext == ".tsv" else ","
+            df = pd.read_csv(path, sep=sep)
+            return df.to_string()
+        except Exception:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            if not text.strip():
+                raise ValueError("CSV file is empty")
+            return text
 
     def _extract_excel(self, path: str) -> str:
-        import pandas as pd
-        dfs = pd.read_excel(path, sheet_name=None)
-        parts = []
-        for sheet_name, df in dfs.items():
-            parts.append(f"--- Sheet: {sheet_name} ---\n{df.to_string()}")
-        return "\n\n".join(parts)
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic not in (b"PK\x03\x04", b"\xd0\xcf\x11\xe0"):
+            raise ValueError("Invalid or corrupt Excel file header")
+        try:
+            import pandas as pd
+            dfs = pd.read_excel(path, sheet_name=None)
+            parts = []
+            for sheet_name, df in dfs.items():
+                parts.append(f"--- Sheet: {sheet_name} ---\n{df.to_string()}")
+            return "\n\n".join(parts) if parts else "Excel workbook (empty sheets)"
+        except Exception as exc:
+            raise ValueError(f"Corrupt or unreadable Excel file: {exc}") from exc
 
     def _extract_pptx(self, path: str) -> str:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic not in (b"PK\x03\x04", b"\xd0\xcf\x11\xe0"):
+            raise ValueError("Invalid or corrupt PowerPoint file header")
         try:
             from pptx import Presentation
             prs = Presentation(path)
             texts = []
-            for slide in prs.slides:
+            for idx, slide in enumerate(prs.slides, 1):
+                slide_texts = []
                 for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        texts.append(shape.text)
-            return "\n".join(texts)
+                    if hasattr(shape, "text") and shape.text and shape.text.strip():
+                        slide_texts.append(shape.text.strip())
+                if slide_texts:
+                    texts.append(f"--- Slide {idx} ---\n" + "\n".join(slide_texts))
+            return "\n\n".join(texts) if texts else f"PowerPoint presentation ({len(prs.slides)} slides)"
+        except Exception as exc:
+            raise ValueError(f"Corrupt or unreadable PPTX file: {exc}") from exc
+
+    def _extract_zip(self, path: str) -> str:
+        import zipfile
+        if not zipfile.is_zipfile(path):
+            raise ValueError("Invalid or corrupt ZIP archive")
+        try:
+            parts = []
+            with zipfile.ZipFile(path, "r") as zf:
+                names = zf.namelist()
+                parts.append(f"ZIP Archive Contents ({len(names)} entries):\n" + "\n".join(f"- {n}" for n in names[:200]))
+                extracted_bytes = 0
+                readable_exts = {
+                    ".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".json",
+                    ".csv", ".tsv", ".html", ".css", ".yaml", ".yml", ".xml", ".sql", ".sh"
+                }
+                for info in zf.infolist():
+                    if info.is_dir() or info.file_size > 512 * 1024:
+                        continue
+                    sub_ext = os.path.splitext(info.filename)[1].lower()
+                    if sub_ext in readable_exts and extracted_bytes < 256 * 1024:
+                        raw = zf.read(info.filename)
+                        extracted_bytes += len(raw)
+                        decoded = raw.decode("utf-8", errors="replace")
+                        parts.append(f"--- File: {info.filename} ---\n{decoded[:12000]}")
+            return "\n\n".join(parts)
+        except Exception as exc:
+            raise ValueError(f"Corrupt or unreadable ZIP archive: {exc}") from exc
+
+    def _extract_image_meta(self, path: str, filename: str, ext: str) -> str:
+        with open(path, "rb") as f:
+            head = f.read(32)
+        if ext == ".png" and not head.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("Invalid or corrupt PNG image header")
+        if ext in (".jpg", ".jpeg") and not head.startswith(b"\xff\xd8\xff"):
+            raise ValueError("Invalid or corrupt JPEG image header")
+        if ext == ".gif" and not (head.startswith(b"GIF87a") or head.startswith(b"GIF89a")):
+            raise ValueError("Invalid or corrupt GIF image header")
+        if ext == ".webp" and not (head.startswith(b"RIFF") and b"WEBP" in head[:16]):
+            raise ValueError("Invalid or corrupt WEBP image header")
+        if ext == ".bmp" and not head.startswith(b"BM"):
+            raise ValueError("Invalid or corrupt BMP image header")
+        if ext == ".svg":
+            with open(path, "r", encoding="utf-8", errors="replace") as sf:
+                svg_text = sf.read()
+            if "<svg" not in svg_text.lower():
+                raise ValueError("Invalid or corrupt SVG file")
+            return f"SVG Vector Image ({filename}):\n{svg_text[:12000]}"
+
+        try:
+            from PIL import Image
+            with Image.open(path) as img:
+                width, height = img.size
+                mode = img.mode
+                fmt = img.format or ext.lstrip(".").upper()
+                return f"Image Attachment: {filename} ({fmt}, {width}x{height}px, mode={mode}, size={os.path.getsize(path)} bytes)"
         except Exception:
-            return f"[PPTX file: {os.path.basename(path)}]"
+            return f"Image Attachment: {filename} (format={ext.lstrip('.').upper()}, size={os.path.getsize(path)} bytes)"

@@ -213,6 +213,7 @@ export const api = {
     system_prompt?: string
     temperature?: number
     max_tokens?: number
+    files?: string[]
     location?: string
     timezone?: string
     file_ids?: string[]
@@ -276,38 +277,45 @@ export const api = {
 
   listProviders: () => request<ProviderInfo[]>('/models/providers'),
 
-  // Files
-  uploadFile: async (file: File, chatId?: string) => {
+  uploadFile: async (file: File, conversationIdOrOptions?: string | { source?: string; analyze?: boolean; conversationId?: string; chatId?: string; signal?: AbortSignal }) => {
     await ensureFreshToken()
     const formData = new FormData()
     formData.append('file', file)
-    if (chatId) {
-      formData.append('chat_id', chatId)
+    let abortSignal: AbortSignal | undefined = undefined
+    if (typeof conversationIdOrOptions === 'string') {
+      formData.append('chat_id', conversationIdOrOptions)
+      formData.append('conversation_id', conversationIdOrOptions)
+    } else if (conversationIdOrOptions) {
+      if (conversationIdOrOptions.chatId) formData.append('chat_id', conversationIdOrOptions.chatId)
+      if (conversationIdOrOptions.conversationId) formData.append('conversation_id', conversationIdOrOptions.conversationId)
+      if (conversationIdOrOptions.source) formData.append('source', conversationIdOrOptions.source)
+      abortSignal = conversationIdOrOptions.signal
     }
-    let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
+    let res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader(), signal: abortSignal })
     if (res.status === 401 && (window as any).Clerk?.session) {
       const fresh = await ensureFreshToken(true)
       if (fresh) {
-        res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader() })
+        res = await fetch(`${BASE_URL}/files/upload`, { method: 'POST', body: formData, headers: getAuthHeader(), signal: abortSignal })
       }
     }
     if (!res.ok) {
-      let msg = `Upload failed with status ${res.status}`
+      let detail = `Upload failed (${res.status})`
       try {
-        const errJson = await res.json()
-        msg = errJson.detail || errJson.message || msg
+        const err = await res.json()
+        detail = err.detail || err.message || detail
       } catch {}
-      throw new Error(msg)
+      throw new Error(detail)
     }
     return res.json() as Promise<FileInfo>
   },
 
-  uploadMultiple: async (files: File[], chatId?: string) => {
+  uploadMultiple: async (files: File[], conversationIdOrChatId?: string) => {
     await ensureFreshToken()
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
-    if (chatId) {
-      formData.append('chat_id', chatId)
+    if (conversationIdOrChatId) {
+      formData.append('chat_id', conversationIdOrChatId)
+      formData.append('conversation_id', conversationIdOrChatId)
     }
     let res = await fetch(`${BASE_URL}/files/upload-multiple`, { method: 'POST', body: formData, headers: getAuthHeader() })
     if (res.status === 401 && (window as any).Clerk?.session) {
@@ -317,18 +325,61 @@ export const api = {
       }
     }
     if (!res.ok) {
-      let msg = `Upload failed with status ${res.status}`
+      let detail = `Upload failed (${res.status})`
       try {
-        const errJson = await res.json()
-        msg = errJson.detail || errJson.message || msg
+        const err = await res.json()
+        detail = err.detail || err.message || detail
       } catch {}
-      throw new Error(msg)
+      throw new Error(detail)
     }
-    return res.json() as Promise<{ files: FileInfo[] }>
+    return res.json() as Promise<{ files: FileInfo[]; count?: number; errors?: any[] }>
   },
 
   getFileStatus: (fileId: string) => request<any>(`/files/${fileId}/status`),
   getChatFiles: (chatId: string) => request<any[]>(`/chats/${chatId}/files`),
+  getFileMetadata: (fileId: string) => request<any>(`/files/${fileId}`),
+
+  getFileContent: (fileId: string, params?: Record<string, string | number>) => {
+    const qs = params
+      ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<any>(`/files/${fileId}/content${qs}`)
+  },
+
+  searchFileContent: (fileId: string, query: string, topK = 12) =>
+    request<any>(`/files/${fileId}/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    }),
+
+  reprocessFile: (fileId: string) =>
+    request<FileInfo>(`/files/${fileId}/reprocess`, { method: 'POST' }),
+
+  deleteUploadedFile: (fileId: string) =>
+    request<{ status: string; fileId: string }>(`/files/${fileId}`, { method: 'DELETE' }),
+
+  generateDocument: (data: {
+    format: string
+    title?: string
+    filename?: string
+    chat_id?: string
+    ai_responses?: string[]
+    content?: any
+  }) =>
+    request<{
+      id: string
+      name: string
+      filename: string
+      format: string
+      url: string
+      preview_url?: string
+      size: number
+      type: string
+      preview_data?: any
+    }>('/documents/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   health: () => request<{ status: string }>('/health'),
 
@@ -347,6 +398,7 @@ export const api = {
     json_mode?: boolean
     reasoning?: boolean
     auto_route?: boolean
+    files?: string[]
     location?: string
     timezone?: string
     file_ids?: string[]

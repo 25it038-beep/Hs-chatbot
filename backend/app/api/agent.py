@@ -304,6 +304,19 @@ async def download_artifact(
     user: User = Depends(get_current_user)
 ):
     record = artifact_engine.get_artifact(artifact_id)
+    if not record:
+        from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+        v2_res = ArtifactStorageAndVersionManager.get_artifact_bytes(str(user.id), artifact_id)
+        if v2_res:
+            rec, _ = v2_res
+            user_v2_dir = ArtifactStorageAndVersionManager._user_artifact_dir(str(user.id))
+            file_path = Path(user_v2_dir) / rec["storageReference"]
+            if file_path.exists():
+                return FileResponse(
+                    path=file_path,
+                    filename=rec["filename"],
+                    media_type=rec.get("mimeType", "application/octet-stream"),
+                )
     if not record or (record.get("user_id") and record["user_id"] != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
 
@@ -324,6 +337,14 @@ async def get_artifact_preview(
 ):
     from app.services.artifacts.registry import artifact_registry
     art = artifact_registry.get(artifact_id)
+    if not art:
+        from app.services.artifacts.universal_engine_v2 import (
+            ArtifactStorageAndVersionManager,
+            UniversalArtifactEngineV2,
+        )
+        v2_rec = ArtifactStorageAndVersionManager.get_artifact(str(user.id), artifact_id)
+        if v2_rec:
+            return UniversalArtifactEngineV2.format_delivery_card(v2_rec)
     if not art or (art.user_id and art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact preview unavailable")
 
@@ -340,6 +361,17 @@ async def get_artifact_content(
 ):
     from app.services.artifacts.registry import artifact_registry
     art = artifact_registry.get(artifact_id)
+    if not art:
+        from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+        v2_res = ArtifactStorageAndVersionManager.get_artifact_bytes(str(user.id), artifact_id)
+        if v2_res:
+            rec, raw_bytes = v2_res
+            ext = rec.get("extension", "")
+            if ext in ("pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "zip", "png", "jpg", "jpeg", "webp"):
+                content_str = json.dumps(rec.get("spec") or rec.get("preview") or {}, indent=2, ensure_ascii=False)
+            else:
+                content_str = raw_bytes.decode("utf-8", errors="replace")
+            return {"artifact_id": artifact_id, "filename": rec["filename"], "content": content_str}
     if not art or (art.user_id and art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact content unavailable")
 
@@ -356,6 +388,24 @@ async def get_artifact_versions(
 ):
     from app.services.artifacts.registry import artifact_registry
     art = artifact_registry.get(artifact_id)
+    if not art:
+        from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+        v2_rec = ArtifactStorageAndVersionManager.get_artifact(str(user.id), artifact_id)
+        if v2_rec:
+            return {
+                "artifact_id": v2_rec["artifactId"],
+                "current_version": v2_rec.get("version", 1),
+                "versions": [
+                    {
+                        "version": v.get("version", 1),
+                        "timestamp": v.get("createdAt", ""),
+                        "summary": v.get("prompt", "Updated artifact"),
+                        "size": v.get("size", 0),
+                        "artifact_id": v.get("artifactId", artifact_id),
+                    }
+                    for v in v2_rec.get("versionHistory", [])
+                ],
+            }
     if not art or (art.user_id and art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"artifact_id": art.artifact_id, "current_version": art.version, "versions": [v.to_dict() for v in art.versions]}
@@ -372,6 +422,36 @@ async def edit_artifact_route(
 ):
     from app.services.artifacts.registry import artifact_registry
     art = artifact_registry.get(artifact_id)
+    if not art:
+        import uuid
+        from app.services.artifacts.universal_engine_v2 import (
+            ArtifactStorageAndVersionManager,
+            UniversalArtifactEngineV2,
+        )
+        from app.services.artifacts.output_intent_engine import OutputIntentResult, OutputMode
+        v2_rec = ArtifactStorageAndVersionManager.get_artifact(str(user.id), artifact_id)
+        if v2_rec:
+            ext = v2_rec["extension"]
+            edit_intent = OutputIntentResult(
+                mode=OutputMode.FILE,
+                primary_format=ext,
+                formats=[ext],
+                filename=v2_rec["filename"],
+                topic=(v2_rec.get("spec") or {}).get("title") or v2_rec["filename"],
+                is_followup_edit=True,
+                edit_instructions=req.instruction,
+            )
+            res = UniversalArtifactEngineV2.execute(
+                user_id=str(user.id),
+                conversation_id=v2_rec.get("conversationId") or "general",
+                message_id=str(uuid.uuid4()),
+                user_message=req.instruction,
+                intent=edit_intent,
+                parent_artifact_id=artifact_id,
+            )
+            if res.get("status") == "completed" and res.get("artifacts"):
+                return {"success": True, "artifact": res["artifacts"][0], "message": res.get("summary_message", "Updated")}
+            raise HTTPException(status_code=400, detail=res.get("message", "Edit failed"))
     if not art or (art.user_id and art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
 
@@ -408,6 +488,38 @@ async def convert_artifact_route(
 ):
     from app.services.artifacts.registry import artifact_registry
     existing_art = artifact_registry.get(artifact_id)
+    if not existing_art:
+        import uuid
+        from app.services.artifacts.universal_engine_v2 import (
+            ArtifactStorageAndVersionManager,
+            UniversalArtifactEngineV2,
+        )
+        from app.services.artifacts.output_intent_engine import OutputIntentResult, OutputMode, sanitize_filename
+        v2_rec = ArtifactStorageAndVersionManager.get_artifact(str(user.id), artifact_id)
+        if v2_rec:
+            target_fmt = req.target_format.lower().lstrip(".")
+            stem = os.path.splitext(v2_rec["filename"])[0]
+            new_fname = sanitize_filename(f"{stem}.{target_fmt}", default_stem=stem, ext=target_fmt)
+            conv_intent = OutputIntentResult(
+                mode=OutputMode.FILE,
+                primary_format=target_fmt,
+                formats=[target_fmt],
+                filename=new_fname,
+                topic=(v2_rec.get("spec") or {}).get("title") or stem,
+                is_conversion=True,
+                source_format=v2_rec["extension"],
+            )
+            res = UniversalArtifactEngineV2.execute(
+                user_id=str(user.id),
+                conversation_id=v2_rec.get("conversationId") or "general",
+                message_id=str(uuid.uuid4()),
+                user_message=f"Convert {v2_rec['filename']} to {target_fmt.upper()}",
+                intent=conv_intent,
+                parent_artifact_id=artifact_id,
+            )
+            if res.get("status") == "completed" and res.get("artifacts"):
+                return {"success": True, "artifact": res["artifacts"][0], "message": res.get("summary_message", "Converted")}
+            raise HTTPException(status_code=400, detail=res.get("message", "Conversion failed"))
     if not existing_art or (existing_art.user_id and existing_art.user_id != user.id):
         raise HTTPException(status_code=404, detail="Artifact not found")
 

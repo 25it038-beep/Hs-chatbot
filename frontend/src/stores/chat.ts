@@ -90,7 +90,16 @@ interface ChatState {
   selectChat: (id: string) => Promise<void>
   createChat: () => Promise<Chat>
   deleteChat: (id: string) => Promise<void>
-  sendMessage: (content: string, chatId?: string, options?: { fileIds?: string[]; attachments?: Attachment[] }) => Promise<void>
+  sendMessage: (
+    content: string,
+    chatId?: string,
+    options?: {
+      files?: string[]
+      fileIds?: string[]
+      attachments?: Attachment[]
+      displayContent?: string
+    }
+  ) => Promise<void>
   addAssistantMessage: (content: string, chatId?: string) => Promise<void>
   updateLastAssistantMessage: (content: string, chatId?: string) => Promise<void>
   cancelStream: (chatId?: string) => void
@@ -229,6 +238,9 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const rawMessages = await api.getMessages(id)
         const messages = rawMessages.map(m => {
           const updated = { ...m }
+          if (!updated.attachments && updated.extra_data && Array.isArray((updated.extra_data as any).attachments)) {
+            updated.attachments = (updated.extra_data as any).attachments
+          }
           if (!updated.sources && updated.extra_data && Array.isArray((updated.extra_data as any).sources)) {
             updated.sources = (updated.extra_data as any).sources
           }
@@ -290,7 +302,16 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       syncDisplay()
     },
 
-    sendMessage: async (content: string, chatId?: string, options?: { fileIds?: string[]; attachments?: Attachment[] }) => {
+    sendMessage: async (
+      content: string,
+      chatId?: string,
+      options?: {
+        files?: string[]
+        fileIds?: string[]
+        attachments?: Attachment[]
+        displayContent?: string
+      }
+    ) => {
       const { currentChat, chatMessages, streamingPhase } = get()
       const chat = chatId ? get().chats.find(c => c.id === chatId) : currentChat
 
@@ -298,6 +319,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
       const hasActiveBrowserAutomation = browserAutomationPriority && (
         Object.values(streamingPhase).includes('browser_action') || (chat ? streamingPhase[chat.id] === 'browser_action' : false)
       )
+
       if (hasActiveBrowserAutomation && !looksLikeBrowserCommand(content)) {
         const waitMessage = 'Browser automation is running. Please wait for it to finish or send a browser command.'
         if (chat) {
@@ -325,16 +347,18 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         return
       }
 
+      const displayContent = options?.displayContent !== undefined ? options.displayContent : content
+
       const userMsg: Message = {
         id: crypto.randomUUID(),
         chat_id: chat.id,
         role: 'user',
-        content,
+        content: displayContent,
+        attachments: options?.attachments && options.attachments.length > 0 ? options.attachments : undefined,
         token_count: 0,
         input_tokens: 0,
         output_tokens: 0,
         created_at: new Date().toISOString(),
-        attachments: options?.attachments,
       }
 
       const updatedMessages = [...(chatMessages[chat.id] || []), userMsg]
@@ -363,7 +387,8 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const model = chat.model || 'llama-3.2-11b'
 
         // Detect explicit image generation requests (shared helper)
-        const isImageRequestForChat = isImageRequest(content)
+        const hasAttachedFiles = Boolean((options?.files && options.files.length > 0) || (options?.attachments && options.attachments.length > 0))
+        const isImageRequestForChat = !hasAttachedFiles && isImageRequest(content)
         const isGenericDefaultModel = !chat.model || ['llama-3.2-11b', 'llama-3.1-70b', 'llama-3.2-vision', 'llama-3.3-70b'].includes(chat.model)
         const shouldAutoRoute = isGenericDefaultModel || isImageRequestForChat
 
@@ -390,8 +415,9 @@ const DEFAULT_VOICE_STATE: VoiceState = {
             auto_route: shouldAutoRoute,
             location: city,
             timezone,
-            file_ids: options?.fileIds,
-            attachments: options?.attachments,
+            file_ids: options?.fileIds || options?.files,
+            files: options?.files && options.files.length > 0 ? options.files : options?.fileIds,
+            attachments: options?.attachments && options.attachments.length > 0 ? options.attachments : undefined,
           }, controller.signal)
         }
 

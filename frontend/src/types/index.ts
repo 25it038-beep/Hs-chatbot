@@ -116,13 +116,22 @@ export interface DocumentPreviewResponse {
 
 export interface Attachment {
   id: string
+  fileId?: string
   name: string
-  type: string
-  size: number
-  download_url: string
   filename?: string
+  type: string
+  mimeType?: string
+  extension?: string
+  category?: string
+  size: number
+  url?: string
+  downloadUrl?: string
+  download_url?: string
   status?: string
   processing_stage?: string
+  previewUrl?: string
+  textPreview?: string
+  source?: string
   preview?: DocumentPreviewData
   verification?: DocumentVerificationData
 }
@@ -252,13 +261,28 @@ export interface FileInfo {
   filename: string
   size: number
   content_type: string
+  extension?: string
+  category?: string
   text_preview: string
   chunk_count: number
   status?: string
   processing_stage?: string
   analysis?: string
+  content_ready?: boolean
+  source?: string
   created_at?: string
   download_url?: string
+}
+
+export interface FileStatusInfo {
+  id: string
+  filename: string
+  size: number
+  content_type: string
+  status: string
+  content_ready: boolean
+  chunk_count: number
+  text_preview: string
 }
 
 export interface ImageGenResponse {

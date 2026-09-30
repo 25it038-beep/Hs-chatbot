@@ -23,10 +23,16 @@ from app.services.nvidia.vision import NvidiaVisionProvider
 from app.config import settings
 
 logger = logging.getLogger("hsbot.files")
+_logger = logger
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 chat_provider = NvidiaChatProvider()
 vision_provider = NvidiaVisionProvider()
+
+
+UNSUPPORTED_EXECUTABLE_EXTENSIONS = {
+    ".exe", ".dll", ".bat", ".cmd", ".msi", ".scr", ".com", ".pif", ".vbs", ".jar", ".apk", ".dmg", ".iso"
+}
 
 
 class FileResponse(BaseModel):
@@ -34,7 +40,11 @@ class FileResponse(BaseModel):
     filename: str
     size: int
     content_type: str
+    category: Optional[str] = "document"
+    extension: Optional[str] = ""
     status: str = "READY"
+    content_ready: bool = True
+    source: Optional[str] = "picker"
     processing_stage: str = "READY"
     text_preview: str = ""
     chunk_count: int = 0
@@ -42,17 +52,22 @@ class FileResponse(BaseModel):
     citations: List[str] = []
     error: Optional[str] = None
     analysis: Optional[str] = None
+    download_url: Optional[str] = None
+    url: Optional[str] = None
 
 
 class FileStatusResponse(BaseModel):
-    file_id: str
+    id: Optional[str] = None
+    file_id: Optional[str] = None
     filename: str
     status: str
-    processing_stage: str
+    content_ready: bool = True
+    processing_stage: str = "READY"
     size: int
     content_type: str
     chunk_count: int = 0
     total_tokens: int = 0
+    text_preview: str = ""
     citations: List[str] = []
     capabilities: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
@@ -67,12 +82,13 @@ def _get_user_dirs(user_id: str) -> tuple[str, str]:
     return original_dir, processed_dir
 
 
-@router.post("/upload", response_model=FileResponse)
+@router.post("/upload", response_model=FileResponse, status_code=201)
 async def upload_file(
     file: UploadFile = File(...),
     chat_id: Optional[str] = Form(None),
     message_id: Optional[str] = Form(None),
-    analyze: bool = Form(False),
+    analyze: bool = Query(False),
+    source: str = Query("picker"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -87,12 +103,18 @@ async def upload_file(
     """
     max_size = settings.max_file_size_mb * 1024 * 1024
     content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file (0 bytes) cannot be uploaded.")
     if len(content) > max_size:
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_file_size_mb}MB limit")
 
-    content_hash = hashlib.sha256(content).hexdigest()
     original_filename = file.filename or "unknown"
+    ext = os.path.splitext(original_filename)[1].lower()
     content_type = file.content_type or "application/octet-stream"
+    if ext in UNSUPPORTED_EXECUTABLE_EXTENSIONS or content[:2] == b"MZ":
+        raise HTTPException(status_code=400, detail=f"Unsupported format ({ext or content_type}). Executable files cannot be uploaded.")
+
+    content_hash = hashlib.sha256(content).hexdigest()
     original_dir, processed_dir = _get_user_dirs(current_user.id)
 
     # 1. Duplicate detection: check if exact file was previously processed for this user
@@ -165,7 +187,7 @@ async def upload_file(
             chunk_count = len(analysis_res.chunks)
             total_tokens = analysis_res.total_tokens
             citations = analysis_res.citations
-            text_snippet = analysis_res.summary or full_text[:500]
+            text_snippet = full_text[:500] if full_text.strip() else (analysis_res.summary or "")
 
             if analysis_res.state.value == "FAILED":
                 status_val = "FAILED"
@@ -216,6 +238,7 @@ async def upload_file(
             chunks_path=chunks_path,
             extracted_text_path=extracted_text_path,
             metadata_json=json.dumps(metadata_dict),
+            content_data=full_text if 'full_text' in locals() and full_text else text_snippet,
         )
         db.add(gen_file)
         await db.commit()
@@ -241,12 +264,18 @@ async def upload_file(
             except Exception:
                 pass
 
+    category = "image" if content_type.startswith("image/") else "code" if ext in (".py", ".js", ".ts", ".html", ".css", ".json", ".sql") else "spreadsheet" if ext in (".csv", ".tsv", ".xlsx", ".xls") else "document"
+    status_lower = "ready" if status_val in ("ready", "READY") else status_val.lower()
     return FileResponse(
         id=file_id,
         filename=original_filename,
         size=len(content),
         content_type=content_type,
-        status=status_val,
+        category=category,
+        extension=ext,
+        status=status_lower,
+        content_ready=status_val in ("ready", "READY"),
+        source=source,
         processing_stage=processing_stage,
         text_preview=text_snippet[:500],
         chunk_count=chunk_count,
@@ -254,6 +283,8 @@ async def upload_file(
         citations=citations,
         error=err_msg,
         analysis=analysis_report,
+        download_url=f"/api/files/{file_id}/download",
+        url=f"/api/files/{file_id}/content",
     )
 
 
@@ -305,15 +336,29 @@ async def get_file_status(
     adapter = file_adapter_registry.get_adapter(rec.filename, rec.mime_type)
     capabilities = adapter.get_capabilities().to_dict() if adapter else None
 
+    status_str = "ready" if rec.status in ("ready", "READY") else (rec.status.lower() if rec.status else "ready")
+    content_is_ready = status_str == "ready"
+
+    preview = rec.content_data[:500] if getattr(rec, "content_data", None) else ""
+    if not preview and rec.extracted_text_path and os.path.exists(rec.extracted_text_path):
+        try:
+            with open(rec.extracted_text_path, "r", encoding="utf-8") as f:
+                preview = f.read(500)
+        except Exception:
+            pass
+
     return FileStatusResponse(
+        id=rec.id,
         file_id=rec.id,
         filename=rec.filename,
-        status=rec.status,
+        status=status_str,
+        content_ready=content_is_ready,
         processing_stage=rec.processing_stage or "READY",
         size=rec.file_size,
         content_type=rec.mime_type,
         chunk_count=meta.get("chunk_count", 0),
         total_tokens=meta.get("total_tokens", 0),
+        text_preview=preview,
         citations=meta.get("citations", []),
         capabilities=capabilities,
         error=rec.error_message,
@@ -327,7 +372,9 @@ async def get_file_content(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Returns the clean extracted text content for the file without exposing raw paths."""
+    """Returns the raw file content bytes or stream with tenant isolation."""
+    from starlette.responses import FileResponse as StarletteFileResponse, Response
+
     stmt = select(GeneratedFile).where(
         GeneratedFile.id == file_id,
         or_(GeneratedFile.user_id == current_user.id, GeneratedFile.user_id == "default_user_id")
@@ -337,19 +384,25 @@ async def get_file_content(
     if not rec:
         raise HTTPException(status_code=404, detail="File not found")
 
+    file_path = rec.storage_path
+    if file_path and os.path.exists(file_path):
+        return StarletteFileResponse(
+            path=file_path,
+            media_type=rec.mime_type or "application/octet-stream",
+            filename=rec.filename,
+        )
+
     if rec.extracted_text_path and os.path.exists(rec.extracted_text_path):
-        with open(rec.extracted_text_path, "r", encoding="utf-8") as f:
-            text = f.read()
-        return {"file_id": rec.id, "filename": rec.filename, "content": text}
+        return StarletteFileResponse(
+            path=rec.extracted_text_path,
+            media_type="text/plain; charset=utf-8",
+            filename=rec.filename,
+        )
 
-    if rec.chunks_path and os.path.exists(rec.chunks_path):
-        with open(rec.chunks_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        chunks = data.get("chunks", [])
-        text = "\n\n".join(c.get("content", "") for c in chunks)
-        return {"file_id": rec.id, "filename": rec.filename, "content": text}
+    if rec.content_data:
+        return Response(content=rec.content_data, media_type="text/plain; charset=utf-8")
 
-    raise HTTPException(status_code=404, detail="Extracted content not found")
+    raise HTTPException(status_code=404, detail="File content not found")
 
 
 @router.get("/{file_id}/search")
@@ -524,3 +577,422 @@ async def preview_file(
         "design_spec": design_spec_json,
         "verification": verification_json,
     }
+
+
+async def resolve_conversation_file_context(
+    db: AsyncSession,
+    user_id: Optional[str],
+    chat_id: Optional[str],
+    file_ids: Optional[list[str]],
+    message_text: str,
+    client_attachments: Optional[list[dict]] = None,
+) -> tuple[str, list[dict]]:
+    """
+    Validates file ownership, links uploaded files to the conversation, loads extracted content
+    (for both newly attached files and existing conversation files for follow-up questions),
+    and returns (context_block_for_system_prompt, verified_message_attachments).
+    """
+    if not user_id:
+        return "", []
+
+    client_meta_by_id = {}
+    if client_attachments:
+        for ca in client_attachments:
+            if isinstance(ca, dict):
+                cid = ca.get("id") or ca.get("fileId")
+                if cid:
+                    client_meta_by_id[str(cid)] = ca
+
+    requested_ids = [str(fid).strip() for fid in (file_ids or []) if fid and str(fid).strip()]
+    verified_attachments: list[dict] = []
+    active_records: list[GeneratedFile] = []
+    seen_ids: set[str] = set()
+
+    # 1. Verify explicitly attached fileIds from the current message
+    if requested_ids:
+        stmt = select(GeneratedFile).where(
+            GeneratedFile.id.in_(requested_ids),
+            GeneratedFile.user_id == str(user_id),
+        )
+        res = await db.execute(stmt)
+        records_by_id = {r.id: r for r in res.scalars().all()}
+        dirty = False
+        for fid in requested_ids:
+            rec = records_by_id.get(fid)
+            if not rec or rec.status not in ("ready", "READY", "partial", "PARTIAL"):
+                continue
+            fpath = rec.storage_path or getattr(rec, "original_path", None)
+            if not fpath or not os.path.exists(fpath):
+                continue
+            if chat_id and rec.conversation_id != str(chat_id):
+                rec.conversation_id = str(chat_id)
+                dirty = True
+            if rec.id not in seen_ids:
+                seen_ids.add(rec.id)
+                active_records.append(rec)
+            cm = client_meta_by_id.get(str(rec.id), {})
+            verified_attachments.append({
+                "id": rec.id,
+                "fileId": rec.id,
+                "name": cm.get("name") or rec.filename,
+                "filename": rec.filename,
+                "type": cm.get("type") or rec.mime_type or "application/octet-stream",
+                "mimeType": cm.get("type") or rec.mime_type or "application/octet-stream",
+                "size": rec.file_size,
+                "source": cm.get("source", "picker"),
+                "download_url": f"/api/files/{rec.id}/download",
+            })
+        if dirty:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+    # 2. Also load previously attached files in this conversation for follow-up questions
+    if chat_id:
+        stmt_conv = (
+            select(GeneratedFile)
+            .where(
+                GeneratedFile.conversation_id == str(chat_id),
+                GeneratedFile.user_id == str(user_id),
+                GeneratedFile.status.in_(["ready", "READY", "partial", "PARTIAL"]),
+            )
+            .order_by(GeneratedFile.created_at)
+        )
+        res_conv = await db.execute(stmt_conv)
+        for rec in res_conv.scalars().all():
+            fpath = rec.storage_path or rec.original_path
+            if rec.id not in seen_ids and fpath and os.path.exists(fpath):
+                seen_ids.add(rec.id)
+                active_records.append(rec)
+
+    if not active_records:
+        return "", verified_attachments
+
+    rag = RAGService(db, str(user_id))
+    context_sections: list[str] = []
+
+    # Optional vector search for targeted chunks when Qdrant is active
+    rag_chunks = await rag.search_similar(message_text)
+    if rag_chunks:
+        context_sections.append(f"Retrieved Semantic Chunks:\n{rag_chunks}")
+
+    # Direct grounded content from each conversation file
+    per_file_budget = max(4000, 36000 // max(1, len(active_records)))
+    for rec in active_records:
+        cached = RAGService.get_cached_file_by_id(str(user_id), rec.id)
+        text_body = (cached["text"] if cached else None) or rec.content_data or ""
+        fpath = rec.storage_path or rec.original_path
+
+        ext = os.path.splitext(rec.filename or "")[1].lower()
+        is_image = (rec.mime_type or "").startswith("image/") or ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+
+        if is_image and (not text_body or text_body.startswith("Image Attachment:")) and fpath and os.path.exists(fpath):
+            try:
+                async with aiofiles.open(fpath, "rb") as img_f:
+                    img_bytes = await img_f.read()
+                v_prompt = (
+                    f"Analyze this image '{rec.filename}' thoroughly. "
+                    f"User question: {message_text or 'Describe all visible text, objects, layout, data, and details.'}"
+                )
+                v_resp = await vision_provider.analyze(
+                    image_data=img_bytes,
+                    prompt=v_prompt,
+                    mime_type=rec.mime_type if (rec.mime_type or "").startswith("image/") else "image/png",
+                )
+                if v_resp and v_resp.content:
+                    text_body = f"{text_body}\nVisual Analysis:\n{v_resp.content}".strip()
+                    rec.content_data = text_body
+                    try:
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                    RAGService.cache_file(str(user_id), rec.filename, fpath, text_body, rec.id)
+            except Exception as exc:
+                _logger.warning("[FILE_CONTEXT] vision analysis fallback for file_id=%s: %s", rec.id, exc)
+
+        if not text_body.strip() and fpath and os.path.exists(fpath):
+            try:
+                proc = await rag.process_file(fpath, rec.filename, rec.id)
+                text_body = proc.get("text", "")
+                if text_body.strip():
+                    rec.content_data = text_body
+                    try:
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                    RAGService.cache_file(str(user_id), rec.filename, fpath, text_body, rec.id)
+            except Exception:
+                pass
+
+        if text_body.strip():
+            excerpt = text_body[:per_file_budget]
+            context_sections.append(
+                f"=== ATTACHED FILE: {rec.filename} (fileId: {rec.id}, type: {rec.mime_type}, size: {rec.file_size} bytes) ===\n"
+                f"{excerpt}"
+            )
+
+    if not context_sections:
+        return "", verified_attachments
+
+    full_context = (
+        "CRITICAL GROUNDED FILE CONTEXT:\n"
+        "The user has attached the following verified file(s) to this conversation. "
+        "Base your answer directly on the actual extracted content below. Never claim you only received a filename.\n\n"
+        + "\n\n".join(context_sections)
+    )
+    return full_context, verified_attachments
+
+
+@router.delete("/{file_id}", status_code=204)
+async def delete_uploaded_file(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Removes an uploaded file owned by the current user from DB, disk, and RAG cache."""
+    from fastapi.responses import Response
+
+    stmt = select(GeneratedFile).where(GeneratedFile.id == file_id)
+    res = await db.execute(stmt)
+    file_record = res.scalar_one_or_none()
+
+    if not file_record or (file_record.user_id and file_record.user_id != current_user.id):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    storage_path = file_record.storage_path
+    RAGService.remove_cached_file(current_user.id, file_id)
+    await db.delete(file_record)
+    await db.commit()
+
+    if storage_path and os.path.exists(storage_path):
+        try:
+            os.remove(storage_path)
+        except OSError:
+            pass
+
+    _logger.info("[UPLOAD] deleted file_id=%s user_id=%s", file_id, current_user.id)
+    return Response(status_code=204)
+
+
+class ArtifactV2GenerateRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = "general"
+    message_id: Optional[str] = ""
+    ai_content: Optional[str] = ""
+    parent_artifact_id: Optional[str] = None
+    uploaded_sources: Optional[list[dict]] = None
+
+
+class ArtifactV2EditRequest(BaseModel):
+    instruction: str
+    conversation_id: Optional[str] = "general"
+
+
+class ArtifactV2ConvertRequest(BaseModel):
+    target_format: str
+    conversation_id: Optional[str] = "general"
+
+
+class ArtifactV2RenameRequest(BaseModel):
+    filename: str
+
+
+@router.get("/artifacts-v2/formats")
+async def list_artifact_v2_formats():
+    from app.services.artifacts.universal_engine_v2 import ArtifactFormatRegistryV2
+    return {"formats": ArtifactFormatRegistryV2.list_all()}
+
+
+@router.post("/artifacts-v2/generate")
+async def generate_artifact_v2(
+    req: ArtifactV2GenerateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import UniversalArtifactEngineV2
+    result = UniversalArtifactEngineV2.execute(
+        user_id=str(current_user.id),
+        conversation_id=req.conversation_id or "general",
+        message_id=req.message_id or str(uuid.uuid4()),
+        user_message=req.message,
+        ai_content=req.ai_content or "",
+        uploaded_sources=req.uploaded_sources or [],
+        parent_artifact_id=req.parent_artifact_id,
+    )
+    return result
+
+
+@router.get("/artifacts-v2/{artifact_id}/download")
+async def download_artifact_v2(
+    artifact_id: str,
+    token: Optional[str] = Query(None),
+    user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import Response
+    from app.utils.security import decode_token
+    from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+
+    active_user = user
+    if not active_user and token:
+        payload = decode_token(token)
+        if payload and payload.get("sub"):
+            u_res = await db.execute(select(User).where(User.id == str(payload["sub"])))
+            active_user = u_res.scalar_one_or_none()
+
+    if not active_user:
+        raise HTTPException(status_code=401, detail="Authentication required to download artifacts.")
+
+    res = ArtifactStorageAndVersionManager.get_artifact_bytes(str(active_user.id), artifact_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    record, data_bytes = res
+    return Response(
+        content=data_bytes,
+        media_type=record["mimeType"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{record["filename"]}"',
+            "Content-Length": str(len(data_bytes)),
+            "X-Artifact-Version": str(record.get("version", 1)),
+            "X-Artifact-SHA256": record.get("hash", ""),
+        },
+    )
+
+
+@router.get("/artifacts-v2/{artifact_id}/preview")
+async def preview_artifact_v2(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import (
+        ArtifactStorageAndVersionManager,
+        UniversalArtifactEngineV2,
+    )
+    rec = ArtifactStorageAndVersionManager.get_artifact(str(current_user.id), artifact_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return UniversalArtifactEngineV2.format_delivery_card(rec)
+
+
+@router.get("/artifacts-v2/{artifact_id}/versions")
+async def get_artifact_v2_versions(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+    rec = ArtifactStorageAndVersionManager.get_artifact(str(current_user.id), artifact_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {
+        "artifactId": rec["artifactId"],
+        "rootArtifactId": rec.get("rootArtifactId", rec["artifactId"]),
+        "currentVersion": rec.get("version", 1),
+        "versions": rec.get("versionHistory", []),
+    }
+
+
+@router.post("/artifacts-v2/{artifact_id}/edit")
+async def edit_artifact_v2(
+    artifact_id: str,
+    req: ArtifactV2EditRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import (
+        ArtifactStorageAndVersionManager,
+        UniversalArtifactEngineV2,
+    )
+    from app.services.artifacts.output_intent_engine import OutputIntentResult, OutputMode
+
+    rec = ArtifactStorageAndVersionManager.get_artifact(str(current_user.id), artifact_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    ext = rec["extension"]
+    edit_intent = OutputIntentResult(
+        mode=OutputMode.FILE,
+        primary_format=ext,
+        formats=[ext],
+        filename=rec["filename"],
+        topic=(rec.get("spec") or {}).get("title") or rec["filename"],
+        is_followup_edit=True,
+        edit_instructions=req.instruction,
+    )
+    result = UniversalArtifactEngineV2.execute(
+        user_id=str(current_user.id),
+        conversation_id=req.conversation_id or rec.get("conversationId") or "general",
+        message_id=str(uuid.uuid4()),
+        user_message=req.instruction,
+        intent=edit_intent,
+        parent_artifact_id=artifact_id,
+    )
+    return result
+
+
+@router.post("/artifacts-v2/{artifact_id}/convert")
+async def convert_artifact_v2(
+    artifact_id: str,
+    req: ArtifactV2ConvertRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import (
+        ArtifactStorageAndVersionManager,
+        UniversalArtifactEngineV2,
+    )
+    from app.services.artifacts.output_intent_engine import OutputIntentResult, OutputMode, sanitize_filename
+
+    rec = ArtifactStorageAndVersionManager.get_artifact(str(current_user.id), artifact_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    target_fmt = req.target_format.lower().lstrip(".")
+    stem = os.path.splitext(rec["filename"])[0]
+    new_fname = sanitize_filename(f"{stem}.{target_fmt}", default_stem=stem, ext=target_fmt)
+
+    conv_intent = OutputIntentResult(
+        mode=OutputMode.FILE,
+        primary_format=target_fmt,
+        formats=[target_fmt],
+        filename=new_fname,
+        topic=(rec.get("spec") or {}).get("title") or stem,
+        is_conversion=True,
+        source_format=rec["extension"],
+    )
+    result = UniversalArtifactEngineV2.execute(
+        user_id=str(current_user.id),
+        conversation_id=req.conversation_id or rec.get("conversationId") or "general",
+        message_id=str(uuid.uuid4()),
+        user_message=f"Convert {rec['filename']} to {target_fmt.upper()}",
+        intent=conv_intent,
+        parent_artifact_id=artifact_id,
+    )
+    return result
+
+
+@router.patch("/artifacts-v2/{artifact_id}/rename")
+async def rename_artifact_v2(
+    artifact_id: str,
+    req: ArtifactV2RenameRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import (
+        ArtifactStorageAndVersionManager,
+        UniversalArtifactEngineV2,
+    )
+    rec = ArtifactStorageAndVersionManager.rename_artifact(str(current_user.id), artifact_id, req.filename)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return UniversalArtifactEngineV2.format_delivery_card(rec)
+
+
+@router.delete("/artifacts-v2/{artifact_id}")
+async def delete_artifact_v2(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.artifacts.universal_engine_v2 import ArtifactStorageAndVersionManager
+    deleted = ArtifactStorageAndVersionManager.delete_artifact(str(current_user.id), artifact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"deleted": True, "artifactId": artifact_id}
+

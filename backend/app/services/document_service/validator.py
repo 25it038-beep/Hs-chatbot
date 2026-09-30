@@ -109,14 +109,25 @@ def validate_file_structure(path: str, fmt: str) -> Tuple[bool, str]:
         except Exception as e:
             return False, f"Invalid CSV: {e}"
 
-    elif fmt in ("md", "markdown", "txt"):
+    elif fmt in ("md", "markdown", "txt", "html", "htm", "json", "xml", "yaml", "yml", "rtf", "tex", "latex", "tsv"):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
                 if not content.strip():
                     return False, "File contains only whitespace"
-            return True, "Valid text/markdown"
+            return True, f"Valid {fmt} file"
         except Exception as e:
-            return False, f"Invalid text file: {e}"
+            return False, f"Invalid {fmt} file: {e}"
+
+    else:
+        # Custom or code file format: verify non-empty readable file
+        try:
+            with open(path, "rb") as f:
+                data = f.read(4096)
+                if not data:
+                    return False, "File is empty"
+            return True, f"Valid .{fmt} file"
+        except Exception as e:
+            return False, f"Invalid .{fmt} file: {e}"
 
     return True, "File verified"

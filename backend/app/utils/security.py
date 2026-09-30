@@ -1,6 +1,6 @@
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Any
 from jose import jwt, JWTError
 from app.config import settings
 

@@ -74,20 +74,21 @@ class SafeCORSMiddleware(CORSMiddleware):
             return
         await super().__call__(scope, receive, send)
 
-# Always use wildcard CORS.
-# Auth is JWT Bearer tokens (not cookies) so allow_credentials=False is correct
-# and allow_origins=["*"] is safe. The previous branch logic caused Render to
-# run with specific allowed origins that excluded the frontend URL.
+app.add_middleware(RequestTracingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
+# SafeCORSMiddleware must be added LAST so that it is the outermost middleware.
+# This ensures that ALL responses (including rate limits, errors, and traces)
+# always include proper CORS headers so browsers never fail with 'Failed to fetch'.
 app.add_middleware(
     SafeCORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
-app.add_middleware(RateLimitMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RequestTracingMiddleware)
 
 app.include_router(auth.router)
 app.include_router(chats.router)

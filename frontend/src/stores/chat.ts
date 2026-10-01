@@ -692,10 +692,13 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         const isTimeout = error instanceof DOMException && error.name === 'AbortError' && !firstChunkReceived
         const isAbort = error instanceof DOMException && error.name === 'AbortError' && firstChunkReceived
         if (!isAbort && stillActive) {
-          console.error('Send error:', error)
+          const rawMsg = error instanceof Error ? error.message : 'Please try again.'
+          const isFailedFetch = rawMsg.toLowerCase().includes('failed to fetch')
           const errorText = isTimeout
             ? '⏱️ **Request timed out.** The AI took too long to respond. Please try sending your message again.'
-            : `⚠️ **Something went wrong.** ${error instanceof Error ? error.message : 'Please try again.'}\n\n_If this keeps happening, try refreshing the page._`
+            : isFailedFetch
+            ? '⚠️ **Server connection interrupted.** Unable to reach the AI server (it may be restarting or waking up). Please try sending your message again in a few moments.'
+            : `⚠️ **Something went wrong.** ${rawMsg}\n\n_If this keeps happening, try refreshing the page._`
           const errMsg: Message = {
             id: crypto.randomUUID(),
             chat_id: chat.id,

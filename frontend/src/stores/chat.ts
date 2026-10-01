@@ -446,13 +446,13 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         let currentVerification: VerificationResult | undefined = undefined
         let currentSatisfactionCheck = false
 
-        // 45-second timeout for first chunk — cancels if NVIDIA hangs
+        // 120-second timeout for first chunk — accommodates cold starts and multi-step retrieval
         firstChunkReceived = false
         timeoutId = setTimeout(() => {
           if (!firstChunkReceived) {
             controller.abort()
           }
-        }, 45000)
+        }, 120000)
 
         while (true) {
           const { done, value } = await reader.read()

@@ -237,13 +237,19 @@ class ResponseOutputIntentEngine:
     @classmethod
     def detect(
         cls,
-        message: str,
+        message: str = "",
         has_uploaded_files: bool = False,
         has_previous_artifact: bool = False,
         previous_artifact_ext: Optional[str] = None,
+        prompt: Optional[str] = None,
+        conversation_history: Optional[List[Any]] = None,
+        uploaded_files: Optional[List[Any]] = None,
+        **kwargs,
     ) -> OutputIntentResult:
-        msg = (message or "").strip()
+        msg = (message or prompt or "").strip()
         lower = msg.lower()
+        if uploaded_files:
+            has_uploaded_files = True
         if not msg:
             return OutputIntentResult(mode=OutputMode.CHAT)
 
@@ -631,3 +637,5 @@ class ResponseOutputIntentEngine:
         elif fmt == "html" and ("website" in lower_msg or slug == "generated_deliverable"):
             slug = "index"
         return sanitize_filename(f"{slug}.{fmt}", default_stem=slug, ext=fmt)
+
+    detect_intent = detect

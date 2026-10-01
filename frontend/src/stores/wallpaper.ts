@@ -127,12 +127,15 @@ export const WALLPAPERS: WallpaperItem[] = [
 // Only image-based wallpapers for cycling (skip 'none')
 export const CYCLEABLE_WALLPAPERS = WALLPAPERS.filter(w => w.id !== 'none')
 
+export type WallpaperFit = 'cover' | 'contain' | 'stretch'
+
 interface WallpaperState {
   currentWallpaperId: string
   autoCycle: boolean
   cycleIntervalSeconds: number
   opacity: number
   blur: number
+  fit: WallpaperFit
   isPickerOpen: boolean
 
   setWallpaper: (id: string) => void
@@ -140,6 +143,7 @@ interface WallpaperState {
   setCycleIntervalSeconds: (seconds: number) => void
   setOpacity: (opacity: number) => void
   setBlur: (blur: number) => void
+  setFit: (fit: WallpaperFit) => void
   setPickerOpen: (open: boolean) => void
   nextWallpaper: () => void
   prevWallpaper: () => void
@@ -177,11 +181,17 @@ export const useWallpaperStore = create<WallpaperState>((set, get) => ({
   cycleIntervalSeconds: getStoredNumber('hsbot_wallpaper_cycle_sec', 30),
   opacity: getStoredNumber('hsbot_wallpaper_opacity', 0.45),
   blur: getStoredNumber('hsbot_wallpaper_blur', 0),
+  fit: (getStoredString('hsbot_wallpaper_fit', 'cover') as WallpaperFit) || 'cover',
   isPickerOpen: false,
 
   setWallpaper: (id: string) => {
     localStorage.setItem('hsbot_wallpaper', id)
     set({ currentWallpaperId: id })
+  },
+
+  setFit: (fit: WallpaperFit) => {
+    localStorage.setItem('hsbot_wallpaper_fit', fit)
+    set({ fit })
   },
 
   setAutoCycle: (enabled: boolean) => {

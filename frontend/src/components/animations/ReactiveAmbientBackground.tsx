@@ -19,6 +19,7 @@ export function ReactiveAmbientBackground({ children }: ReactiveAmbientBackgroun
     cycleIntervalSeconds,
     opacity,
     blur,
+    fit,
     nextWallpaper,
   } = useWallpaperStore()
 
@@ -92,39 +93,73 @@ export function ReactiveAmbientBackground({ children }: ReactiveAmbientBackgroun
     }
   }, [currentWallpaperId, isImageWallpaper, currentItem])
 
+  const renderWallpaperLayer = (url: string | null, isVisible: boolean) => {
+    if (!url) return null
+    const combinedFilter = blur > 0 ? `blur(${blur}px)` : undefined
+
+    if (fit === 'contain') {
+      return (
+        <div
+          className={`absolute inset-0 pointer-events-none overflow-hidden transition-opacity duration-1000 ease-in-out ${
+            isVisible ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          {/* Ambient blurred backdrop fills canvas */}
+          <div
+            className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-60 scale-110"
+            style={{ backgroundImage: `url(${url})` }}
+          />
+          {/* Crisp uncropped foreground */}
+          <div
+            className="absolute inset-0 bg-contain bg-center bg-no-repeat"
+            style={{
+              backgroundImage: `url(${url})`,
+              filter: combinedFilter,
+            }}
+          />
+        </div>
+      )
+    }
+
+    if (fit === 'stretch') {
+      return (
+        <div
+          className={`absolute inset-0 bg-center bg-no-repeat pointer-events-none transition-opacity duration-1000 ease-in-out ${
+            isVisible ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            backgroundImage: `url(${url})`,
+            backgroundSize: '100% 100%',
+            filter: combinedFilter,
+          }}
+        />
+      )
+    }
+
+    // Default 'cover'
+    return (
+      <div
+        className={`absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-1000 ease-in-out ${
+          isVisible ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          backgroundImage: `url(${url})`,
+          filter: combinedFilter,
+          transform: 'scale(1.02)', // prevent edge blur leakage
+        }}
+      />
+    )
+  }
+
   return (
     <div className="relative min-h-screen bg-background transition-colors duration-500">
       <div className="ambient-bg" aria-hidden="true">
         {/* Base Ambient Wash (Festival / AI reactive gradient) */}
         <div className="ambient-wash" />
 
-        {/* Dual-Layer Crossfade Image Background Layer A */}
-        {layerA && (
-          <div
-            className={`absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-1000 ease-in-out ${
-              showLayerA ? 'opacity-100' : 'opacity-0'
-            }`}
-            style={{
-              backgroundImage: `url(${layerA})`,
-              filter: blur > 0 ? `blur(${blur}px)` : undefined,
-              transform: 'scale(1.02)', // prevent edge blur leakage
-            }}
-          />
-        )}
-
-        {/* Dual-Layer Crossfade Image Background Layer B */}
-        {layerB && (
-          <div
-            className={`absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-1000 ease-in-out ${
-              !showLayerA ? 'opacity-100' : 'opacity-0'
-            }`}
-            style={{
-              backgroundImage: `url(${layerB})`,
-              filter: blur > 0 ? `blur(${blur}px)` : undefined,
-              transform: 'scale(1.02)',
-            }}
-          />
-        )}
+        {/* Dual-Layer Crossfade Image Background Layers */}
+        {renderWallpaperLayer(layerA, showLayerA)}
+        {renderWallpaperLayer(layerB, !showLayerA)}
 
         {/* Contrast Scrim / Theme Protector: Ensures 100% typography contrast in Light & Dark */}
         {(layerA || layerB) && (

@@ -86,13 +86,16 @@ class ResponseOutputIntentEngine:
     @classmethod
     def detect_intent(
         cls,
-        message: str,
+        message: str = "",
         uploaded_files: Optional[List[str]] = None,
         has_previous_artifact: bool = False,
         previous_artifact_meta: Optional[Dict[str, Any]] = None,
+        prompt: Optional[str] = None,
+        conversation_history: Optional[List[Any]] = None,
+        **kwargs,
     ) -> Optional[ArtifactSpec]:
         """Analyzes a message to determine if a real artifact should be synthesized (§1)."""
-        msg = message.strip()
+        msg = (message or prompt or "").strip()
         lower = msg.lower()
 
         # 1. Negative Checks: Pure informational queries

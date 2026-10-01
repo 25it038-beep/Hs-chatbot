@@ -31,6 +31,8 @@ export function WallpaperPickerModal({ open, onOpenChange }: WallpaperPickerModa
     cycleIntervalSeconds,
     opacity,
     blur,
+    fit,
+    setFit,
     setWallpaper,
     setAutoCycle,
     setCycleIntervalSeconds,
@@ -139,6 +141,36 @@ export function WallpaperPickerModal({ open, onOpenChange }: WallpaperPickerModa
                   title={`Change background every ${sec} seconds`}
                 >
                   {sec}s
+                </button>
+              ))}
+            </div>
+
+            {/* Fit Mode Switcher */}
+            <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-0.5 ml-1">
+              {(
+                [
+                  { id: 'cover' as const, label: 'Fill' },
+                  { id: 'contain' as const, label: 'Fit' },
+                  { id: 'stretch' as const, label: 'Stretch' },
+                ]
+              ).map((mode) => (
+                <button
+                  key={mode.id}
+                  onClick={() => setFit(mode.id)}
+                  className={`px-2 py-1 rounded text-[11px] font-medium transition-all ${
+                    fit === mode.id
+                      ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title={
+                    mode.id === 'contain'
+                      ? 'Fit: Show entire image with ambient blur backdrop'
+                      : mode.id === 'cover'
+                      ? 'Fill: Crop to fill whole screen'
+                      : 'Stretch: Stretch image to screen edges'
+                  }
+                >
+                  {mode.label}
                 </button>
               ))}
             </div>

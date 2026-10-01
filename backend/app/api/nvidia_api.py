@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.responses import StreamingResponse, JSONResponse
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -631,7 +631,6 @@ async def nvidia_chat(
     from app.services.game.detector import game_detector
     from app.services.game.generator import game_generator
     from app.services.nvidia.router import WEB_PROJECT_RE
-    from sqlalchemy import func
 
     is_game_req = game_detector.is_game_request(request.message)
     is_web_project_req = is_game_req or bool(WEB_PROJECT_RE.search(request.message))
@@ -909,8 +908,6 @@ async def nvidia_chat(
 
         # Resolve attachments if only file_ids were sent
         if request.file_ids and not request.attachments:
-            from app.models.file import GeneratedFile
-            from sqlalchemy import select
             f_stmt = select(GeneratedFile).where(GeneratedFile.id.in_(request.file_ids))
             f_res = await db.execute(f_stmt)
             db_files = f_res.scalars().all()
@@ -930,8 +927,6 @@ async def nvidia_chat(
 
         # Link files to this chat permanently in DB so follow-ups never forget them
         if request.chat_id and request.file_ids:
-            from app.models.file import GeneratedFile
-            from sqlalchemy import update
             await db.execute(
                 update(GeneratedFile)
                 .where(GeneratedFile.id.in_(request.file_ids))

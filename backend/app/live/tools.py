@@ -56,8 +56,54 @@ _RAG_PATTERNS = [
 # Conversational chatter patterns that must NEVER trigger external tools
 _SMALLTALK_PATTERNS = [
     re.compile(r"^\s*(hi|hello|hey|greetings|howdy|good\s+(?:morning|afternoon|evening|night)|how\s+are\s+you|who\s+are\s+you|what\s+is\s+your\s+name|what('?s|\s+is)\s+up|thank\s+you|thanks|bye|goodbye|see\s+you|help\s+me|tell\s+me\s+a\s+joke)\b[^\?]*[\?!.]*$", re.I),
-    re.compile(r"^\s*(explain|tell me about|what is|how do|how does|why is|write|create|compose)\s+(?!the weather|the time|today's news|latest news|current news).+", re.I),
+    re.compile(r"^\s*(write|create|compose)\s+(?:a\s+|an\s+)?(?:poem|story|song|essay|joke|code|script)\b.*", re.I),
+    re.compile(r"^\s*(explain|tell me about|what is|how do|how does|why is)\s+(?!(?:the\s+)?(?:weather|temperature|forecast|time|date|news|happening|current|latest|today|tomorrow)).+", re.I),
 ]
+
+# Capability inquiries about real-time abilities (web search, time, weather)
+_CAPABILITY_PATTERNS = [
+    re.compile(r"\b(?:can\s+you|are\s+you\s+able\s+to|do\s+you\s+have|can\s+we)\s+(?:do\s+)?(?:web\s+search(?:es)?|search\s+the\s+web|browse\s+the\s+web|access\s+(?:the\s+)?time|check\s+(?:the\s+)?time|tell\s+(?:the\s+)?time|weather\s+access|real-?time\s+access)\b", re.I),
+    re.compile(r"\b(?:web\s+search(?:es)?\s+and\s+time\s+access|time\s+access\s+and\s+web\s+search)\b", re.I),
+    re.compile(r"\b(?:can\s+you\s+(?:access\s+the\s+time|search\s+the\s+web))\b", re.I),
+]
+
+_TIME_PATTERNS = [
+    re.compile(r"\bwhat\s+(?:is|['’]s)\s+(?:the\s+)?(?:current\s+)?time\b", re.I),
+    re.compile(r"\bwhat\s+time\s+(?:is\s+it|now)\b", re.I),
+    re.compile(r"\bwhat\s+time\b", re.I),
+    re.compile(r"\btell\s+(?:me\s+)?(?:the\s+)?(?:current\s+)?time\b", re.I),
+    re.compile(r"\bcheck\s+(?:the\s+)?(?:current\s+)?time\b", re.I),
+    re.compile(r"\bcurrent\s+time\b", re.I),
+    re.compile(r"\btime\s+now\b", re.I),
+    re.compile(r"\btime\s+(?:in|at|for)\s+([a-zA-Z\s]+)", re.I),
+    re.compile(r"\bwhat\s+(?:is|['’]s)\s+(?:the\s+)?(?:current\s+)?date\b", re.I),
+    re.compile(r"\bwhat\s+day\s+(?:is\s+it|today)\b", re.I),
+    re.compile(r"\btoday['’]?s\s+date\b", re.I),
+    re.compile(r"\bcurrent\s+date\b", re.I),
+    re.compile(r"\btime\s+access\b", re.I),
+    re.compile(r"\baccess\s+(?:the\s+)?time\b", re.I),
+]
+
+_WEATHER_PATTERNS = [
+    re.compile(r"\bweather\b", re.I),
+    re.compile(r"\btemperature\b", re.I),
+    re.compile(r"\bforecast\b", re.I),
+    re.compile(r"\bwill\s+it\s+rain\b", re.I),
+    re.compile(r"\bis\s+it\s+raining\b", re.I),
+    re.compile(r"\bhumidity\b", re.I),
+    re.compile(r"\bhow\s+hot\b", re.I),
+    re.compile(r"\bhow\s+cold\b", re.I),
+]
+
+def extract_live_location(text: str) -> Optional[str]:
+    m = re.search(r"\b(?:in|at|for)\s+([a-zA-Z\s]+?)(?:\?|$|\.|,|and\b)", text, re.I)
+    if m:
+        loc = m.group(1).strip()
+        loc = re.sub(r"\b(tomorrow|today|weather|forecast|temperature|the|my location|here|outside|now)\b", "", loc, flags=re.I).strip()
+        loc = re.sub(r"\s+", " ", loc)
+        if loc and loc.lower() not in ("here", "my location", "outside", "now", "today"):
+            return loc.split(" and ")[0].split(" or ")[0].strip()
+    return None
 
 
 class LiveToolResult:
@@ -92,10 +138,15 @@ class LiveToolRouter:
         if not q or len(q) < 2:
             return []
 
-        # 1. Non-tool bypass for ordinary smalltalk / creative / general reasoning
+        # 1. Non-tool bypass for ordinary smalltalk / creative / jokes
         for pat in _SMALLTALK_PATTERNS:
             if pat.match(q):
                 return []
+
+        # 1.1 Check for capability inquiries
+        for pat in _CAPABILITY_PATTERNS:
+            if pat.search(q):
+                return [("capabilities", None)]
 
         tools: List[Tuple[str, Optional[str]]] = []
 
@@ -111,36 +162,45 @@ class LiveToolRouter:
                 tools.append(("location", None))
                 break
 
-        # 4. Check for Time or Weather queries via existing detector
-        tw_intent, tw_loc = detect_time_weather(q)
-        if tw_intent == "time":
-            tools.append(("time", tw_loc))
-        elif tw_intent == "weather":
-            tools.append(("weather", tw_loc))
+        # 4. Check for Time queries
+        matched_time = False
+        for pat in _TIME_PATTERNS:
+            if pat.search(q):
+                matched_time = True
+                loc = extract_live_location(q)
+                tools.append(("time", loc))
+                break
 
-        # Check secondary time/weather if compound query (e.g., "weather in Chennai and time in Tokyo")
-        if "weather" in q.lower() and not any(t[0] == "weather" for t in tools):
-            m_w = re.search(r"\bweather(?:\s+(?:in|at|for))?\s+([a-zA-Z\s]+)", q, re.I)
-            w_loc = m_w.group(1).strip() if m_w else None
-            tools.append(("weather", w_loc))
+        # 5. Check for Weather queries
+        matched_weather = False
+        for pat in _WEATHER_PATTERNS:
+            if pat.search(q):
+                matched_weather = True
+                loc = extract_live_location(q)
+                if not loc:
+                    m_w = re.search(r"weather\s+(?:in|at|for)?\s*([a-zA-Z\s]+)", q, re.I)
+                    if m_w:
+                        w_cand = m_w.group(1).strip()
+                        w_cand = re.sub(r"\b(today|tomorrow|now|here|outside)\b", "", w_cand, flags=re.I).strip()
+                        if w_cand:
+                            loc = w_cand
+                tools.append(("weather", loc))
+                break
 
-        if ("what time" in q.lower() or "current time" in q.lower()) and not any(t[0] == "time" for t in tools):
-            m_t = re.search(r"\btime\s+(?:in|at|for)\s+([a-zA-Z\s]+)", q, re.I)
-            t_loc = m_t.group(1).strip() if m_t else None
-            tools.append(("time", t_loc))
-
-        # 5. Check for Web Search / Real-time Current Events
-        search_mode, _ = determine_search_mode(q)
-        is_news_search = bool(re.search(
-            r"\b(search the web|search web|google|latest news|news today|happened today|what's happening in the world|current events|world news)\b",
+        # 6. Check for Web Search / Real-time Current Events
+        is_explicit_news = bool(re.search(
+            r"\b(search the web|search web|browse the web|google|search online|look up online|latest news|news today|happened today|what's happening in the world|current events|world news|search for)\b",
             q,
             re.I
         ))
 
-        if search_mode != SearchMode.NONE or is_news_search:
-            # If weather/time was also requested, web search can run concurrently for the news part
-            if not any(t[0] == "web_search" for t in tools):
-                tools.append(("web_search", None))
+        # Only evaluate general search_mode if no time/weather was triggered, or if news was explicitly requested
+        has_time_or_weather = matched_time or matched_weather
+        if is_explicit_news or not has_time_or_weather:
+            search_mode, _ = determine_search_mode(q)
+            if search_mode != SearchMode.NONE or is_explicit_news:
+                if not any(t[0] == "web_search" for t in tools):
+                    tools.append(("web_search", None))
 
         return tools
 
@@ -202,6 +262,9 @@ class LiveToolRouter:
 
             elif tool_name == "web_search":
                 return await asyncio.wait_for(cls._execute_web_search(query), timeout=timeout_s)
+
+            elif tool_name == "capabilities":
+                return await cls._execute_capabilities()
 
             return LiveToolResult(tool_name, "", "")
 
@@ -360,3 +423,14 @@ class LiveToolRouter:
         _LIVE_CACHE[cache_key] = (now, context)
         latency_ms = (time.time() - t0) * 1000
         return LiveToolResult("web_search", context, "Searching the web...", latency_ms, True)
+
+    @classmethod
+    async def _execute_capabilities(cls) -> LiveToolResult:
+        context = (
+            "HSBOT REAL-TIME SYSTEM CAPABILITIES STATUS:\n"
+            "- Live Web Search: ACTIVE and FULLY FUNCTIONAL. You can search the live web for breaking news, current events, and live facts.\n"
+            "- Live Time Access: ACTIVE and FULLY FUNCTIONAL. You have instant access to the exact current time, date, and world timezones.\n"
+            "- Live Weather: ACTIVE and FULLY FUNCTIONAL. You can provide live weather and temperature for any city.\n"
+            "Instruction: Confidently and enthusiastically tell the user in 1 or 2 natural spoken sentences that you DO have full live web search, current time access, and weather lookup capabilities. Invite them to test it right now."
+        )
+        return LiveToolResult("capabilities", context, "Confirming capabilities...", 0.0, True)

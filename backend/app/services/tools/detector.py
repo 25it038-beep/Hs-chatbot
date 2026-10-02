@@ -4,14 +4,20 @@ import re
 from typing import Literal, Optional, Tuple
 
 _TIME_PATTERNS = [
-    r"\bwhat time is it\b",
-    r"\bcurrent time\b",
-    r"\btime now\b",
-    r"\bwhat['’]?s the time\b",
-    r"\btime in\b",
-    r"\bwhat['’]?s the date\b",
-    r"\bwhat day is it\b",
-    r"\btoday['’]?s date\b",
+    r"\bwhat\s+(?:is|['’]s)\s+(?:the\s+)?(?:current\s+)?time\b",
+    r"\bwhat\s+time\s+(?:is\s+it|now)\b",
+    r"\bwhat\s+time\b",
+    r"\btell\s+(?:me\s+)?(?:the\s+)?(?:current\s+)?time\b",
+    r"\bcheck\s+(?:the\s+)?time\b",
+    r"\bcurrent\s+time\b",
+    r"\btime\s+now\b",
+    r"\btime\s+(?:in|at|for)\b",
+    r"\bwhat\s+(?:is|['’]s)\s+(?:the\s+)?(?:current\s+)?date\b",
+    r"\bwhat\s+day\s+is\s+it\b",
+    r"\btoday['’]?s\s+date\b",
+    r"\bcurrent\s+date\b",
+    r"\btime\s+access\b",
+    r"\baccess\s+(?:the\s+)?time\b",
 ]
 
 _WEATHER_PATTERNS = [

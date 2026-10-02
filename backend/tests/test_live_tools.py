@@ -57,16 +57,43 @@ def test_smalltalk_and_reasoning_bypass():
 # 2. Time Tool Classification & Execution
 @pytest.mark.asyncio
 async def test_time_tool_classification_and_execution():
-    q = "What time is it in Tokyo?"
-    tools = LiveToolRouter.classify_tools(q)
-    assert len(tools) >= 1
-    assert tools[0][0] == "time"
+    time_queries = [
+        "What time is it in Tokyo?",
+        "what is the time",
+        "what is the current time",
+        "tell me the time",
+        "time in London",
+    ]
+    for q in time_queries:
+        tools = LiveToolRouter.classify_tools(q)
+        assert len(tools) == 1, f"Expected 1 tool for '{q}', got {tools}"
+        assert tools[0][0] == "time"
 
-    res = await LiveToolRouter.execute_tool("time", q, location="Tokyo")
+    res = await LiveToolRouter.execute_tool("time", "What time is it in Tokyo?", location="Tokyo")
     assert res.success is True
     assert res.tool_name == "time"
     assert "REAL-TIME TIME DATA" in res.context_text
     assert "Tokyo" in res.context_text or "UTC" in res.context_text
+
+
+# 2.1 Capability Inquiry Classification & Execution
+@pytest.mark.asyncio
+async def test_capabilities_inquiry():
+    cap_queries = [
+        "can you do web searches and time access",
+        "can you search the web",
+        "can you access the time",
+        "do you have web search",
+    ]
+    for q in cap_queries:
+        tools = LiveToolRouter.classify_tools(q)
+        assert len(tools) == 1, f"Expected capabilities tool for '{q}', got {tools}"
+        assert tools[0][0] == "capabilities"
+
+    res = await LiveToolRouter.execute_tool("capabilities", "can you do web searches and time access")
+    assert res.success is True
+    assert "Live Web Search: ACTIVE" in res.context_text
+    assert "Live Time Access: ACTIVE" in res.context_text
 
 
 # 3. Weather Tool Classification, Execution & Caching

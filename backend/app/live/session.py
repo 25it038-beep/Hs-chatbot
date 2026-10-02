@@ -492,7 +492,9 @@ class LiveVoiceSession:
                 tool_names = [t[0] for t in detected_tools]
                 logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Detected live tools: {tool_names}")
 
-                if "weather" in tool_names:
+                if "capabilities" in tool_names:
+                    status_lbl = "Checking capabilities..."
+                elif "weather" in tool_names:
                     status_lbl = "Getting weather..."
                 elif "web_search" in tool_names:
                     status_lbl = "Searching the web..."

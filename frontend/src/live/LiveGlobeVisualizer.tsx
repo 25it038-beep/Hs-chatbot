@@ -70,16 +70,26 @@ for (let i = 0; i < MAX_CANDIDATES && FIBONACCI_LAND_POINTS.length < TARGET_KEPT
 }
 
 // State-to-accent RGB mapping
-const STATE_ACCENTS: Record<LiveState, [number, number, number]> = {
+const STATE_ACCENTS: Record<string, [number, number, number]> = {
   IDLE: [56, 189, 248],           // Electric Cyan
   CONNECTING: [168, 85, 247],     // Violet/Purple
   CONNECTED: [56, 189, 248],      // Electric Cyan
   LISTENING: [52, 211, 153],      // Emerald Green (Microphone listening)
+  USER_SPEAKING: [34, 211, 238],  // Bright Aqua
   PROCESSING: [168, 85, 247],     // Shifting Purple (Thinking)
   SPEAKING: [96, 165, 250],       // Luminous Azure (AI speaking)
+  AI_SPEAKING: [96, 165, 250],    // Luminous Azure
   INTERRUPTED: [251, 146, 60],    // Amber
   ERROR: [248, 113, 113],         // Coral Red
   DISCONNECTED: [148, 163, 184],  // Slate Gray
+  READY: [56, 189, 248],
+  STOPPED: [148, 163, 184],
+}
+
+export function getAccentRGB(st?: string | null): [number, number, number] {
+  if (!st) return [56, 189, 248]
+  const key = String(st).toUpperCase().trim()
+  return STATE_ACCENTS[key] || [56, 189, 248]
 }
 
 export function LiveGlobeVisualizer({
@@ -187,7 +197,7 @@ export function LiveGlobeVisualizer({
     }
 
     // Color transition interpolation
-    let currentRGB: [number, number, number] = [...STATE_ACCENTS[stateRef.current]]
+    let currentRGB: [number, number, number] = [...getAccentRGB(stateRef.current)]
 
     const render = () => {
       animId = requestAnimationFrame(render)
@@ -221,7 +231,7 @@ export function LiveGlobeVisualizer({
       }
 
       // Smooth color transition
-      const targetRGB = STATE_ACCENTS[currentState] || STATE_ACCENTS.IDLE
+      const targetRGB = getAccentRGB(currentState)
       currentRGB[0] += (targetRGB[0] - currentRGB[0]) * 0.1
       currentRGB[1] += (targetRGB[1] - currentRGB[1]) * 0.1
       currentRGB[2] += (targetRGB[2] - currentRGB[2]) * 0.1
@@ -323,6 +333,8 @@ export function LiveGlobeVisualizer({
     }
   }, [size, interactive])
 
+  const currentAccent = getAccentRGB(state)
+
   return (
     <div
       className={`relative flex items-center justify-center select-none ${className}`}
@@ -332,7 +344,7 @@ export function LiveGlobeVisualizer({
       <div
         className="absolute inset-0 rounded-full pointer-events-none transition-colors duration-700 blur-2xl opacity-40"
         style={{
-          background: `radial-gradient(circle, rgba(${STATE_ACCENTS[state].join(',')}, 0.22) 0%, transparent 70%)`,
+          background: `radial-gradient(circle, rgba(${currentAccent[0]}, ${currentAccent[1]}, ${currentAccent[2]}, 0.22) 0%, transparent 70%)`,
         }}
       />
       <canvas

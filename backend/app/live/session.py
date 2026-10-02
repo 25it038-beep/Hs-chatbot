@@ -24,6 +24,7 @@ from app.live.tamil_provider import (
     TamilVoiceUnavailableError,
 )
 from app.config import settings
+from app.live.tools import LiveToolRouter, LiveToolResult
 
 logger = logging.getLogger("hsbot.live.session")
 
@@ -44,9 +45,10 @@ def calculate_pcm_rms(chunk: bytes) -> float:
 
 
 class LiveVoiceSession:
-    def __init__(self, session_id: str, websocket: WebSocket):
+    def __init__(self, session_id: str, websocket: WebSocket, user_id: Optional[str] = None):
         self.session_id = session_id
         self.websocket = websocket
+        self.user_id = user_id
         self.turn_manager = LiveTurnManager()
         self.conversation_history: List[Dict[str, str]] = []
         self.voice = getattr(settings, "live_voice", "Chatterbox-Multilingual")
@@ -71,6 +73,7 @@ class LiveVoiceSession:
 
         # Turn concurrency management
         self._turn_in_progress = False
+        self._tool_task: Optional[asyncio.Task] = None
         self._llm_task: Optional[asyncio.Task] = None
         self._tts_task: Optional[asyncio.Task] = None
         self._tts_queue: Optional[asyncio.Queue] = None
@@ -112,6 +115,10 @@ class LiveVoiceSession:
 
         elif msg_type == "config":
             cfg = msg.get("config", {})
+            if "userId" in cfg:
+                self.user_id = cfg["userId"]
+            elif "user_id" in cfg:
+                self.user_id = cfg["user_id"]
             if "voice" in cfg:
                 self.voice = cfg["voice"]
             if "sampleRate" in cfg:
@@ -298,6 +305,9 @@ class LiveVoiceSession:
         logger.info(f"[LIVE][session={self.session_id}] Interrupting live session")
         self.turn_manager.handle_barge_in()
 
+        if self._tool_task and not self._tool_task.done():
+            self._tool_task.cancel()
+
         if self._llm_task and not self._llm_task.done():
             self._llm_task.cancel()
 
@@ -475,6 +485,61 @@ class LiveVoiceSession:
             except Exception as e:
                 logger.warning(f"[LIVE] Error checking spoken artifact intent: {e}")
 
+            # 1.5. Live Tool Routing & Real-time Data Retrieval
+            detected_tools = LiveToolRouter.classify_tools(user_text)
+            tool_context = ""
+            if detected_tools:
+                tool_names = [t[0] for t in detected_tools]
+                logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Detected live tools: {tool_names}")
+
+                if "weather" in tool_names:
+                    status_lbl = "Getting weather..."
+                elif "web_search" in tool_names:
+                    status_lbl = "Searching the web..."
+                elif "time" in tool_names:
+                    status_lbl = "Checking the time..."
+                elif "location" in tool_names:
+                    status_lbl = "Checking location..."
+                elif "rag" in tool_names:
+                    status_lbl = "Reading uploaded documents..."
+                else:
+                    status_lbl = "Fetching live data..."
+
+                self.turn_manager.transition_to("PROCESSING", f"Live Tool: {', '.join(tool_names)}")
+                await self.send_status("PROCESSING", status_lbl)
+
+                t_tool_start = time.time()
+                self._tool_task = asyncio.create_task(
+                    LiveToolRouter.execute_tools_concurrently(
+                        tools=detected_tools,
+                        query=user_text,
+                        user_id=self.user_id,
+                        timeout_s=3.5,
+                    )
+                )
+                try:
+                    tool_results = await self._tool_task
+                    tool_ms = (time.time() - t_tool_start) * 1000
+                    logger.info(f"[LIVE][session={self.session_id}][turn={turn_id}] Live tools completed in {tool_ms:.1f}ms")
+
+                    valid_contexts = [r.context_text for r in tool_results if r.context_text]
+                    if valid_contexts:
+                        tool_context = "\n\n".join(valid_contexts)
+
+                    await self.websocket.send_json({
+                        "type": "timing",
+                        "metric": "live_tool_ms",
+                        "value": round(tool_ms, 1),
+                        "turnId": turn_id,
+                        "tools": tool_names,
+                    })
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(f"[LIVE] Error executing live tools: {e}")
+                finally:
+                    self._tool_task = None
+
             # Transition to PROCESSING (Thinking)
             self.turn_manager.transition_to("PROCESSING", "Streaming NVIDIA LLM")
             await self.send_status("PROCESSING", "Thinking (NVIDIA LLM)...")
@@ -489,7 +554,7 @@ class LiveVoiceSession:
 
             # Run LLM Producer in this coroutine
             full_reply = await self._llm_producer(
-                user_text, self._tts_queue, self._t_asr_final, turn_id, turn_gen_id
+                user_text, self._tts_queue, self._t_asr_final, turn_id, turn_gen_id, tool_context=tool_context
             )
 
             # Wait for TTS consumer to finish synthesizing all queued phrases
@@ -525,6 +590,7 @@ class LiveVoiceSession:
         t_asr_final: float,
         turn_id: str,
         turn_gen_id: int,
+        tool_context: str = "",
     ) -> str:
         """Streams LLM tokens, applies phrase buffer, and feeds sentences immediately into tts_queue."""
         full_text = ""
@@ -535,7 +601,11 @@ class LiveVoiceSession:
 
         # Isolated prompt instruction for non-English sessions (Section 10)
         prompt_instruction = self.voice_engine.get_prompt_instruction()
-        llm_input = f"{prompt_instruction}\n\n{user_text}" if prompt_instruction else user_text
+        base_prompt = f"{prompt_instruction}\n\n{user_text}" if prompt_instruction else user_text
+        if tool_context:
+            llm_input = f"{tool_context}\n\nUser Question: {base_prompt}"
+        else:
+            llm_input = base_prompt
 
         try:
             async for token in live_llm.stream_reply(llm_input, self.conversation_history):
@@ -687,6 +757,8 @@ class LiveVoiceSession:
         self.is_active = False
         if self.silence_monitor_task and not self.silence_monitor_task.done():
             self.silence_monitor_task.cancel()
+        if self._tool_task and not self._tool_task.done():
+            self._tool_task.cancel()
         if self._llm_task and not self._llm_task.done():
             self._llm_task.cancel()
         if self._tts_task and not self._tts_task.done():

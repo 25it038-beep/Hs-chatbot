@@ -133,12 +133,17 @@ async def test_weather_tool_and_cache():
 # 4. Web Search Tool Classification & Execution
 @pytest.mark.asyncio
 async def test_web_search_tool():
+    _LIVE_CACHE.clear()
     q = "Search the web for latest AI news today"
     tools = LiveToolRouter.classify_tools(q)
     assert any(t[0] == "web_search" for t in tools)
 
-    with patch("app.services.websearch.WebSearchService.search", new_callable=AsyncMock) as m_s:
-        m_s.return_value = "Latest AI models were released today with improved reasoning."
+    mock_results = [
+        type("SearchResult", (), {"title": "AI Breakthrough", "body": "Latest AI models were released today with improved reasoning."})()
+    ]
+
+    with patch("app.services.retrieval.providers.provider_pool.text", new_callable=AsyncMock) as m_pool:
+        m_pool.return_value = mock_results
         res = await LiveToolRouter.execute_tool("web_search", q)
         assert res.success is True
         assert "CURRENT REAL-TIME WEB SEARCH RESULTS" in res.context_text
@@ -148,20 +153,25 @@ async def test_web_search_tool():
 # 5. Compound Multi-Tool Query Concurrent Execution
 @pytest.mark.asyncio
 async def test_compound_query_concurrent_execution():
+    _LIVE_CACHE.clear()
     q = "What's the weather in Chennai and what's the latest news today?"
     tools = LiveToolRouter.classify_tools(q)
-    
+
     tool_names = [t[0] for t in tools]
     assert "weather" in tool_names
     assert "web_search" in tool_names
 
-    with patch("app.services.tools.weather_tool.WeatherService.get_weather_by_city", new_callable=AsyncMock) as m_w, \
-         patch("app.services.websearch.WebSearchService.search", new_callable=AsyncMock) as m_s:
-        
-        m_w.return_value = {"location": "Chennai", "current": {"temperature": 32, "condition": "Sunny"}}
-        m_s.return_value = "Major tech breakthrough announced."
+    mock_news = [
+        type("SearchResult", (), {"title": "Tech News", "body": "Major tech breakthrough announced."})()
+    ]
 
-        results = await LiveToolRouter.execute_tools_concurrently(tools, q, timeout_s=3.5)
+    with patch("app.services.tools.weather_tool.WeatherService.get_weather_by_city", new_callable=AsyncMock) as m_w, \
+         patch("app.services.retrieval.providers.provider_pool.text", new_callable=AsyncMock) as m_pool:
+
+        m_w.return_value = {"location": "Chennai", "current": {"temperature": 32, "condition": "Sunny"}}
+        m_pool.return_value = mock_news
+
+        results = await LiveToolRouter.execute_tools_concurrently(tools, q, timeout_s=6.0)
         assert len(results) == 2
         assert all(r.success for r in results)
 

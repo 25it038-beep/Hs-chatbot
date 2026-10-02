@@ -218,7 +218,7 @@ class LiveToolRouter:
         tools: List[Tuple[str, Optional[str]]],
         query: str,
         user_id: Optional[str] = None,
-        timeout_s: float = 3.5,
+        timeout_s: float = 8.0,
     ) -> List[LiveToolResult]:
         """
         Executes multiple independent tools in parallel via asyncio.gather.
@@ -239,7 +239,7 @@ class LiveToolRouter:
         query: str,
         location: Optional[str] = None,
         user_id: Optional[str] = None,
-        timeout_s: float = 3.5,
+        timeout_s: float = 8.0,
     ) -> LiveToolResult:
         """
         Executes the required tool asynchronously with a strict timeout and cache lookup.
@@ -271,9 +271,17 @@ class LiveToolRouter:
         except asyncio.TimeoutError:
             latency_ms = (time.time() - t0) * 1000
             logger.warning(f"[LIVE_TOOL] Tool {tool_name} timed out after {latency_ms:.1f}ms")
+            if tool_name == "web_search":
+                fallback_ctx = (
+                    "[Note: Live web search is taking longer than expected. "
+                    "Please answer the user's question directly and informatively using your foundational knowledge, "
+                    "without saying that you are unable to answer.]"
+                )
+            else:
+                fallback_ctx = f"[Note: Real-time {tool_name} service timed out. Tell user it is temporarily unavailable.]"
             return LiveToolResult(
                 tool_name=tool_name,
-                context_text=f"[Note: Real-time {tool_name} service timed out. Tell user it is temporarily unavailable.]",
+                context_text=fallback_ctx,
                 status_message="Live service timeout",
                 latency_ms=latency_ms,
                 success=False,
@@ -281,9 +289,16 @@ class LiveToolRouter:
         except Exception as e:
             latency_ms = (time.time() - t0) * 1000
             logger.error(f"[LIVE_TOOL] Tool {tool_name} failed: {e}", exc_info=True)
+            if tool_name == "web_search":
+                fallback_ctx = (
+                    "[Note: Live web search is momentarily unavailable. "
+                    "Please answer the user's question directly and informatively using your foundational knowledge.]"
+                )
+            else:
+                fallback_ctx = f"[Note: Real-time {tool_name} service encountered an error. Tell user it is temporarily unavailable.]"
             return LiveToolResult(
                 tool_name=tool_name,
-                context_text=f"[Note: Real-time {tool_name} service encountered an error. Tell user it is temporarily unavailable.]",
+                context_text=fallback_ctx,
                 status_message="Live service error",
                 latency_ms=latency_ms,
                 success=False,
@@ -406,8 +421,26 @@ class LiveToolRouter:
                 logger.info(f"[LIVE_TOOL] Web search cache hit for '{clean_q}'")
                 return LiveToolResult("web_search", cached_val, "Searching the web...", (time.time() - t0) * 1000, True)
 
-        searcher = WebSearchService(max_results=3)
-        res = await searcher.search(clean_q, max_results=3)
+        res = None
+        try:
+            from app.services.retrieval.providers import provider_pool
+            raw_results = await provider_pool.text(clean_q, limit=4)
+            snippets = []
+            for r in raw_results[:4]:
+                clean_body = re.sub(r"https?://\S+", "", r.body).strip()
+                if clean_body:
+                    snippets.append(f"- {r.title}: {clean_body[:250]}")
+            if snippets:
+                res = "\n".join(snippets)
+        except Exception as e:
+            logger.warning(f"[LIVE_TOOL] Provider pool search failed, trying WebSearchService: {e}")
+
+        if not res:
+            try:
+                searcher = WebSearchService(max_results=3)
+                res = await searcher.search(clean_q, max_results=3)
+            except Exception as e:
+                logger.warning(f"[LIVE_TOOL] WebSearchService fallback failed: {e}")
 
         if res and res.strip():
             # Clean snippets for voice consumption (strip heavy markdown tables, links)
@@ -418,7 +451,10 @@ class LiveToolRouter:
                 f"Instruction: Using the live search results above, answer the user's question accurately in 1 or 2 natural spoken sentences. Do not read raw URLs."
             )
         else:
-            context = "Live web search returned no immediate results."
+            context = (
+                f"[Note: Real-time web search for '{clean_q}' returned no immediate articles. "
+                f"Please answer the user's question directly and informatively using your foundational knowledge in 1 or 2 spoken sentences.]"
+            )
 
         _LIVE_CACHE[cache_key] = (now, context)
         latency_ms = (time.time() - t0) * 1000

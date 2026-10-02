@@ -516,7 +516,7 @@ class LiveVoiceSession:
                         tools=detected_tools,
                         query=user_text,
                         user_id=self.user_id,
-                        timeout_s=3.5,
+                        timeout_s=8.0,
                     )
                 )
                 try:

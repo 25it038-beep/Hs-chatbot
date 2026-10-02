@@ -277,5 +277,6 @@ async def websocket_live_endpoint(websocket: WebSocket, session_id: str = "defau
     WebSocket endpoint for bidirectional real-time audio and conversation streaming.
     Dispatches to app.live.websocket.handle_live_websocket with Nemotron / Cascaded routing.
     """
-    await handle_live_websocket(websocket=websocket, session_id=session_id, requested_engine=engine)
+    req_engine = engine or websocket.query_params.get("engine") or getattr(settings, "live_engine", "cascaded")
+    await handle_live_websocket(websocket=websocket, session_id=session_id, requested_engine=req_engine)
 

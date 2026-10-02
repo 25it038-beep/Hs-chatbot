@@ -299,8 +299,11 @@ export function LiveGlobeVisualizer({
         if (pt.isNear) {
           ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${pt.alpha})`
         } else {
-          // Cool white on far hemisphere for transparent volume look
-          ctx.fillStyle = `rgba(224, 231, 255, ${pt.alpha})`
+          // Cool white on dark theme; subtle slate on light theme so back stays faintly visible
+          const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+          ctx.fillStyle = isDark
+            ? `rgba(224, 231, 255, ${pt.alpha})`
+            : `rgba(148, 163, 184, ${Math.min(0.45, pt.alpha * 1.35)})`
         }
 
         ctx.fill()

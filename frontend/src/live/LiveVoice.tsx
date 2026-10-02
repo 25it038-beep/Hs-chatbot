@@ -191,7 +191,7 @@ export function LiveVoiceInner({
     setErrorCode(null)
     setErrorDetails(null)
     if (session) {
-      session.retry()
+      session.switchEngine('cascaded')
     }
   }
 
@@ -510,17 +510,17 @@ export function LiveVoiceInner({
           )}
 
           {/* TOP GLOBE VISUALIZER SECTION */}
-          <div className="w-full flex-1 flex flex-col items-center justify-center relative z-10 my-auto">
+          <div className="w-full flex-1 flex flex-col items-center justify-center relative z-10 my-auto min-h-0">
             <LiveGlobeVisualizer
               state={liveState}
               micAnalyser={session ? session.audio.getMicAnalyser() : null}
               outputAnalyser={session ? session.audio.getOutputAnalyser() : null}
-              size={340}
-              className="my-1 drop-shadow-2xl"
+              size={290}
+              className="my-1 drop-shadow-xl shrink-0"
             />
 
             {/* STATUS & SUBTITLE PER SPEC */}
-            <div className="flex flex-col items-center justify-center mt-3 text-center space-y-1.5">
+            <div className="flex flex-col items-center justify-center mt-2 text-center space-y-1 shrink-0">
               <h3 className="text-xl font-medium tracking-tight text-foreground flex items-center gap-2">
                 <span>{getStatusDisplay()}</span>
               </h3>

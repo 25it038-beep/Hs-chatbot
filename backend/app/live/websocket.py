@@ -53,29 +53,15 @@ async def handle_live_websocket(
             # Probe Nemotron VoiceChat availability
             avail = await nemotron_voicechat.check_availability()
             if not avail.get("available"):
-                logger.warning(f"[LIVE_WS] Nemotron VoiceChat unavailable: {avail.get('error')}")
-                live_diagnostics.record_error(
-                    code="NEMOTRON_VOICECHAT_UNAVAILABLE",
-                    message="NVIDIA VoiceChat is unavailable.",
-                    details=avail,
-                )
+                logger.warning(f"[LIVE_WS] Nemotron VoiceChat unavailable: {avail.get('error')}. Auto-falling back to Cascaded NVIDIA Riva Live.")
+                engine = "cascaded"
+                live_diagnostics.set_engine(engine)
                 await websocket.send_json({
-                    "type": "error",
-                    "code": "NEMOTRON_VOICECHAT_UNAVAILABLE",
-                    "message": "NVIDIA VoiceChat is unavailable.",
-                    "details": {
-                        "model": getattr(settings, "nvidia_voicechat_model", "nvidia/nemotron-voicechat"),
-                        "status_code": avail.get("status_code"),
-                        "reason": avail.get("reason"),
-                        "detail": avail.get("detail", "nvidia/nemotron-voicechat is an Early Access speech-to-speech NIM not provisioned on this key."),
-                        "catalog_count": avail.get("catalog_count", 0),
-                    },
+                    "type": "engine_switched",
+                    "engine": "cascaded",
+                    "status": "fallback",
+                    "reason": "VoiceChat NIM not provisioned on key; automatically switched to NVIDIA Riva Live cascaded pipeline",
                     "timestamp": time.time(),
-                })
-                await websocket.send_json({
-                    "type": "status",
-                    "state": "ERROR",
-                    "message": "NVIDIA VoiceChat is unavailable.",
                 })
 
         if engine == "cascaded":
@@ -144,12 +130,22 @@ async def handle_live_websocket(
                 logger.info(f"[LIVE_WS] Session {session_id} retrying availability probe...")
                 avail = await nemotron_voicechat.check_availability(force=True)
                 if not avail.get("available"):
+                    logger.info(f"[LIVE_WS] Session {session_id} switching to cascaded Riva Live on retry")
+                    engine = "cascaded"
+                    live_diagnostics.set_engine(engine)
+                    if session_cascaded is None:
+                        session_cascaded = LiveVoiceSession(session_id, websocket)
+                        session_cascaded.silence_monitor_task = asyncio.create_task(session_cascaded._monitor_silence())
                     await websocket.send_json({
-                        "type": "error",
-                        "code": "NEMOTRON_VOICECHAT_UNAVAILABLE",
-                        "message": "NVIDIA VoiceChat is unavailable.",
-                        "details": avail,
+                        "type": "engine_switched",
+                        "engine": "cascaded",
+                        "status": "ready",
                         "timestamp": time.time(),
+                    })
+                    await websocket.send_json({
+                        "type": "status",
+                        "state": "LISTENING",
+                        "message": "NVIDIA Riva Live is ready. Start speaking.",
                     })
                 else:
                     await websocket.send_json({

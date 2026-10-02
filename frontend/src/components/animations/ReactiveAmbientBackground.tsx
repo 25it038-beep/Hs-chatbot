@@ -3,6 +3,7 @@ import { useChat } from '@/stores/chat'
 import { useAmbient } from '@/stores/ambient'
 import { getActiveFestival } from '@/lib/festival'
 import { useWallpaperStore, WALLPAPERS } from '@/stores/wallpaper'
+import { MeshGradientCanvas } from './MeshGradientCanvas'
 
 type AmbientState = 'idle' | 'typing' | 'thinking' | 'streaming' | 'complete'
 
@@ -73,7 +74,8 @@ export function ReactiveAmbientBackground({ children }: ReactiveAmbientBackgroun
 
   // Dual-layer smooth crossfade when switching wallpapers
   const currentItem = WALLPAPERS.find(w => w.id === currentWallpaperId)
-  const isImageWallpaper = currentWallpaperId !== 'none' && !!currentItem?.fullUrl
+  const isMeshWallpaper = currentItem?.type === 'mesh' || currentWallpaperId.startsWith('mesh-')
+  const isImageWallpaper = currentWallpaperId !== 'none' && !isMeshWallpaper && !!currentItem?.fullUrl
 
   const [layerA, setLayerA] = useState<string | null>(isImageWallpaper ? currentItem!.fullUrl : null)
   const [layerB, setLayerB] = useState<string | null>(null)
@@ -161,13 +163,26 @@ export function ReactiveAmbientBackground({ children }: ReactiveAmbientBackgroun
         {renderWallpaperLayer(layerA, showLayerA)}
         {renderWallpaperLayer(layerB, !showLayerA)}
 
+        {/* GPU Seamless Dithered Mesh Gradient Wallpaper */}
+        {isMeshWallpaper && (
+          <div
+            className="absolute inset-0 pointer-events-none overflow-hidden transition-opacity duration-700 ease-in-out"
+            style={{
+              opacity,
+              filter: blur > 0 ? `blur(${blur}px)` : undefined,
+            }}
+          >
+            <MeshGradientCanvas preset={currentItem?.preset || 'plum'} />
+          </div>
+        )}
+
         {/* Contrast Scrim / Theme Protector: Ensures 100% typography contrast in Light & Dark */}
-        {(layerA || layerB) && (
+        {(layerA || layerB || isMeshWallpaper) && (
           <div
             className="absolute inset-0 pointer-events-none transition-all duration-700"
             style={{
               backgroundColor: 'var(--color-background)',
-              opacity: Math.max(0.08, 1 - opacity),
+              opacity: Math.max(0.06, 1 - opacity),
             }}
           />
         )}

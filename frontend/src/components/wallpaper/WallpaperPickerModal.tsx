@@ -206,6 +206,7 @@ export function WallpaperPickerModal({ open, onOpenChange }: WallpaperPickerModa
             {WALLPAPERS.map((wp) => {
               const active = currentWallpaperId === wp.id
               const isAmbient = wp.id === 'none'
+              const isMesh = wp.type === 'mesh'
 
               return (
                 <button
@@ -222,6 +223,24 @@ export function WallpaperPickerModal({ open, onOpenChange }: WallpaperPickerModa
                     {isAmbient ? (
                       <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-amber-500/20">
                         <Sparkles size={24} className="text-primary/70 animate-pulse" />
+                      </div>
+                    ) : isMesh ? (
+                      <div
+                        className="w-full h-full flex flex-col items-center justify-center relative p-3 text-center"
+                        style={{
+                          background:
+                            wp.preset === 'neon'
+                              ? 'linear-gradient(135deg, #04060a 0%, #7dff4d 40%, #ff2f92 70%, #29e6ff 100%)'
+                              : wp.preset === 'mint'
+                              ? 'linear-gradient(135deg, #f7f4e8 0%, #dcecd9 35%, #9ccfb2 70%, #5c9c85 100%)'
+                              : wp.preset === 'noir'
+                              ? 'linear-gradient(135deg, #08090b 0%, #2f3237 35%, #8b9099 70%, #f3f4f6 100%)'
+                              : 'linear-gradient(135deg, #180814 0%, #48103e 35%, #95275f 70%, #e07a9c 100%)',
+                        }}
+                      >
+                        <div className="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 text-[9px] font-mono font-bold text-white tracking-wider uppercase shadow-xs">
+                          GPU MESH
+                        </div>
                       </div>
                     ) : (
                       <img

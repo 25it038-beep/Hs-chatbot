@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+export type MeshPreset = 'noir' | 'mint' | 'plum' | 'neon'
+
 export interface WallpaperItem {
   id: string
   title: string
@@ -7,13 +9,55 @@ export interface WallpaperItem {
   color: string
   previewUrl: string
   fullUrl: string
+  type?: 'image' | 'mesh'
+  preset?: MeshPreset
 }
 
 export const WALLPAPERS: WallpaperItem[] = [
   {
+    id: 'mesh-plum',
+    title: 'GPU Mesh: Plum',
+    subtitle: 'Deep wine & magenta flow',
+    color: '#95275f',
+    previewUrl: '',
+    fullUrl: '',
+    type: 'mesh',
+    preset: 'plum',
+  },
+  {
+    id: 'mesh-neon',
+    title: 'GPU Mesh: Neon',
+    subtitle: 'Acid green, pink & cyan',
+    color: '#ff2f92',
+    previewUrl: '',
+    fullUrl: '',
+    type: 'mesh',
+    preset: 'neon',
+  },
+  {
+    id: 'mesh-mint',
+    title: 'GPU Mesh: Mint',
+    subtitle: 'Cream & sea glass flow',
+    color: '#5c9c85',
+    previewUrl: '',
+    fullUrl: '',
+    type: 'mesh',
+    preset: 'mint',
+  },
+  {
+    id: 'mesh-noir',
+    title: 'GPU Mesh: Noir',
+    subtitle: 'Graphite & paper monochrome',
+    color: '#8b9099',
+    previewUrl: '',
+    fullUrl: '',
+    type: 'mesh',
+    preset: 'noir',
+  },
+  {
     id: 'none',
     title: 'Ambient Glow',
-    subtitle: 'Reactive RGB Aura (Default)',
+    subtitle: 'Reactive RGB Aura',
     color: '#6366f1',
     previewUrl: '',
     fullUrl: '',
@@ -176,7 +220,7 @@ function getStoredNumber(key: string, def: number): number {
 }
 
 export const useWallpaperStore = create<WallpaperState>((set, get) => ({
-  currentWallpaperId: getStoredString('hsbot_wallpaper', 'none'),
+  currentWallpaperId: getStoredString('hsbot_wallpaper', 'mesh-plum'),
   autoCycle: getStoredBool('hsbot_wallpaper_autocycle', false),
   cycleIntervalSeconds: getStoredNumber('hsbot_wallpaper_cycle_sec', 30),
   opacity: getStoredNumber('hsbot_wallpaper_opacity', 0.45),
@@ -198,7 +242,7 @@ export const useWallpaperStore = create<WallpaperState>((set, get) => ({
     localStorage.setItem('hsbot_wallpaper_autocycle', String(enabled))
     // If enabling auto-cycle and current is 'none', switch to first wallpaper
     if (enabled && get().currentWallpaperId === 'none') {
-      const first = CYCLEABLE_WALLPAPERS[0]?.id || 'pink-lotus'
+      const first = CYCLEABLE_WALLPAPERS[0]?.id || 'mesh-plum'
       localStorage.setItem('hsbot_wallpaper', first)
       set({ autoCycle: enabled, currentWallpaperId: first })
       return

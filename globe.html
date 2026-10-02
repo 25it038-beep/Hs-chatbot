@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Point-Cloud Fibonacci Globe</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #06080e;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 50%, #0d1527 0%, #070a14 55%, #030408 100%);
+    }
+
+    canvas {
+      display: block;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    /* Ambient background rings & glow */
+    .ambient-glow {
+      position: absolute;
+      width: 520px;
+      height: 520px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.09) 0%, rgba(99, 102, 241, 0.04) 45%, transparent 70%);
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 1;
+    }
+
+    /* Minimalist HUD overlay */
+    .hud {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .hud h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hud h1 span.badge {
+      font-size: 10px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+      letter-spacing: 0.04em;
+    }
+
+    .hud p {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+
+    /* Bottom stats & interaction hint */
+    .footer-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 16px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      font-size: 11px;
+      color: #94a3b8;
+      pointer-events: auto;
+    }
+
+    .footer-bar .stat {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .footer-bar .stat-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #f8fafc;
+      font-weight: 500;
+    }
+
+    .footer-bar .dot-divider {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: #475569;
+    }
+
+    /* Color picker swatches */
+    .color-swatches {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 4px;
+    }
+
+    .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .swatch:hover {
+      transform: scale(1.2);
+    }
+
+    .swatch.active {
+      border-color: #ffffff;
+      transform: scale(1.15);
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div class="ambient-glow"></div>
+    <canvas id="globeCanvas"></canvas>
+
+    <div class="hud">
+      <h1>Point-Cloud Globe <span class="badge">Canvas 2D</span></h1>
+      <p>Fibonacci lattice &bull; Procedural land mask &bull; Depth color volume</p>
+    </div>
+
+    <div class="footer-bar">
+      <div class="stat">
+        <span>Points:</span>
+        <span class="stat-val" id="pointsCount">1,400</span>
+      </div>
+      <div class="dot-divider"></div>
+      <div class="stat">
+        <span>Velocity:</span>
+        <span class="stat-val" id="velDisplay">0.0035</span>
+      </div>
+      <div class="dot-divider"></div>
+      <div class="stat">
+        <span>Hint:</span>
+        <span>Drag to spin</span>
+      </div>
+      <div class="dot-divider"></div>
+      <div class="color-swatches" id="swatches">
+        <div class="swatch active" data-color="56, 189, 248" style="background:#38bdf8;" title="Cyan (Default)"></div>
+        <div class="swatch" data-color="129, 140, 248" style="background:#818cf8;" title="Indigo"></div>
+        <div class="swatch" data-color="52, 211, 153" style="background:#34d399;" title="Emerald"></div>
+        <div class="swatch" data-color="244, 114, 182" style="background:#f472b6;" title="Rose"></div>
+        <div class="swatch" data-color="251, 191, 36" style="background:#fbbf24;" title="Amber"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById('globeCanvas');
+      const ctx = canvas.getContext('2d');
+      const pointsCountEl = document.getElementById('pointsCount');
+      const velDisplayEl = document.getElementById('velDisplay');
+
+      // ─────────────────────────────────────────────────────────────
+      // 1. THE SPHERE & LAND MASK GENERATION
+      // ─────────────────────────────────────────────────────────────
+      const TARGET_KEPT = 1400;
+      const OVERSAMPLE = 3.2;
+      const MAX_CANDIDATES = Math.round(TARGET_KEPT * OVERSAMPLE);
+      const points = [];
+
+      for (let i = 0; i < MAX_CANDIDATES && points.length < TARGET_KEPT; i++) {
+        // Fibonacci lattice distribution: spaces points evenly on the sphere
+        const y = 1 - (i / MAX_CANDIDATES) * 2;
+        const r = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = i * 2.399963;
+        const x = Math.cos(theta) * r;
+        const z = Math.sin(theta) * r;
+
+        // Spherical coordinates for land mask
+        const lat = Math.asin(Math.max(-1, Math.min(1, y)));
+        const lon = Math.atan2(z, x);
+
+        // Cheap 3-term trigonometric land noise
+        const s = Math.sin(lat * 3.1) * Math.cos(lon * 2.2)
+                + Math.sin(lon * 1.3 + 1.1) * Math.cos(lat * 1.7)
+                + 0.6 * Math.sin((lat + lon) * 4.3);
+
+        // Keep candidate if cleared threshold
+        if (s > 0.25) {
+          points.push({ x, y, z });
+        }
+      }
+
+      pointsCountEl.textContent = points.length.toLocaleString();
+
+      // ─────────────────────────────────────────────────────────────
+      // 2. STATE & CONFIGURATION
+      // ─────────────────────────────────────────────────────────────
+      const TILT_X = -0.32; // Fixed X tilt in radians
+      const COS_TILT_X = Math.cos(TILT_X);
+      const SIN_TILT_X = Math.sin(TILT_X);
+
+      const IDLE_VELOCITY = 0.0035;
+      let rotY = 0;
+      let vel = IDLE_VELOCITY;
+      let isDragging = false;
+      let lastX = 0;
+
+      // Accent color RGB components (default Cyan #38bdf8)
+      let accentRGB = [56, 189, 248];
+
+      // Swatch color selection
+      document.getElementById('swatches').addEventListener('click', (e) => {
+        const swatch = e.target.closest('.swatch');
+        if (!swatch) return;
+        document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+        swatch.classList.add('active');
+        accentRGB = swatch.dataset.color.split(',').map(n => parseInt(n.trim(), 10));
+      });
+
+      // ─────────────────────────────────────────────────────────────
+      // 3. CANVAS RESIZING (HIGH DPI)
+      // ─────────────────────────────────────────────────────────────
+      let width = 0;
+      let height = 0;
+      let dpr = 1;
+      let radius = 180;
+      let baseDotRadius = 2.4;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        width = window.innerWidth;
+        height = window.innerHeight;
+
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+
+        // Adjust globe radius according to viewport
+        const minDim = Math.min(width, height);
+        radius = Math.max(120, Math.min(320, minDim * 0.36));
+        baseDotRadius = Math.max(1.8, Math.min(3.2, radius * 0.0125));
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+
+      // ─────────────────────────────────────────────────────────────
+      // 4. DRAG INTERACTION (POINTER EVENTS)
+      // ─────────────────────────────────────────────────────────────
+      canvas.addEventListener('pointerdown', (e) => {
+        canvas.setPointerCapture(e.pointerId);
+        isDragging = true;
+        vel = 0;
+        lastX = e.clientX;
+      });
+
+      canvas.addEventListener('pointermove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - lastX;
+        const deltaRot = dx * 0.006;
+        rotY += deltaRot;
+        vel = deltaRot;
+        lastX = e.clientX;
+      });
+
+      function onPointerUp(e) {
+        if (!isDragging) return;
+        isDragging = false;
+        try {
+          canvas.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+
+      canvas.addEventListener('pointerup', onPointerUp);
+      canvas.addEventListener('pointercancel', onPointerUp);
+
+      // ─────────────────────────────────────────────────────────────
+      // 5. ANIMATION LOOP
+      // ─────────────────────────────────────────────────────────────
+      // Temporary projected buffer to sort points back-to-front
+      const projected = new Array(points.length);
+      for (let i = 0; i < points.length; i++) {
+        projected[i] = { sx: 0, sy: 0, dotRadius: 0, alpha: 0, isNear: false, z: 0 };
+      }
+
+      let frameCounter = 0;
+
+      function render() {
+        requestAnimationFrame(render);
+
+        // Drag decay physics: velocity decays back to idle spin
+        if (!isDragging) {
+          vel += (IDLE_VELOCITY - vel) * 0.02;
+          rotY += vel;
+        }
+
+        // Update velocity display in HUD occasionally
+        if (++frameCounter % 6 === 0) {
+          velDisplayEl.textContent = vel.toFixed(4);
+        }
+
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+
+        const cx = width / 2;
+        const cy = height / 2;
+
+        const cosY = Math.cos(rotY);
+        const sinY = Math.sin(rotY);
+
+        // Project and compute depth for all points
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
+
+          // 1. Spin around Y by current rotation
+          const x1 = p.x * cosY + p.z * sinY;
+          const y1 = p.y;
+          const z1 = -p.x * sinY + p.z * cosY;
+
+          // 2. Tilt around X by fixed -0.32 rad
+          const x2 = x1;
+          const y2 = y1 * COS_TILT_X - z1 * SIN_TILT_X;
+          const z2 = y1 * SIN_TILT_X + z1 * COS_TILT_X;
+
+          // 3. Depth = (z + 1) / 2 after both transforms
+          const depth = (z2 + 1) * 0.5;
+
+          // 4. Perspective factor: 0.86 + depth * 0.28
+          const perspective = 0.86 + depth * 0.28;
+
+          // Screen position
+          const sx = cx + x2 * radius * perspective;
+          const sy = cy - y2 * radius * perspective;
+
+          // 5. Dot radius: 0.45 + depth * 0.85
+          const dotRadius = baseDotRadius * (0.45 + depth * 0.85);
+
+          // 6. Depth is colour, not culling:
+          // Near side (z2 >= 0) draws in accent color at alpha: 0.18 + depth * 0.72
+          // Far side (z2 < 0) draws in cool white at alpha: 0.06 + depth * 0.30
+          const isNear = z2 >= 0;
+          const alpha = isNear
+            ? Math.max(0.05, Math.min(1.0, 0.18 + depth * 0.72))
+            : Math.max(0.04, Math.min(0.4, 0.06 + depth * 0.30));
+
+          const item = projected[i];
+          item.sx = sx;
+          item.sy = sy;
+          item.dotRadius = dotRadius;
+          item.alpha = alpha;
+          item.isNear = isNear;
+          item.z = z2;
+        }
+
+        // Sort back-to-front by z coordinate for correct depth blending
+        projected.sort((a, b) => a.z - b.z);
+
+        // Draw points: Far side in cool white, near side in accent color
+        const [ar, ag, ab] = accentRGB;
+
+        for (let i = 0; i < projected.length; i++) {
+          const pt = projected[i];
+
+          ctx.beginPath();
+          ctx.arc(pt.sx, pt.sy, pt.dotRadius, 0, Math.PI * 2);
+
+          if (pt.isNear) {
+            ctx.fillStyle = `rgba(${ar}, ${ag}, ${ab}, ${pt.alpha})`;
+          } else {
+            // Cool white: faintly visible through front, reading as volumetric sphere
+            ctx.fillStyle = `rgba(224, 231, 255, ${pt.alpha})`;
+          }
+
+          ctx.fill();
+        }
+      }
+
+      requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>

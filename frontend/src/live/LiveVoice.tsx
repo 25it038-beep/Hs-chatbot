@@ -26,11 +26,13 @@ import {
   Volume2,
   VolumeX,
   PhoneOff,
+  Globe,
 } from 'lucide-react'
 
 import { LiveVoiceSession } from './LiveVoiceSession'
 import { LiveDiagnosticsData, LiveEngine, LiveState, LiveTurnTranscript } from './LiveVoiceTypes'
 import { VoiceSphere3D } from './VoiceSphere3D'
+import { LiveGlobeVisualizer } from './LiveGlobeVisualizer'
 import { getBaseUrl } from '@/lib/api'
 
 // ==========================================
@@ -127,6 +129,12 @@ export function LiveVoiceInner({
   const [errorDetails, setErrorDetails] = useState<any>(null)
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'ta'>('en')
   const [isTamilAvailable, setIsTamilAvailable] = useState<boolean>(false)
+  const [visualizerMode, setVisualizerMode] = useState<'globe' | 'orb'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('hsbot_live_viz') as 'globe' | 'orb') || 'globe'
+    }
+    return 'globe'
+  })
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
 
@@ -330,6 +338,42 @@ export function LiveVoiceInner({
               </button>
             </div>
 
+            {/* VISUALIZER MODE SELECTOR (GLOBE VS ORB) */}
+            <div className="flex items-center bg-muted/60 p-0.5 rounded-lg border border-border/60">
+              <button
+                type="button"
+                onClick={() => {
+                  setVisualizerMode('globe')
+                  if (typeof window !== 'undefined') localStorage.setItem('hsbot_live_viz', 'globe')
+                }}
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all flex items-center gap-1.5 ${
+                  visualizerMode === 'globe'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Fibonacci 3D Point-Cloud Globe (Pure Canvas 2D)"
+              >
+                <Globe size={12} />
+                <span>Globe</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVisualizerMode('orb')
+                  if (typeof window !== 'undefined') localStorage.setItem('hsbot_live_viz', 'orb')
+                }}
+                className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-all flex items-center gap-1.5 ${
+                  visualizerMode === 'orb'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Neural Voice Sphere (3D WebGL)"
+              >
+                <Zap size={12} />
+                <span>Orb</span>
+              </button>
+            </div>
+
             <button
               onClick={() => setShowDiagnostics(!showDiagnostics)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
@@ -509,16 +553,25 @@ export function LiveVoiceInner({
             </div>
           )}
 
-          {/* TOP ORB SECTION */}
+          {/* TOP ORB / GLOBE SECTION */}
           <div className="w-full flex-1 flex flex-col items-center justify-center relative z-10 my-auto">
-            {/* 3D FULL-COLOR LIVING AI SPHERE */}
-            <VoiceSphere3D
-              state={liveState}
-              micAnalyser={session ? session.audio.getMicAnalyser() : null}
-              outputAnalyser={session ? session.audio.getOutputAnalyser() : null}
-              size={330}
-              className="my-2 drop-shadow-2xl"
-            />
+            {visualizerMode === 'globe' ? (
+              <LiveGlobeVisualizer
+                state={liveState}
+                micAnalyser={session ? session.audio.getMicAnalyser() : null}
+                outputAnalyser={session ? session.audio.getOutputAnalyser() : null}
+                size={340}
+                className="my-1 drop-shadow-2xl"
+              />
+            ) : (
+              <VoiceSphere3D
+                state={liveState}
+                micAnalyser={session ? session.audio.getMicAnalyser() : null}
+                outputAnalyser={session ? session.audio.getOutputAnalyser() : null}
+                size={330}
+                className="my-2 drop-shadow-2xl"
+              />
+            )}
 
             {/* STATUS & SUBTITLE PER SPEC */}
             <div className="flex flex-col items-center justify-center mt-3 text-center space-y-1.5">

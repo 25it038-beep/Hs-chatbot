@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useUser, useAuth as useClerkAuth } from '@clerk/clerk-react'
 import { useAuth } from '@/stores/auth'
 import { useChat } from '@/stores/chat'
 import { api, setTokens } from '@/lib/api'
 import { AnimatedBackground } from '@/components/animations/AnimatedBackground'
-import { IntroVideo, hasSeenIntro } from '@/components/intro/IntroVideo'
 import { AuthPage } from '@/pages/AuthPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { LoadingExperience } from '@/components/loading'
+import { useConnection } from '@/hooks/useConnection'
 import { isTauri, listenForHotkeyFocus } from '@/lib/tauri'
 import { HAS_CLERK, CLERK_PUBLISHABLE_KEY } from '@/lib/clerkConfig'
 
@@ -22,28 +23,6 @@ function useKeepAlive() {
 }
 
 const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true'
-
-function LoadingScreen() {
-  return (
-    <div className="min-h-screen flex items-center justify-center relative z-10">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-11 h-11 rounded-xl overflow-hidden border border-border shadow-soft">
-          <img src="/logo.jpg" alt="HSBot" className="w-full h-full object-cover" />
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative w-4 h-4">
-            <div className="absolute inset-0 rounded-full border-2 border-border border-t-foreground animate-spin" />
-          </div>
-          <p className="text-sm text-muted-foreground">Loading HSBot...</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function IntroGate({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
-}
 
 function ClerkAppInner() {
   const { isLoaded: isUserLoaded, isSignedIn: isUserSignedIn, user: clerkUser } = useUser()
@@ -104,7 +83,7 @@ function ClerkAppInner() {
 
   const isAuthenticated = isSignedIn || !!customUser
 
-  if (!isLoaded && !customUser) return <LoadingScreen />
+  if (!isLoaded && !customUser) return <LoadingExperience />
   if (!isAuthenticated) return <AuthPage />
 
   return (
@@ -116,10 +95,21 @@ function ClerkAppInner() {
 }
 
 export default function App() {
+  const connection = useConnection()
   const { user: customUser, initialized, loadUser } = useAuth()
   const { loadChats, loadFolders, loadModels } = useChat()
+  const [hasEverBeenReady, setHasEverBeenReady] = useState(false)
+  const initializedUserRef = useRef(false)
+  const loadedChatsRef = useRef(false)
 
   useKeepAlive() // keep Render backend awake
+
+  // Once backend confirms readiness at least once, unlock the application view
+  useEffect(() => {
+    if (connection.isReady) {
+      setHasEverBeenReady(true)
+    }
+  }, [connection.isReady])
 
   // Desktop overlay: global hotkey (Rust registers Ctrl+Space) → focus the
   // command input the moment the window appears.
@@ -134,17 +124,29 @@ export default function App() {
     })
   }, [])
 
+  // When readiness is confirmed, verify user session
   useEffect(() => {
-    if (!HAS_CLERK) loadUser()
-  }, [loadUser])
+    if (!HAS_CLERK && connection.isReady && !initializedUserRef.current) {
+      initializedUserRef.current = true
+      loadUser()
+    }
+  }, [connection.isReady, loadUser])
 
+  // When user is confirmed and ready, load chat data once
   useEffect(() => {
-    if (!HAS_CLERK && customUser) {
+    if (!HAS_CLERK && customUser && connection.isReady && !loadedChatsRef.current) {
+      loadedChatsRef.current = true
       loadChats()
       loadFolders()
       loadModels()
     }
-  }, [customUser, loadChats, loadFolders, loadModels])
+  }, [customUser, connection.isReady, loadChats, loadFolders, loadModels])
+
+  // While backend is still performing its initial boot/connection check,
+  // show the premium full-screen loading experience immediately.
+  if (!hasEverBeenReady && !connection.isReady) {
+    return <LoadingExperience />
+  }
 
   return (
     <AnimatedBackground>
@@ -156,7 +158,7 @@ export default function App() {
       ) : HAS_CLERK && CLERK_PUBLISHABLE_KEY ? (
         <ClerkAppInner />
       ) : !initialized ? (
-        <LoadingScreen />
+        <LoadingExperience />
       ) : !customUser ? (
         <AuthPage />
       ) : (

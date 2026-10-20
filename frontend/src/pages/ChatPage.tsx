@@ -8,6 +8,8 @@ import { AgentErrorBoundary } from '@/components/agent/AgentErrorBoundary'
 import { VideoGeneratorView } from '@/components/video/VideoGeneratorView'
 import { TitleBar } from '@/components/desktop/TitleBar'
 import { BrowserTabs } from '@/components/desktop/BrowserTabs'
+import { ConnectionBanner } from '@/components/loading/ConnectionBanner'
+import { useConnection } from '@/hooks/useConnection'
 import { useSettings } from '@/stores/settings'
 import { isTauri } from '@/lib/tauri'
 import { Download } from 'lucide-react'
@@ -18,6 +20,7 @@ export function ChatPage() {
   const [compact, setCompact] = useState(false)
   const [agentVersion, setAgentVersion] = useState<'v2' | 'classic'>('v2')
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
+  const connection = useConnection()
 
   useEffect(() => {
     const handleResize = () => {
@@ -37,6 +40,7 @@ export function ChatPage() {
         {isTauri && <TitleBar compact={compact} onToggleCompact={setCompact} />}
         {isTauri && <BrowserTabs />}
         <Header />
+        <ConnectionBanner connection={connection} />
         <main className="flex-1 flex flex-col min-h-0">
           {appMode === 'agent' ? (
             <AgentErrorBoundary panelName="Autonomous AI Product Company Workbench">

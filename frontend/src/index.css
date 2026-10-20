@@ -287,6 +287,11 @@ code, pre { font-family: 'JetBrains Mono', monospace; }
 @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 @keyframes typing-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes scale-in { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes indeterminate-shimmer {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(80%); }
+  100% { transform: translateX(250%); }
+}
 
 .animate-fade-in { animation: fadeIn 0.25s ease-out; }
 .animate-fade-in-up { animation: fadeInUp 0.35s ease-out; }
@@ -296,6 +301,7 @@ code, pre { font-family: 'JetBrains Mono', monospace; }
 .animate-slide-in-up { animation: slideInUp 0.3s ease-out; }
 .animate-slide-in-down { animation: slideInDown 0.25s ease-out; }
 .animate-shimmer { animation: shimmer 2s linear infinite; background-size: 200% 100%; }
+.animate-indeterminate-shimmer { animation: indeterminate-shimmer 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 .animate-ripple { animation: ripple 0.6s linear forwards; }
 .animate-spin-slow { animation: spin-slow 3s linear infinite; }
 .animate-breathe { animation: breathe 4s ease-in-out infinite; }

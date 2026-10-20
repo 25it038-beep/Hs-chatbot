@@ -56,9 +56,17 @@ export const useAuth = create<AuthState>((set) => ({
     try {
       const user = await api.getMe()
       set({ user, initialized: true })
-    } catch {
-      clearTokens()
-      set({ user: null, initialized: true })
+    } catch (err: any) {
+      const msg = (err?.message || '').toLowerCase()
+      // Only clear credentials on explicit unauthorized / forbidden errors
+      if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('credentials')) {
+        clearTokens()
+        set({ user: null, initialized: true })
+      } else {
+        // Transient network, cold start, or 5xx: preserve tokens so user stays authenticated
+        console.warn('Backend unavailable during loadUser, preserving session credentials:', err)
+        set({ initialized: true })
+      }
     }
   },
 }))

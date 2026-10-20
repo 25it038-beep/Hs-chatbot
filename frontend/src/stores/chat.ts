@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { playCompletionSound } from '@/lib/sound'
 import { isTauri, notify } from '@/lib/tauri'
 import { useSettings } from '@/stores/settings'
+import { connectionManager } from '@/services/connectionManager'
 
 // Detect explicit image requests — typo-tolerant, but only clear intents.
 // General queries that merely mention images ("explain this image") are NOT routed to image generation.
@@ -688,6 +689,7 @@ const DEFAULT_VOICE_STATE: VoiceState = {
         await get().loadChats()
       } catch (error) {
         clearTimeout(timeoutId)
+        connectionManager.reportBackendFailure(error)
         const stillActive = streamControllers[chat.id] === abortController
         const isTimeout = error instanceof DOMException && error.name === 'AbortError' && !firstChunkReceived
         const isAbort = error instanceof DOMException && error.name === 'AbortError' && firstChunkReceived

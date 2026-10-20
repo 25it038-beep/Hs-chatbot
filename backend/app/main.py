@@ -115,6 +115,55 @@ async def health():
     }
 
 
+@app.get("/api/health/ready")
+@app.get("/api/ready")
+async def health_ready():
+    """Readiness endpoint verifying database and AI service availability."""
+    import time
+    from sqlalchemy import text
+    from app.database import engine
+
+    db_ready = False
+    db_error = None
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ready = True
+    except Exception as e:
+        db_ready = False
+        db_error = str(e)
+
+    ai_configured = bool(
+        settings.nvidia_api_keys
+        or settings.sambanova_api_key
+        or settings.openai_api_key
+        or settings.anthropic_api_key
+        or settings.google_api_key
+        or settings.groq_api_key
+        or settings.openrouter_api_key
+    )
+
+    is_ready = db_ready
+    status_str = "ready" if (db_ready and ai_configured) else ("degraded" if db_ready else "initializing")
+
+    response_data = {
+        "status": status_str,
+        "ready": is_ready,
+        "database": "connected" if db_ready else "error",
+        "ai_ready": ai_configured,
+        "version": settings.app_version,
+        "commit": _CURRENT_COMMIT,
+        "timestamp": int(time.time()),
+    }
+    if db_error:
+        response_data["database_error"] = db_error
+
+    if not db_ready:
+        raise HTTPException(status_code=503, detail=response_data)
+
+    return response_data
+
+
 @app.get("/api/health/full")
 async def health_full():
     """Detailed health check: provider config status and browser WS status. Never exposes keys."""

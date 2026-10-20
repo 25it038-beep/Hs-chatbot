@@ -31,7 +31,12 @@ function getBaseUrlInternal(): string {
   return '/api'
 }
 
-const BASE_URL = getBaseUrlInternal()
+let BASE_URL = getBaseUrlInternal()
+
+export function setBaseUrl(url: string) {
+  const cleanUrl = url.replace(/\/+$/, '')
+  BASE_URL = cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`
+}
 
 export function getBaseUrl(): string {
   return BASE_URL
@@ -381,7 +386,31 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  health: () => request<{ status: string }>('/health'),
+  health: async (signal?: AbortSignal): Promise<{ status: string; [key: string]: any }> => {
+    const res = await fetch(${BASE_URL}/health, { signal })
+    if (!res.ok) throw new Error(Health check returned HTTP )
+    return res.json()
+  },
+
+  ready: async (signal?: AbortSignal): Promise<{ status: string; ready?: boolean; database?: string; ai_ready?: boolean; [key: string]: any }> => {
+    try {
+      const res = await fetch(${BASE_URL}/health/ready, { signal })
+      if (res.ok) return res.json()
+      if (res.status === 404) {
+        return api.health(signal)
+      }
+      const err = await res.json().catch(() => ({}))
+      const detailMsg = typeof err.detail === 'string' ? err.detail : err.detail?.database_error || Status 
+      throw new Error(Readiness check failed: )
+    } catch (e: any) {
+      if (e.name === 'AbortError') throw e
+      try {
+        const fallbackRes = await fetch(${BASE_URL}/health, { signal })
+        if (fallbackRes.ok) return fallbackRes.json()
+      } catch {}
+      throw e
+    }
+  },
 
   get: <T>(path: string) => request<T>(path),
 

@@ -19,6 +19,7 @@ import { useVoiceStore } from '@/lib/speech'
 import { WindowsDownloadModal } from '@/components/desktop/WindowsDownloadModal'
 import { formatBytes } from '@/lib/downloader'
 import { ParsedFileMetadata, toAttachmentModel } from '@/lib/fileEngine'
+import { useConnection } from '@/hooks/useConnection'
 
 const SUGGESTIONS = [
   {
@@ -80,6 +81,7 @@ function StreamingIndicator({ phase, onStop }: { phase?: string; onStop?: () => 
 export function ChatContainer() {
   const { messages, currentChat, streaming, streamingContent, streamingAttachments, streamingSources, streamingYouTubeResults, streamingPhase, sendMessage, addAssistantMessage, cancelStream, createChat, generatingImage, unsendMessages, editAndResend, isLiveOpen, setLiveOpen } = useChat()
   const { user } = useAuth()
+  const connection = useConnection()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = React.useState(false)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
@@ -358,6 +360,7 @@ export function ChatContainer() {
               onSendWithAttachments={handleSendWithAttachments}
               onStop={cancelStream}
               streaming={streaming}
+              disabled={connection.state !== 'CONNECTED'}
               variant="hero"
               editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
               onEditSubmit={handleEditSubmit}
@@ -536,6 +539,7 @@ export function ChatContainer() {
         onSendWithAttachments={handleSendWithAttachments}
         onStop={cancelStream}
         streaming={streaming}
+        disabled={connection.state !== 'CONNECTED'}
         editing={editingMessage ? { id: editingMessage.id, content: editingMessage.content } : null}
         onEditSubmit={handleEditSubmit}
         onCancelEdit={handleCancelEdit}

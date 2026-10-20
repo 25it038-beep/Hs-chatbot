@@ -387,31 +387,30 @@ export const api = {
     }),
 
   health: async (signal?: AbortSignal): Promise<{ status: string; [key: string]: any }> => {
-    const res = await fetch(${BASE_URL}/health, { signal })
-    if (!res.ok) throw new Error(Health check returned HTTP )
+    const res = await fetch(`/health`, { signal })
+    if (!res.ok) throw new Error(`Health check returned HTTP `)
     return res.json()
   },
 
   ready: async (signal?: AbortSignal): Promise<{ status: string; ready?: boolean; database?: string; ai_ready?: boolean; [key: string]: any }> => {
     try {
-      const res = await fetch(${BASE_URL}/health/ready, { signal })
+      const res = await fetch(`/health/ready`, { signal })
       if (res.ok) return res.json()
       if (res.status === 404) {
         return api.health(signal)
       }
       const err = await res.json().catch(() => ({}))
-      const detailMsg = typeof err.detail === 'string' ? err.detail : err.detail?.database_error || Status 
-      throw new Error(Readiness check failed: )
+      const detailMsg = typeof err.detail === 'string' ? err.detail : err.detail?.database_error || `Status `
+      throw new Error(`Readiness check failed: `)
     } catch (e: any) {
       if (e.name === 'AbortError') throw e
       try {
-        const fallbackRes = await fetch(${BASE_URL}/health, { signal })
+        const fallbackRes = await fetch(`/health`, { signal })
         if (fallbackRes.ok) return fallbackRes.json()
       } catch {}
       throw e
     }
   },
-
   get: <T>(path: string) => request<T>(path),
 
   // NVIDIA
